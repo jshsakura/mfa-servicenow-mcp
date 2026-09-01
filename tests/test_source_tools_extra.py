@@ -990,15 +990,20 @@ class TestDownloadSourceTypes:
         """
         config = _build_config()
         auth_manager = MagicMock()
-        rec_dir = tmp_path / "sp_angular_provider" / "MyProv"
+        # sp_widget, not sp_angular_provider: a provider record has ONE source
+        # field (`script`) — sp_angular_provider has no `client_script` column at
+        # all — so a two-field mixed outcome cannot happen there. A fixture is
+        # free to invent the column; the server is not.
+        rec_dir = tmp_path / "sp_widget" / "my-widget"
         rec_dir.mkdir(parents=True)
         # Legacy tree: files on disk, no _sync_meta.json at all.
         rec_dir.joinpath("script.js").write_text("SAME AS SERVER")
         rec_dir.joinpath("client_script.js").write_text("MY LOCAL EDIT")
         mock_all.return_value = [
             {
-                "sys_id": "p-1",
-                "name": "MyProv",
+                "sys_id": "w-1",
+                "name": "MyWidget",
+                "id": "my-widget",
                 "script": "SAME AS SERVER",
                 "client_script": "SERVER VERSION",
                 "sys_scope": "x_app",
@@ -1011,15 +1016,13 @@ class TestDownloadSourceTypes:
             config,
             auth_manager,
             scope="x_app",
-            source_types=["angular_provider"],
+            source_types=["widget"],
             scope_root=tmp_path,
             root=tmp_path,
         )
 
-        meta = json.loads(
-            (tmp_path / "sp_angular_provider" / "_sync_meta.json").read_text(encoding="utf-8")
-        )
-        entry = meta["MyProv"]
+        meta = json.loads((tmp_path / "sp_widget" / "_sync_meta.json").read_text(encoding="utf-8"))
+        entry = meta["my-widget"]
         # The clean field is now anchored; the edited one is not (nothing to prove).
         assert entry["field_shas"]["script"] == _field_sha("SAME AS SERVER")
         assert "client_script" not in entry["field_shas"]

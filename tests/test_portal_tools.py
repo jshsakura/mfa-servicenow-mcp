@@ -1518,7 +1518,9 @@ def test_trace_portal_route_targets_returns_minimal_llm_friendly_rows(
         mock_sn_query_all.call_args_list[0].kwargs["fields"]
         == "sys_id,name,id,client_script,link,script,template"
     )
-    assert mock_sn_query_all.call_args_list[2].kwargs["fields"] == "sys_id,name,id,script"
+    # No `id`: sp_angular_provider does not have that column (sp_widget does).
+    # Selecting it returned nothing, and filtering on it dropped the condition.
+    assert mock_sn_query_all.call_args_list[2].kwargs["fields"] == "sys_id,name,script"
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
@@ -1661,7 +1663,8 @@ def test_detect_angular_implicit_globals_minimal_mode_shape(
     assert result["success"] is True
     assert result["filters"]["output_mode"] == "minimal"
     assert set(result["findings"][0].keys()) == {"location", "line"}
-    assert mock_sn_query_all.call_args.kwargs["fields"] == "sys_id,name,id,script"
+    # sp_angular_provider has no `id` column — see the trace test above.
+    assert mock_sn_query_all.call_args.kwargs["fields"] == "sys_id,name,script"
 
 
 @patch("servicenow_mcp.tools.portal_tools._sn_query_all", return_value=[])

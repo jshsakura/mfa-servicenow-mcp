@@ -406,7 +406,6 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_id",
             "name",
             "description",
-            "active",
             "sys_scope",
             "sys_scope.scope",
             "sys_updated_on",
@@ -460,8 +459,11 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_updated_on",
             "sys_updated_by",
         ],
-        "source_fields": ["script", "client_script"],
-        "search_fields": ["name", "script", "client_script"],
+        # sp_angular_provider carries `script` only — no `client_script`
+        # column (verified live). Naming it dropped the whole OR group and the
+        # search returned every provider on the instance.
+        "source_fields": ["script"],
+        "search_fields": ["name", "script"],
         "lookup_fields": ["sys_id", "name"],
     },
     "catalog_client_script": {
@@ -605,9 +607,12 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         # folder fell back to the bare sys_id. map.name is a dot-walked read so
         # the readable map name comes back even under display_value=False.
         "folder_fields": ["map.name", "when", "order"],
+        # There is no `name` COLUMN either — verified against sys_dictionary on a
+        # live instance. Naming it in a query does not fail: ServiceNow drops the
+        # condition, so `nameLIKEx^ORscriptLIKEx` returned the whole table and
+        # search_server_code answered every query with the same 5 rows.
         "summary_fields": [
             "sys_id",
-            "name",
             "map",
             "map.name",
             "when",
@@ -617,8 +622,8 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_updated_by",
         ],
         "source_fields": ["script"],
-        "search_fields": ["name", "script"],
-        "lookup_fields": ["sys_id", "name"],
+        "search_fields": ["script"],
+        "lookup_fields": ["sys_id"],
     },
     "processor": {
         "table": "sys_processor",
@@ -690,7 +695,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_id",
             "id",
             "title",
-            "description",
+            "short_description",
             "category",
             "internal",
             "public",
@@ -700,7 +705,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
             "sys_updated_by",
         ],
         "source_fields": [],
-        "search_fields": ["id", "title", "description"],
+        "search_fields": ["id", "title", "short_description"],
         "lookup_fields": ["sys_id", "id"],
     },
     "sp_instance": {
@@ -708,7 +713,6 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         "identifier_field": "sys_id",
         "summary_fields": [
             "sys_id",
-            "sp_page",
             "sp_widget",
             "sp_column",
             "widget_parameters",
@@ -1307,6 +1311,7 @@ def search_server_code(
     )
     results: List[Dict[str, Any]] = []
     searched_types: List[str] = []
+    unfiltered_types: List[Dict[str, Any]] = []
 
     for source_type in source_types:
         if len(results) >= limit:
@@ -1329,11 +1334,26 @@ def search_server_code(
             logger.error("Failed to search source type %s: %s", source_type, exc)
             continue
 
+        # A row the server returned is not yet a hit. ServiceNow DROPS a
+        # condition naming a column the table does not have, so a single wrong
+        # field name in `search_fields` turns the read into "the whole table"
+        # with success on it — measured: every query answered with the same 5
+        # sys_transform_script rows, and the sweep then stopped there because a
+        # type that "found something" ends it. So each row is re-checked against
+        # the search fields that were actually fetched; one that matches none of
+        # them is not returned, and the type is reported as unfiltered rather
+        # than as empty.
+        fetched = set(fields)
+        verifiable = [f for f in source_cfg["search_fields"] if f in fetched]
+        unverified_rows = 0
         found_in_current_type = False
         for record in records:
             matched_fields = _extract_match_fields(
                 record, source_cfg["search_fields"], params.query
             )
+            if verifiable and not matched_fields:
+                unverified_rows += 1
+                continue
             results.append(
                 {
                     "source_type": source_type,
@@ -1356,11 +1376,21 @@ def search_server_code(
             )
             found_in_current_type = True
 
+        if unverified_rows:
+            unfiltered_types.append(
+                {
+                    "source_type": source_type,
+                    "table": source_cfg["table"],
+                    "rows_discarded": unverified_rows,
+                    "searched_fields": list(source_cfg["search_fields"]),
+                }
+            )
+
         if normalized_type == SOURCE_TYPE_ALL and found_in_current_type:
             break
 
     trimmed_results = results[:limit]
-    return {
+    response: Dict[str, Any] = {
         "success": True,
         "query": params.query,
         "searched_types": searched_types,
@@ -1369,6 +1399,15 @@ def search_server_code(
         "results": trimmed_results,
         "safety_notice": "Searches only supported source tables with capped limits and truncated snippets.",
     }
+    if unfiltered_types:
+        response["unfiltered_types"] = unfiltered_types
+        response["warning"] = (
+            "Some tables returned rows that match none of the searched fields — the "
+            "server dropped the filter (a searched column does not exist on that table). "
+            "Those rows were discarded, not returned; results for those types are "
+            "UNCHECKED, not empty. See unfiltered_types."
+        )
+    return response
 
 
 @register_tool(

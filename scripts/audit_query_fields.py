@@ -258,6 +258,66 @@ def collect_writes() -> Dict[str, Dict[str, Set[str]]]:
     return per_table
 
 
+def collect_field_maps() -> Dict[str, Dict[str, Set[str]]]:
+    """{table: {"query": {fields}, "fields": {fields}}} from config-style registries.
+
+    ``collect()`` only sees field names written literally at a call site. The
+    ones that actually broke were not written there: ``SOURCE_CONFIG`` in
+    source_tools.py maps a source type to a table plus ``search_fields`` /
+    ``lookup_fields`` (which become an encoded query) and ``summary_fields`` /
+    ``source_fields`` (which become ``sysparm_fields``), and the query is
+    assembled from them at runtime. So a name that no column matches —
+    ``sys_transform_script.name``, ``sp_angular_provider.client_script``,
+    ``sp_page.description`` — was invisible to this audit while being sent to
+    the server on every search. Any module-level dict whose values carry a
+    ``table`` key and ``*_fields`` lists is read here, so a new registry of the
+    same shape is covered without being named.
+    """
+    query_keys = ("search_fields", "lookup_fields", "filter_fields")
+    select_keys = ("summary_fields", "source_fields", "folder_fields", "detail_fields")
+    per_table: Dict[str, Dict[str, Set[str]]] = defaultdict(
+        lambda: {"query": set(), "fields": set()}
+    )
+    for path in sorted(SRC.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            value = (
+                node.value
+                if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None
+                else None
+            )
+            if not isinstance(value, ast.Dict):
+                continue
+            try:
+                mapping = ast.literal_eval(value)
+            except (ValueError, TypeError, SyntaxError):
+                continue
+            if not isinstance(mapping, dict):
+                continue
+            for entry in mapping.values():
+                if not isinstance(entry, dict):
+                    continue
+                table = entry.get("table")
+                if not isinstance(table, str) or not re.fullmatch(r"[a-z0-9_]+", table):
+                    continue
+                for key in query_keys:
+                    per_table[table]["query"] |= {
+                        f for f in entry.get(key, []) or [] if isinstance(f, str)
+                    }
+                for key in select_keys:
+                    per_table[table]["fields"] |= {
+                        f for f in entry.get(key, []) or [] if isinstance(f, str)
+                    }
+                # `identifier_field` is deliberately NOT collected: it is a
+                # display key read off a record that was fetched by other
+                # names, and one entry relies on it being absent so the folder
+                # composer falls through to `folder_fields`.
+    return per_table
+
+
 def collect() -> Dict[str, Dict[str, Set[str]]]:
     """{table: {"query": {fields}, "fields": {fields}}} across the package."""
     per_table: Dict[str, Dict[str, Set[str]]] = defaultdict(
@@ -445,11 +505,21 @@ def main() -> int:
     if "--record" in sys.argv[1:]:
         _load_env()
         config, auth = _client()
-        tables = set(collect()) | set(collect_writes())
+        tables = set(collect()) | set(collect_writes()) | set(collect_field_maps())
         record(config, auth, set(argv) or tables)
         return 0
     wanted = set(argv)
     per_table = collect()
+    # A registry-declared search field is ORed with the others into one query.
+    # Measured here: when the dropped term came FIRST the surviving real term
+    # did not save the read — `nameLIKEx^ORscriptLIKEx` on sys_transform_script
+    # answered every query with the same rows. So these are merged in and, below,
+    # judged without the "something else still filters" allowance.
+    config_tables = collect_field_maps()
+    strict_query_fields = {t: set(v["query"]) for t, v in config_tables.items()}
+    for table, used in config_tables.items():
+        per_table[table]["query"] |= used["query"]
+        per_table[table]["fields"] |= used["fields"]
     if wanted:
         per_table = {t: v for t, v in per_table.items() if t in wanted}
 
@@ -503,13 +573,25 @@ def main() -> int:
         # spelling a field two ways on purpose — to survive a rename between
         # releases — is a legitimate pattern, not a defect. Flagging it would
         # make this script wrong exactly where the code is being careful.
+        #
+        # POSITION DECIDES IT, though, and this check cannot see position.
+        # Measured on sys_transform_script (67 rows), same two terms:
+        #     scriptLIKEzz               ->  0    real column, no match
+        #     nameLIKEzz                 -> 67    no such column: everything
+        #     nameLIKEzz^ORscriptLIKEzz  -> 67    bogus FIRST: nothing filters
+        #     scriptLIKEzz^ORnameLIKEzz  ->  0    bogus second: filter holds
+        # The allowance therefore holds only for a bad term that is not first.
+        # Registry-declared chains (`strict_query_fields`) set their own order
+        # and had the bad name at index 0, so they are judged without it.
         query_fields = used["query"]
         has_a_real_filter = any(f in cols for f in query_fields if "." not in f)
 
         for field in sorted(asked):
             if field in cols:
                 continue
-            if field in query_fields and not has_a_real_filter:
+            if field in query_fields and (
+                not has_a_real_filter or field in strict_query_fields.get(table, set())
+            ):
                 # Nothing else constrains the read: the condition is dropped and
                 # the whole table comes back, dressed as an answer.
                 filter_defects.append((table, field))

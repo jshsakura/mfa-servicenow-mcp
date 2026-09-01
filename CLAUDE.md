@@ -355,12 +355,19 @@ So, for anything a caller could act on:
    accepts what it does not understand and moves on: an unknown `sysparm_*` is
    ignored, an unknown field in an encoded query has its **condition dropped**
    (so the read returns the WHOLE TABLE), and an unknown field in
-   `sysparm_fields` is simply absent from the payload. None of these raise, and
+   `sysparm_fields` is simply absent from the payload. In an OR chain POSITION
+   decides how bad the drop is — measured on one table of 67 rows:
+   `scriptLIKEzz` → 0, `nameLIKEzz^ORscriptLIKEzz` → 67 (bad term FIRST, nothing
+   filters), `scriptLIKEzz^ORnameLIKEzz` → 0 (bad term second, the filter
+   holds). So "a real column beside it still filters" holds only when the bad
+   name is not first. None of these raise, and
    a fixture answers with whatever key it was written with — so every one of
    them passes a full green suite. Field and parameter names are only ever
    proven against a live instance. `scripts/audit_query_fields.py` sweeps every
-   literal field name in the package against a real schema; run it after
-   touching a query, and treat a table it could not read as **unchecked**, not
+   literal field name in the package — and every field list declared in a
+   `{table, *_fields}` registry such as `SOURCE_CONFIG`, which the literal scan
+   could not see and where three dead names sat — against a real schema; run it
+   after touching a query, and treat a table it could not read as **unchecked**, not
    as passed.
 
 ## No Real Identities in Code — HARD STOP, NO EXCEPTIONS

@@ -184,7 +184,12 @@ class TestConditionalMetadata:
         )
 
         with patch("servicenow_mcp.tools.portal_tools.sn_query_all") as mock_all:
-            mock_all.return_value = []
+            # The targeted widget must come back: a token that matches nothing
+            # now earns a warning of its own ("widget_ids matched no widget"),
+            # which is a real signal, not the broad-scan noise this pins.
+            mock_all.return_value = [
+                {"sys_id": "w1", "name": "W1", "id": "w1", "script": "", "template": ""}
+            ]
             result = search_portal_regex_matches(
                 mock_config,
                 mock_auth,

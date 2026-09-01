@@ -110,6 +110,38 @@ def test_no_query_filters_on_a_field_that_exists_nowhere(schema, audit):
     assert not offenders, "\n".join(offenders)
 
 
+def test_no_config_declared_search_field_is_missing_from_its_table(schema, audit):
+    """The registry the literal scan could not see.
+
+    `SOURCE_CONFIG` names its table and its field lists separately and the
+    encoded query is assembled from them at runtime, so `collect()` — which
+    reads literals at the call site — never saw these names. Three did not
+    exist: `sys_transform_script.name`, `sp_angular_provider.client_script`,
+    `sp_page.description`.
+
+    Judged WITHOUT the "something else still filters" allowance above, because
+    position decides it and these lists set the position. Measured on a live
+    instance, same table, same two terms:
+
+        scriptLIKEzz                 ->  0 rows   (real column, no match)
+        nameLIKEzz                   -> 67 rows   (no such column: everything)
+        nameLIKEzz^ORscriptLIKEzz    -> 67 rows   (bogus FIRST: nothing filters)
+        scriptLIKEzz^ORnameLIKEzz    ->  0 rows   (bogus second: filter holds)
+
+    So a valid column beside the bad one only saves the read when the bad one
+    is not first — and `search_fields[0]` is exactly where these sat.
+    """
+    offenders = []
+    for table, used in audit.collect_field_maps().items():
+        columns = schema.get(table)
+        if not columns:
+            continue  # not recorded: unchecked, which is not the same as passed
+        for field in sorted(_checkable(used["query"])):
+            if field not in columns:
+                offenders.append(f"{table}: search/lookup names '{field}', which it does not have")
+    assert not offenders, "\n".join(offenders)
+
+
 # There is deliberately NO allowlist here.
 #
 # One was written, with six entries and a reason beside each. Every reason was

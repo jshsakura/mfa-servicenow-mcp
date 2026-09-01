@@ -1036,6 +1036,27 @@ def _fetch_linked_script_include_rows(
     return list(rows_by_sys_id.values())
 
 
+def _rows_matching_tokens(
+    rows: List[Dict[str, Any]],
+    tokens: Optional[List[str]],
+    match_fields: Tuple[str, ...] = ("sys_id", "name", "id"),
+) -> List[Dict[str, Any]]:
+    """Keep only rows that match a requested token.
+
+    The server-side filter is the primary gate; this is the second one. A
+    condition ServiceNow cannot parse is DROPPED rather than refused, so a
+    malformed targeted query comes back as the whole table with
+    ``success: true`` on it — "here are the 3 providers you asked for" and
+    "here is every provider on the instance" are otherwise the same response.
+    """
+    wanted = {t.strip() for t in (tokens or []) if isinstance(t, str) and t.strip()}
+    if not wanted:
+        return list(rows)
+    return [
+        row for row in rows if any(str(row.get(field) or "") in wanted for field in match_fields)
+    ]
+
+
 def _fetch_targeted_widget_rows(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2354,22 +2375,6 @@ def search_portal_regex_matches(
         widget_query_parts.append(f"sys_updated_on>={_escape_query(params.updated_after)}")
     if params.updated_before:
         widget_query_parts.append(f"sys_updated_on<={_escape_query(params.updated_before)}")
-    if params.widget_ids:
-        id_tokens = [
-            _escape_query(value)
-            for value in params.widget_ids
-            if isinstance(value, str) and value.strip()
-        ]
-        if id_tokens:
-            widget_query_parts.append(
-                "("
-                + "^OR".join(
-                    [f"sys_id={t}" for t in id_tokens]
-                    + [f"id={t}" for t in id_tokens]
-                    + [f"name={t}" for t in id_tokens]
-                )
-                + ")"
-            )
     widget_query = "^".join(widget_query_parts)
 
     requested_widget_fields = set(params.include_widget_fields)
@@ -2382,15 +2387,30 @@ def search_portal_regex_matches(
         for f in ("script", "client_script"):
             if f not in widget_fields:
                 widget_fields.append(f)
-    widget_rows = _sn_query_all(
-        config,
-        auth_manager,
-        table=WIDGET_TABLE,
-        query=widget_query,
-        fields=",".join(widget_fields),
-        page_size=page_size,
-        max_records=max_widgets,
-    )
+    if params.widget_ids:
+        # Targeted: the shared fetcher builds a parenthesis-free OR chain and
+        # drops rows matching no requested token, so a leniently-parsed query
+        # cannot widen into "every widget in the scope".
+        widget_rows, unmatched_widget_tokens = _fetch_targeted_widget_rows(
+            config,
+            auth_manager,
+            widget_tokens=params.widget_ids,
+            widget_base_query=widget_query,
+            widget_fields=",".join(widget_fields),
+            page_size=page_size,
+        )
+        if unmatched_widget_tokens:
+            warnings.append("widget_ids matched no widget: " + ", ".join(unmatched_widget_tokens))
+    else:
+        widget_rows = _sn_query_all(
+            config,
+            auth_manager,
+            table=WIDGET_TABLE,
+            query=widget_query,
+            fields=",".join(widget_fields),
+            page_size=page_size,
+            max_records=max_widgets,
+        )
 
     matches: List[Dict[str, Any]] = []
     script_include_candidates: Set[str] = set()
@@ -2640,23 +2660,28 @@ def trace_portal_route_targets(
     provider_to_widget_ids: Set[str] = set()
     provider_lookup_rows: List[Dict[str, Any]] = []
     if provider_filter_tokens:
-        provider_query = (
-            "("
-            + "^OR".join(
-                [f"sys_id={token}" for token in provider_filter_tokens]
-                + [f"name={token}" for token in provider_filter_tokens]
-                + [f"id={token}" for token in provider_filter_tokens]
-            )
-            + ")"
+        # No parentheses — encoded queries have no grouping syntax, and
+        # "(sys_id=X" parses as an unknown field whose condition is DROPPED,
+        # collapsing the filter into "every provider". `a^ORb^ORc` already
+        # binds as one OR group.
+        # sys_id/name only: sp_angular_provider has no `id` column, and a term
+        # naming a column that does not exist is dropped by the server — here it
+        # would take the OR group with it and return every provider.
+        provider_query = "^OR".join(
+            [f"sys_id={token}" for token in provider_filter_tokens]
+            + [f"name={token}" for token in provider_filter_tokens]
         )
-        provider_lookup_rows = _sn_query_all(
-            config,
-            auth_manager,
-            table=ANGULAR_PROVIDER_TABLE,
-            query=provider_query,
-            fields="sys_id,name,id",
-            page_size=page_size,
-            max_records=100,
+        provider_lookup_rows = _rows_matching_tokens(
+            _sn_query_all(
+                config,
+                auth_manager,
+                table=ANGULAR_PROVIDER_TABLE,
+                query=provider_query,
+                fields="sys_id,name",
+                page_size=page_size,
+                max_records=100,
+            ),
+            params.provider_ids,
         )
         resolved_provider_ids = [
             str(row.get("sys_id") or "") for row in provider_lookup_rows if row.get("sys_id")
@@ -2685,16 +2710,14 @@ def trace_portal_route_targets(
         for value in (params.widget_ids or [])
         if isinstance(value, str) and value.strip()
     ]
+    targeted_widget_tokens: List[str] = []
     if provider_to_widget_ids or widget_tokens:
-        combined_tokens = widget_tokens + sorted(provider_to_widget_ids)
-        widget_query_parts.append(
-            "("
-            + "^OR".join(
-                [f"sys_id={token}" for token in combined_tokens]
-                + [f"id={token}" for token in widget_tokens]
-                + [f"name={token}" for token in widget_tokens]
-            )
-            + ")"
+        # Resolved via the shared targeted fetcher below rather than an inline
+        # parenthesised group: parentheses are not encoded-query syntax and the
+        # whole filter is dropped, returning the entire widget table.
+        targeted_widget_tokens = _dedupe_preserve_order_strings(
+            [value for value in (params.widget_ids or []) if isinstance(value, str)]
+            + sorted(provider_to_widget_ids)
         )
 
     # Only fetch heavy code fields that will actually be scanned
@@ -2705,15 +2728,27 @@ def trace_portal_route_targets(
     if params.include_linked_angular_providers:
         effective_widget_scan_fields.add("template")
     widget_fields.extend(sorted(effective_widget_scan_fields))
-    widget_rows = _sn_query_all(
-        config,
-        auth_manager,
-        table=WIDGET_TABLE,
-        query="^".join(widget_query_parts),
-        fields=",".join(widget_fields),
-        page_size=page_size,
-        max_records=max_widgets,
-    )
+    if targeted_widget_tokens:
+        widget_rows, unmatched_widget_tokens = _fetch_targeted_widget_rows(
+            config,
+            auth_manager,
+            widget_tokens=targeted_widget_tokens,
+            widget_base_query="^".join(widget_query_parts),
+            widget_fields=",".join(widget_fields),
+            page_size=page_size,
+        )
+        if unmatched_widget_tokens:
+            warnings.append("widget_ids matched no widget: " + ", ".join(unmatched_widget_tokens))
+    else:
+        widget_rows = _sn_query_all(
+            config,
+            auth_manager,
+            table=WIDGET_TABLE,
+            query="^".join(widget_query_parts),
+            fields=",".join(widget_fields),
+            page_size=page_size,
+            max_records=max_widgets,
+        )
 
     widget_sys_ids = [str(row.get("sys_id") or "") for row in widget_rows if row.get("sys_id")]
     widget_name_by_id = {
@@ -2760,7 +2795,7 @@ def trace_portal_route_targets(
             table=ANGULAR_PROVIDER_TABLE,
             chunks=_chunked(all_provider_ids, 100),
             query_template="sys_idIN{ids}",
-            fields="sys_id,name,id,script",
+            fields="sys_id,name,script",
             page_size=page_size,
             max_records=1000,
         )
@@ -2958,14 +2993,14 @@ def detect_angular_implicit_globals(
             if isinstance(value, str) and value.strip()
         ]
         if id_tokens:
+            # Parenthesis-free: an encoded query has no grouping, and the
+            # dropped condition would return every provider. The OR chain goes
+            # last, so it binds as (filters) AND (id OR id OR ...).
             query_parts.append(
-                "("
-                + "^OR".join(
+                "^OR".join(
                     [f"sys_id={token}" for token in id_tokens]
-                    + [f"id={token}" for token in id_tokens]
                     + [f"name={token}" for token in id_tokens]
                 )
-                + ")"
             )
     query = "^".join(query_parts)
 
@@ -2974,10 +3009,12 @@ def detect_angular_implicit_globals(
         auth_manager,
         table=ANGULAR_PROVIDER_TABLE,
         query=query,
-        fields="sys_id,name,id,script",
+        fields="sys_id,name,script",
         page_size=page_size,
         max_records=max_providers,
     )
+    if params.provider_ids:
+        provider_rows = _rows_matching_tokens(provider_rows, params.provider_ids)
 
     findings: List[Dict[str, Any]] = []
     for row in provider_rows:
@@ -4083,7 +4120,7 @@ def resolve_widget_chain(
                 GenericQueryParams(
                     table=ANGULAR_PROVIDER_TABLE,
                     query=f"sys_idIN{','.join(provider_ids)}",
-                    fields="sys_id,name,type,script,client_script",
+                    fields="sys_id,name,type,script",
                     limit=MAX_CHAIN_PROVIDERS,
                     offset=0,
                     display_value=False,
@@ -4383,7 +4420,7 @@ def resolve_page_dependencies(
                     GenericQueryParams(
                         table=ANGULAR_PROVIDER_TABLE,
                         query=f"sys_idIN{','.join(provider_id_list)}",
-                        fields="sys_id,name,type,script,client_script",
+                        fields="sys_id,name,type,script",
                         limit=MAX_CHAIN_PROVIDERS,
                         offset=0,
                         display_value=False,
