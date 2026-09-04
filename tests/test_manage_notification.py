@@ -48,7 +48,7 @@ class TestManageNotification(unittest.TestCase):
                     "event_name": "activate.life.cycle.migration",
                     "condition": "stateCHANGESFROM4^stateCHANGESTO3",
                     "category": {"display_value": "Misc"},
-                    "template": {"display_value": "returned.to.request YKO OM"},
+                    "template": {"display_value": "request.returned.notice"},
                     "active": {"display_value": "false"},
                     "weight": "0",
                     "recipient_users": "",
@@ -107,7 +107,7 @@ class TestManageNotification(unittest.TestCase):
     def test_create_resolves_category_and_template_by_name(self, mock_query):
         mock_query.side_effect = [
             ([{"sys_id": "cat1", "name": "Misc"}], 1),  # category lookup
-            ([{"sys_id": "tpl1", "name": "returned.to.request YKO OM"}], 1),  # template lookup
+            ([{"sys_id": "tpl1", "name": "request.returned.notice"}], 1),  # template lookup
         ]
         self.auth.make_request.return_value = _mock_response(
             {"sys_id": "n1", "subject": "Returned"}
@@ -115,7 +115,7 @@ class TestManageNotification(unittest.TestCase):
         result = self._run(
             action="create",
             category="Misc",
-            template="returned.to.request YKO OM",
+            template="request.returned.notice",
             collection="x_myapp_alpha",
             subject="Returned",
         )
@@ -241,7 +241,7 @@ class TestManageNotification(unittest.TestCase):
             [
                 {
                     "sys_id": "tpl1",
-                    "name": "returned.to.request YKO OM",
+                    "name": "request.returned.notice",
                     "subject": "s",
                     "collection": "",
                     "message_html": "<p>hi</p>",
@@ -260,11 +260,11 @@ class TestManageNotification(unittest.TestCase):
 
     def test_create_template_happy(self):
         self.auth.make_request.return_value = _mock_response(
-            {"sys_id": "tpl1", "name": "returned.to.request YKO OM"}
+            {"sys_id": "tpl1", "name": "request.returned.notice"}
         )
         result = self._run(
             action="create_template",
-            name="returned.to.request YKO OM",
+            name="request.returned.notice",
             subject="${number} returned",
             message_html="<p>hi</p>",
         )
@@ -272,7 +272,7 @@ class TestManageNotification(unittest.TestCase):
         args, kwargs = self.auth.make_request.call_args
         self.assertEqual("POST", args[0])
         self.assertTrue(args[1].endswith("/api/now/table/sysevent_email_template"))
-        self.assertEqual("returned.to.request YKO OM", kwargs["json"]["name"])
+        self.assertEqual("request.returned.notice", kwargs["json"]["name"])
 
     @patch(f"{SVC}.sn_query_page")
     def test_update_template_not_found(self, mock_query):
