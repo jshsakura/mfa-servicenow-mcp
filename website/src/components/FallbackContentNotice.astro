@@ -1,0 +1,41 @@
+---
+/**
+ * Starlight shows one notice on every page served from the default locale:
+ * "this content is not available in your language yet". True for a translation
+ * somebody has not written — and wrong for a page that is English on purpose.
+ *
+ * `llm-setup` is that page. Its reader is an AI coding agent, which is handed
+ * the raw Markdown (the setup flow curls `docs/llm-setup.md` directly), and
+ * English is what it needs. There is nothing missing, so a warning saying
+ * something is missing sends the reader looking for work nobody intends to do —
+ * and it sits on the FIRST sidebar entry of all five translated locales.
+ *
+ * Deliberately a list of exceptions rather than a replacement of the message.
+ * Any other page that falls back really IS an untranslated page, and it must
+ * keep saying so: a notice that reassures on every fallback would be the same
+ * absence-reported-as-fine shape this repo keeps finding. The default branch is
+ * upstream's, untouched.
+ */
+import ContentNotice from '@astrojs/starlight/components/ContentNotice.astro';
+
+// Pages this project keeps in English on purpose, by slug. Kept next to the
+// reason above so removing a page from it is a decision, not a cleanup.
+const ENGLISH_BY_DESIGN = new Set(['llm-setup']);
+
+// Locale-prefixed on translated routes ("ko/llm-setup"), bare on the root one.
+const { id, locale } = Astro.locals.starlightRoute;
+const slug = locale && id.startsWith(`${locale}/`) ? id.slice(locale.length + 1) : id;
+
+const byDesign = ENGLISH_BY_DESIGN.has(slug);
+---
+
+{
+  byDesign ? (
+    <ContentNotice
+      icon="information"
+      label="This page is written for an AI coding agent, which reads it in English. It is kept in English on purpose — no translation is missing."
+    />
+  ) : (
+    <ContentNotice icon="warning" label={Astro.locals.t('i18n.untranslatedContent')} />
+  )
+}

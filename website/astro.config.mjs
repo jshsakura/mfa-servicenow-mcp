@@ -35,6 +35,14 @@ export default defineConfig({
       editLink: {
         baseUrl: "https://github.com/jshsakura/mfa-servicenow-mcp/edit/main/docs/",
       },
+      components: {
+        // Both overrides exist because this site's content collection is a
+        // GENERATED mirror of docs/ and its landing page is a splash page —
+        // two things upstream's defaults do not know about. See each file.
+        EditLink: "./src/components/EditLink.astro",
+        FallbackContentNotice: "./src/components/FallbackContentNotice.astro",
+        Header: "./src/components/Header.astro",
+      },
       customCss: ["./src/styles/custom.css"],
       head: [
         {

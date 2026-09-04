@@ -1,0 +1,127 @@
+---
+/**
+ * Starlight's header, with one change: the language and theme pickers stay
+ * reachable on a mobile SPLASH page.
+ *
+ * Upstream puts them in a `sl-hidden md:sl-flex` group, so below 50rem the
+ * header shows neither; the mobile copy lives in `MobileMenuFooter`, which is
+ * rendered from `Sidebar.astro`, which `Page.astro` renders only when
+ * `hasSidebar` — and `hasSidebar` is `entry.data.template !== 'splash'`.
+ *
+ * The landing page is a splash page. So on a phone it had ZERO language
+ * pickers: not hidden behind a menu, not rendered at all. Six locales, and the
+ * first page every visitor sees was the one page you could not switch from.
+ * Desktop was fine throughout, which is why it stood.
+ *
+ * Below 50rem only the LANGUAGE select comes back, and the social icons and the
+ * theme select give up their space to it. A phone header holds the site title,
+ * search and about one control: fitting all three clipped the title to "MF".
+ * The two that yield both have somewhere else to go — the hero carries its own
+ * GitHub button, and the theme already follows the OS setting on its own. The
+ * language does not: six locales, and no way to reach five of them.
+ */
+import config from 'virtual:starlight/user-config';
+
+import LanguageSelect from 'virtual:starlight/components/LanguageSelect';
+import Search from 'virtual:starlight/components/Search';
+import SiteTitle from 'virtual:starlight/components/SiteTitle';
+import SocialIcons from 'virtual:starlight/components/SocialIcons';
+import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
+
+const shouldRenderSearch =
+  config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
+
+// Only splash pages need the exception: every other page reaches both selects
+// through the mobile menu, and showing them twice there would be clutter.
+const { hasSidebar } = Astro.locals.starlightRoute;
+---
+
+<div class="header" data-no-sidebar={hasSidebar ? undefined : ''}>
+  <div class="title-wrapper sl-flex">
+    <SiteTitle />
+  </div>
+  <div class="sl-flex print:hidden">
+    {shouldRenderSearch && <Search />}
+  </div>
+  <div class="sl-hidden md:sl-flex print:hidden right-group">
+    <div class="sl-flex social-icons">
+      <SocialIcons />
+    </div>
+    <div class="sl-flex theme-select">
+      <ThemeSelect />
+    </div>
+    <LanguageSelect />
+  </div>
+</div>
+
+<style>
+  .header {
+    display: flex;
+    gap: var(--sl-nav-gap);
+    justify-content: space-between;
+    align-items: center;
+    height: 100%;
+  }
+
+  .title-wrapper {
+    overflow: clip;
+    padding: 0.25rem;
+    margin: -0.25rem;
+    min-width: 0;
+  }
+
+  .right-group,
+  .social-icons {
+    gap: 1rem;
+    align-items: center;
+  }
+  .social-icons::after {
+    content: '';
+    height: 2rem;
+    border-inline-end: 1px solid var(--sl-color-gray-5);
+  }
+
+  /* The exception. `sl-hidden` is a utility class, so it is overridden here on
+     the narrow-viewport side only; at 50rem and up upstream's rules resume
+     untouched for every page. */
+  /* The exact complement of upstream's `min-width: 50rem`, so no viewport width
+     can fall between the two rules. */
+  @media not all and (min-width: 50rem) {
+    .header[data-no-sidebar] .right-group {
+      display: flex;
+      gap: 0.25rem;
+    }
+    .header[data-no-sidebar] .social-icons,
+    .header[data-no-sidebar] .theme-select {
+      display: none;
+    }
+  }
+
+  @media (min-width: 50rem) {
+    :global(:root[data-has-sidebar]) {
+      --__sidebar-pad: calc(2 * var(--sl-nav-pad-x));
+    }
+    :global(:root:not([data-has-toc])) {
+      --__toc-width: 0rem;
+    }
+    .header {
+      --__sidebar-width: max(0rem, var(--sl-content-inline-start, 0rem) - var(--sl-nav-pad-x));
+      --__main-column-fr: calc(
+        (
+            100% + var(--__sidebar-pad, 0rem) - var(--__toc-width, var(--sl-sidebar-width)) -
+              (2 * var(--__toc-width, var(--sl-nav-pad-x))) - var(--sl-content-inline-start, 0rem) -
+              var(--sl-content-width)
+          ) / 2
+      );
+      display: grid;
+      grid-template-columns:
+        minmax(
+          calc(var(--__sidebar-width) + max(0rem, var(--__main-column-fr) - var(--sl-nav-gap))),
+          auto
+        )
+        1fr
+        auto;
+      align-content: center;
+    }
+  }
+</style>
