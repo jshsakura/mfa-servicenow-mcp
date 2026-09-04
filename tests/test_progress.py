@@ -356,3 +356,37 @@ class TestAuditEmitsProgress:
         assert result.get("success") is not False
         assert len(calls) >= 3
         assert any("cross-reference" in m for _, m in calls)
+
+
+# ---------------------------------------------------------------------------
+# The submodules the bridge reaches for have to be IMPORTED, not assumed
+# ---------------------------------------------------------------------------
+
+
+class TestAnyioSubmodulesAreImported:
+    """`import anyio` alone does not give you `anyio.from_thread`.
+
+    anyio 4.15.0 made its submodules lazy. Until then `anyio.from_thread`
+    happened to be an attribute of the package because some other library in the
+    process had imported it, and `server.py` relied on that without ever saying
+    so. When it stopped being true, `_report` raised AttributeError on every
+    milestone, the broad `except` swallowed it, and a subscribed client received
+    nothing — no error, tools still returning success.
+
+    So the import is pinned here rather than trusted. This is about the module
+    object the bridge actually reads, which is why it is asserted through
+    `server_module.anyio` and not by importing anyio again in the test: a fresh
+    `import anyio.from_thread` in this file would MAKE the attribute exist and
+    the test would pass on a server that never imported it.
+    """
+
+    def test_the_bridge_can_reach_from_thread_and_to_thread(self):
+        import servicenow_mcp.server as server_module
+
+        for submodule in ("from_thread", "to_thread"):
+            assert hasattr(server_module.anyio, submodule), (
+                f"server.py uses anyio.{submodule} but never imports it. Since anyio "
+                f"4.15 that attribute only exists if something imported the submodule, "
+                f"so add `import anyio.{submodule}` — relying on another library to "
+                f"have done it is how progress notifications went dead in silence."
+            )

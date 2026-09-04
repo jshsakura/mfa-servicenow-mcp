@@ -11,6 +11,8 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import anyio
+import anyio.from_thread
+import anyio.to_thread
 import mcp.types as types
 import yaml
 from mcp.server.lowlevel import Server
@@ -1665,6 +1667,12 @@ class ServiceNowMCP:
         if session is None or not _should_stream_progress(name, progress_token):
             return impl_func(call_config, call_auth_manager, params)
 
+        # One warning per CALL, not per emit: a client that dropped its
+        # notification socket fails on every milestone, and the second message
+        # says nothing the first did not. Per-call because `_report` is built
+        # per call, so the cell resets on its own.
+        announced = []
+
         def _report(progress, total, message):
             # Runs in the worker thread; hop back to the loop to send the notice.
             try:
@@ -1675,7 +1683,24 @@ class ServiceNowMCP:
                     total,
                     message,
                 )
-            except Exception:  # noqa: BLE001 - progress must never break the tool
+            except Exception as exc:  # noqa: BLE001 - progress must never break the tool
+                # Swallowed on purpose — but not silently. This channel went
+                # dead for two days under anyio 4.15 (its lazy imports meant
+                # `anyio.from_thread` was only ever an attribute because some
+                # other library happened to import it) and the only trace was a
+                # debug line nobody runs at. A subscribed client that receives
+                # nothing is exactly the absence-reported-as-fine shape this
+                # repo keeps finding, so the first failure of a call says so at
+                # a level that is on by default.
+                if not announced:
+                    announced.append(True)
+                    logger.warning(
+                        "Progress notifications are not reaching the client for %s "
+                        "(%s: %s); the tool itself is unaffected.",
+                        name,
+                        type(exc).__name__,
+                        exc,
+                    )
                 logger.debug("send_progress_notification failed; ignoring", exc_info=True)
 
         def _worker():
