@@ -379,6 +379,18 @@ def _resolve_origin_url(scope_root: Path) -> str:
     return str(manifest.get("instance") or "").strip()
 
 
+def _local_scope(scope_root: Path) -> str:
+    """The application namespace this source tree was downloaded from, or "".
+
+    Read from ``_manifest.json`` ("scope"), which ``download_app_sources`` writes
+    at the scope root — never guessed from the directory name. A wrong scope here
+    would refuse a legitimate push, so an unrecorded scope has to mean "do not
+    use scope", not "use my best guess at it". Everything downstream treats ""
+    as "unknowable" and falls back to the name-only behaviour.
+    """
+    return str(_find_manifest_json(scope_root).get("scope") or "").strip()
+
+
 def _alias_for_instance_url(url: str) -> str:
     """Reverse-resolve a recorded origin URL to its configured instance alias.
 
@@ -1084,7 +1096,20 @@ def _resolve_target_by_name(
 
     `qualifier` is an optional (field, value) pair that disambiguates a name which
     is unique only within a parent (e.g. a sys_ws_operation 'end' is unique only
-    within its web service). Without it, same-named children read as ambiguous."""
+    within its web service). Without it, same-named children read as ambiguous.
+
+    ``sys_scope.scope`` rides along in the field list because a name is not
+    unique across APPLICATIONS either, and this is where that was invisible.
+    Selected rather than filtered on: an encoded-query condition ServiceNow does
+    not understand is DROPPED (not refused), so narrowing server-side could
+    silently widen instead. The scope comes back with each row and the caller
+    decides — a comparison in Python cannot be dropped.
+
+    Dot-walked, and the form is proven rather than assumed. Measured live on
+    ``sp_widget``: 1159 rows total, ``sys_scope.scopeISNOTEMPTY`` -> 1159,
+    ``ISEMPTY`` -> 0 (complementary, so the field resolves rather than being
+    ignored), and ``sys_scope.scope=global`` -> 179. The download path already
+    filters with the same expression (portal_tools, widget_base_query)."""
     safe_name = name.replace("^", "").replace("=", "")
     query = f"name={safe_name}"
     if qualifier:
@@ -1097,7 +1122,7 @@ def _resolve_target_by_name(
             GenericQueryParams(
                 table=table,
                 query=query,
-                fields="sys_id,name",
+                fields="sys_id,name,sys_scope,sys_scope.scope",
                 limit=5,
                 offset=0,
                 display_value=False,
@@ -2751,14 +2776,73 @@ def update_remote_from_local(
                 ),
                 "component": {"table": resolved.table, "name": resolved.remote_name},
             }
+        # A name is not unique across APPLICATIONS, and that was invisible here:
+        # the lookup selected only sys_id and name, so two records of the same
+        # name in different scopes came back as an unresolvable pair of 32-char
+        # ids. Worse, ONE match in the WRONG scope was pushed to without a word.
+        #
+        # Compared in Python rather than filtered server-side on purpose: an
+        # encoded-query condition ServiceNow does not understand is dropped, not
+        # refused, so a server-side narrow can silently widen. See
+        # _resolve_target_by_name.
+        local_scope = _local_scope(resolved.scope_root)
+        scoped = [m for m in matches if str(m.get("sys_scope.scope") or "").strip()]
+
+        def _candidates(rows):
+            return [
+                {
+                    "sys_id": m.get("sys_id"),
+                    "name": m.get("name"),
+                    # Always shown, even when scope decided nothing. The refusal
+                    # this replaces listed two ids and one name and left the
+                    # operator to look the records up by hand to learn what this
+                    # process already had.
+                    "scope": str(m.get("sys_scope.scope") or "") or None,
+                }
+                for m in rows
+            ]
+
+        # Only when the scope is known on BOTH sides. An unrecorded local scope
+        # (no _manifest.json) or a table whose rows report no scope at all is a
+        # question nobody answered — and an unanswered question must not turn a
+        # push that used to work into a refusal.
+        if local_scope and scoped:
+            in_scope = [m for m in matches if m.get("sys_scope.scope") == local_scope]
+            if not in_scope:
+                # Every match lives in a different application. Refusing is the
+                # point: the single-match case used to push here silently, which
+                # is a write into somebody else's app.
+                found_scopes = sorted({str(m.get("sys_scope.scope") or "?") for m in matches})
+                return {
+                    "error": "TARGET_WRONG_SCOPE",
+                    "message": (
+                        f"'{resolved.remote_name}'{qual_hint} exists on '{active}' "
+                        f"({resolved.table}) only in {', '.join(found_scopes)}, but this source "
+                        f"was downloaded from '{local_scope}'. Deploying would write into an "
+                        f"application this source did not come from. Re-download from "
+                        f"'{active}' if the record really moved."
+                    ),
+                    "local_scope": local_scope,
+                    "candidates": _candidates(matches),
+                }
+            matches = in_scope
+
         if len(matches) > 1:
             return {
                 "error": "TARGET_AMBIGUOUS",
                 "message": (
                     f"{len(matches)} records named '{resolved.remote_name}'{qual_hint} on "
                     f"'{active}' ({resolved.table}) — can't pick the deploy target unambiguously."
+                    + (
+                        f" All of them are in '{local_scope}', so the application does not "
+                        "separate them either."
+                        if local_scope and scoped
+                        else " Their scopes are listed below; this source records no scope of "
+                        "its own to narrow by (no _manifest.json)."
+                    )
                 ),
-                "candidates": [{"sys_id": m.get("sys_id"), "name": m.get("name")} for m in matches],
+                "local_scope": local_scope or None,
+                "candidates": _candidates(matches),
             }
         # Rebind to the TARGET's own sys_id (new object — never mutate resolved).
         resolved = _ResolvedComponent(

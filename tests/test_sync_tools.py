@@ -3079,6 +3079,176 @@ class TestCrossInstanceDeploy:
         assert result["error"] == "TARGET_AMBIGUOUS"
         assert len(result["candidates"]) == 2
 
+    # ---------------------------------------------------------------------
+    # A name is not unique across APPLICATIONS either
+    #
+    # Hit in real use: a widget existed twice on the target — once in the app
+    # being deployed, once in an unrelated vendor app that must not be touched.
+    # The lookup selected only sys_id and name, so the refusal listed two
+    # 32-char ids and one name and the operator had to go look the records up to
+    # learn what this process already had on disk. The single-match case was
+    # worse: one namesake in the WRONG application was pushed to without a word.
+    # ---------------------------------------------------------------------
+
+    def _set_manifest_scope(self, root, scope):
+        (root / "global" / "_manifest.json").write_text(
+            json.dumps({"scope": scope, "instance": "https://dev.service-now.com"}),
+            encoding="utf-8",
+        )
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_the_scope_picks_the_right_one_of_two_namesakes(
+        self,
+        mock_resolve,
+        mock_fetch,
+        mock_update,
+        mock_meta,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        self._set_origin_dev(download_root)
+        self._set_manifest_scope(download_root, "x_myapp")
+        mock_resolve.return_value = [
+            {"sys_id": "theirs", "name": "my-widget", "sys_scope.scope": "x_vendor"},
+            {"sys_id": "ours", "name": "my-widget", "sys_scope.scope": "x_myapp"},
+        ]
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "ours",
+                "name": "my-widget",
+                "script": "var x = 0;",
+                "sys_updated_on": "2025-01-12 09:00:00",
+                "sys_updated_by": "other.dev",
+            },
+            {
+                "sys_id": "ours",
+                "script": "var x = 1;",  # landed
+                "sys_updated_on": "2025-01-12 10:00:00",
+            },
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "ours"}
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)),
+                cross_instance_deploy=True,
+                force=True,
+            ),
+        )
+
+        assert result.get("success") is True, result
+        # The vendor app's record was never written to.
+        assert mock_update.call_args.args[2].sys_id == "ours"
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_a_lone_namesake_in_another_app_is_refused_not_deployed_to(
+        self, mock_resolve, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        """The dangerous half. One match used to mean "deploy to it", whatever
+        application it belonged to — a silent write into somebody else's app."""
+        self._set_origin_dev(download_root)
+        self._set_manifest_scope(download_root, "x_myapp")
+        mock_resolve.return_value = [
+            {"sys_id": "theirs", "name": "my-widget", "sys_scope.scope": "x_vendor"},
+        ]
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)), cross_instance_deploy=True
+            ),
+        )
+
+        assert result["error"] == "TARGET_WRONG_SCOPE"
+        assert result["local_scope"] == "x_myapp"
+        assert result["candidates"][0]["scope"] == "x_vendor"
+        mock_fetch.assert_not_called()
+
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_an_unrecorded_local_scope_never_turns_a_working_push_into_a_refusal(
+        self, mock_resolve, mock_config, mock_auth, download_root
+    ):
+        """No _manifest.json means the scope is unknowable, not wrong.
+
+        A guess here would refuse legitimate pushes, so the absence of a
+        recorded scope falls back to exactly the old behaviour — and the
+        candidates still carry the scope, which is the half that was missing
+        from the refusal.
+        """
+        self._set_origin_dev(download_root)  # no manifest written
+        mock_resolve.return_value = [
+            {"sys_id": "a", "name": "my-widget", "sys_scope.scope": "x_one"},
+            {"sys_id": "b", "name": "my-widget", "sys_scope.scope": "x_two"},
+        ]
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)), cross_instance_deploy=True
+            ),
+        )
+
+        assert result["error"] == "TARGET_AMBIGUOUS"
+        assert result["local_scope"] is None
+        assert {c["scope"] for c in result["candidates"]} == {"x_one", "x_two"}
+        assert "_manifest.json" in result["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_a_table_that_reports_no_scope_is_unchanged(
+        self,
+        mock_resolve,
+        mock_fetch,
+        mock_update,
+        mock_meta,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        """Not every table carries sys_scope. A row that reports none is an
+        unanswered question, and an unanswered question must not block."""
+        self._set_origin_dev(download_root)
+        self._set_manifest_scope(download_root, "x_myapp")
+        mock_resolve.return_value = [{"sys_id": "only", "name": "my-widget"}]
+        mock_fetch.side_effect = [
+            {
+                "sys_id": "only",
+                "name": "my-widget",
+                "script": "var x = 0;",
+                "sys_updated_on": "2025-01-12 09:00:00",
+                "sys_updated_by": "other.dev",
+            },
+            {
+                "sys_id": "only",
+                "script": "var x = 1;",  # landed
+                "sys_updated_on": "2025-01-12 10:00:00",
+            },
+        ]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "only"}
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(
+                path=str(self._widget_path(download_root)),
+                cross_instance_deploy=True,
+                force=True,
+            ),
+        )
+
+        assert result.get("success") is True, result
+
     @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
