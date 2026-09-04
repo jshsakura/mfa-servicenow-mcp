@@ -125,7 +125,7 @@ class TestManageUxList(unittest.TestCase):
         # 1st call: get_list existence check; 2nd: resolve view by name
         mock_query.side_effect = [
             ([{"sys_id": "l1", "title": "Direct OI"}], 1),
-            ([{"sys_id": "80e4...view", "name": "yko_direct_oi"}], 1),
+            ([{"sys_id": "80e4...view", "name": "sample_list_view"}], 1),
         ]
         self.auth.make_request.return_value = _mock_response({"sys_id": "l1", "title": "Direct OI"})
         result = self._run(action="update", sys_id="l1", view="sample_list_view")

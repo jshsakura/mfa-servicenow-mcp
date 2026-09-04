@@ -37,9 +37,9 @@ def tracker(tmp_path):
                     "widths": [6, 12, 30, 10],
                     "rows": [
                         ["No", "접수일", "요청내용", "PIC"],
-                        [383, "2026-07-15", "리비전 버튼이 안 보임", "alice"],
-                        [407, "2026-07-16", "Revision 금액 오류", "bob"],
-                        [422, "2026-07-18", "SM 권한 요청", "alice"],
+                        [101, "2026-07-15", "목록 버튼이 표시되지 않음", "alice"],
+                        [102, "2026-07-16", "목록 합계 계산 오류", "bob"],
+                        [103, "2026-07-18", "권한 요청", "alice"],
                     ],
                 }
             ]
@@ -89,7 +89,7 @@ class TestRead:
 
     def test_columns_projection(self, tracker):
         result = call(action="read", path=tracker, columns="A,C", limit=2)
-        assert result["rows"][1] == [383, "리비전 버튼이 안 보임"]
+        assert result["rows"][1] == [101, "목록 버튼이 표시되지 않음"]
 
     def test_unknown_sheet_answers_with_the_real_names(self, tracker):
         result = call(action="read", path=tracker, sheet="없는시트")
@@ -118,12 +118,12 @@ class TestRead:
 
 class TestFind:
     def test_regex_across_the_row_text(self, tracker):
-        result = call(action="find", path=tracker, query="리비전|revision", columns="A")
+        result = call(action="find", path=tracker, query="목록|list", columns="A")
         assert result["matches"] == 2
-        assert [r[0] for r in result["rows"]] == [383, 407]
+        assert [r[0] for r in result["rows"]] == [101, 102]
 
     def test_query_scoped_to_one_column(self, tracker):
-        result = call(action="find", path=tracker, query="^407$", column="A")
+        result = call(action="find", path=tracker, query="^102$", column="A")
         assert result["matches"] == 1
         assert result["row_numbers"] == [3]
 
