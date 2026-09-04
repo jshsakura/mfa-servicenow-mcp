@@ -52,7 +52,7 @@ python -m playwright install chromium
 
 **PyPI 자체가 막혀 있다면** — 사내망이 패키지 인덱스를 차단하는 경우 — uvx든 pip이든 패키지를 받아올 방법이 없습니다. IT 부서에 `pypi.org`와 `files.pythonhosted.org` 허용을 요청하거나, 사내 인덱스에 미러링해 두고 `pip install --index-url`로 받아 쓰세요.
 
-> Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](WINDOWS_INSTALL.ko.md) 참조.
+> Windows 사용자: 단계별 안내 + 프록시/백신 관련 주의사항은 [Windows 설치 가이드](../WINDOWS_INSTALL/) 참조.
 
 ### 3. MCP 클라이언트 설정에 서버 추가
 

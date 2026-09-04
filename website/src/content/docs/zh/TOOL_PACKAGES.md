@@ -43,7 +43,7 @@ slug: zh/TOOL_PACKAGES
 或一次幻觉就可能在多个领域同时触发破坏性更改。
 
 **不要从 `standard` 向上切换，除非：**
-- 你了解该包激活的每一个写入工具（见[工具清单](TOOL_INVENTORY.md)）
+- 你了解该包激活的每一个写入工具（见[工具清单](../TOOL_INVENTORY/)）
 - 你在**非生产**或**沙箱化**实例中工作，或已设置 `allow_writes` 门控
 - 你是经验丰富的 ServiceNow 开发者，知道如何从意外更改中恢复
 
@@ -92,4 +92,4 @@ Enable package 'portal_developer' or higher to use this tool.
 
 ## 完整工具列表
 
-按类别和包归属列出全部 73 个工具的完整清单，请见[工具清单](TOOL_INVENTORY.md)。
+按类别和包归属列出全部 73 个工具的完整清单，请见[工具清单](../TOOL_INVENTORY/)。

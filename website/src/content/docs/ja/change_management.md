@@ -23,7 +23,7 @@ ServiceNow MCP サーバーは、以下の変更管理ツールを提供しま�
    - `action="add_task"` の場合: `change_id`、`task_short_description`、加えて任意で `task_description`、`task_assigned_to`、`task_planned_start_date`、`task_planned_end_date`
 
 2. **`sn_query`**（`table=change_request` 付き）- 任意のフィルタで変更要求を一覧表示する
-   - 変更要求の一覧表示には汎用テーブルクエリプリミティブを使用します。`sn_query` のパラメータは [ツールインベントリ](TOOL_INVENTORY.md) を参照してください。
+   - 変更要求の一覧表示には汎用テーブルクエリプリミティブを使用します。`sn_query` のパラメータは [ツールインベントリ](../TOOL_INVENTORY/) を参照してください。
 
 3. **`manage_change(action="get")`** - 特定の変更要求の詳細情報を取得する
    - パラメータ:

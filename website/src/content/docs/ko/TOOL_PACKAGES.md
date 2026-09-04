@@ -40,7 +40,7 @@ slug: ko/TOOL_PACKAGES
 `service_desk`, `portal_developer`, `platform_developer`, `full` 모두 쓰기 도구를 활성화합니다 — 이 패키지로 실행된 AI 에이전트는 ServiceNow 레코드를 생성·수정·삭제할 수 있습니다. `full`은 **모든 도메인에서 동시에** 가능하므로(인시던트, 변경, 포털, Flow Designer, 워크플로우, 스크립트 등), 프롬프트 오해나 환각 한 번으로 여러 영역에서 동시에 파괴적인 변경이 발생할 수 있습니다.
 
 **`standard`에서 올라가기 전에 다음을 확인하세요:**
-- 활성화되는 모든 쓰기 도구를 파악한 경우 ([도구 목록](TOOL_INVENTORY.ko.md) 참고)
+- 활성화되는 모든 쓰기 도구를 파악한 경우 ([도구 목록](../TOOL_INVENTORY/) 참고)
 - **비프로덕션** 또는 **샌드박스** 인스턴스에서 작업하거나 `allow_writes` 게이트를 걸어둔 경우
 - 의도치 않은 변경을 복구할 방법을 아는 숙련된 ServiceNow 개발자인 경우
 
@@ -89,4 +89,4 @@ Enable package 'portal_developer' or higher to use this tool.
 
 ## 전체 도구 목록
 
-카테고리와 패키지별 전체 75개 도구 목록은 [도구 목록](TOOL_INVENTORY.ko.md)에서 확인하세요.
+카테고리와 패키지별 전체 75개 도구 목록은 [도구 목록](../TOOL_INVENTORY/)에서 확인하세요.

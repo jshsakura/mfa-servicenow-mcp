@@ -23,7 +23,7 @@ ServiceNow MCP 服务器提供以下变更管理工具：
    - 对于 `action="add_task"`：`change_id`、`task_short_description`，以及可选的 `task_description`、`task_assigned_to`、`task_planned_start_date`、`task_planned_end_date`
 
 2. **`sn_query`**（搭配 `table=change_request`）- 用任意过滤器列出变更请求
-   - 使用通用的表查询原语来列出变更请求。`sn_query` 的参数见[工具清单](TOOL_INVENTORY.md)。
+   - 使用通用的表查询原语来列出变更请求。`sn_query` 的参数见[工具清单](../TOOL_INVENTORY/)。
 
 3. **`manage_change(action="get")`** - 获取特定变更请求的详细信息
    - 参数：

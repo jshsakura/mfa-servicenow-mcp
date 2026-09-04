@@ -10,7 +10,7 @@ Herramientas registradas en el registro activo: **75**
 Recuento de herramientas empaquetadas en `full`: **61**
 Herramientas registradas pero actualmente sin empaquetar: **11**
 
-- Listado completo herramienta por herramienta: [TOOL_INVENTORY.md en inglés](./TOOL_INVENTORY.md)
+- Listado completo herramienta por herramienta: [TOOL_INVENTORY.md en inglés](../../TOOL_INVENTORY/)
 
 `list_tool_packages` se inyecta en tiempo de ejecución en cada paquete habilitado excepto `none`.
 Está documentado más abajo, pero los recuentos de paquetes en este archivo reflejan la superficie de herramientas definida en YAML.

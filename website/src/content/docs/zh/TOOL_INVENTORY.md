@@ -10,7 +10,7 @@ slug: zh/TOOL_INVENTORY
 `full` 中打包的工具数：**61**
 已注册但当前未打包的工具数：**11**
 
-- 逐个工具的完整清单：[英文版 TOOL_INVENTORY.md](./TOOL_INVENTORY.md)
+- 逐个工具的完整清单：[英文版 TOOL_INVENTORY.md](../../TOOL_INVENTORY/)
 
 `list_tool_packages` 在运行时被注入到除 `none` 以外的每个启用包中。
 本文件对其有说明，但本文件中的包计数反映的是 YAML 定义的工具面。

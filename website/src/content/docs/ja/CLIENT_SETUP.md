@@ -52,7 +52,7 @@ python -m playwright install chromium
 
 **PyPI そのものに到達できない場合** — 社内ネットワークがパッケージインデックスをブロックしているケース — は、どちらの経路でもパッケージを取得できません。情報システム部門に `pypi.org` と `files.pythonhosted.org` の許可を依頼するか、社内インデックスにミラーしてもらい `pip install --index-url` で指定してください。
 
-> Windows ユーザー: ステップごとの詳細とプロキシ/ウイルス対策に関する注意は [Windows インストールガイド](WINDOWS_INSTALL.md) を参照してください。
+> Windows ユーザー: ステップごとの詳細とプロキシ/ウイルス対策に関する注意は [Windows インストールガイド](../WINDOWS_INSTALL/) を参照してください。
 
 ### 3. サーバーを MCP クライアント設定に追加する
 

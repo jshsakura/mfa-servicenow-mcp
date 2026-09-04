@@ -49,6 +49,9 @@ REPO_FILES_DIR = ROOT
 
 LANGS = ["", ".es", ".hi", ".ja", ".ko", ".zh"]
 LOCALE_DIR = {"": "", ".es": "es", ".hi": "hi", ".ja": "ja", ".ko": "ko", ".zh": "zh"}
+# Only so a rewrite failure can name the canonical docs/ file the caller has to
+# fix, rather than the generated mirror they must not edit.
+_LANG_FOR_LOCALE_DIR = {directory: lang for lang, directory in LOCALE_DIR.items()}
 
 # docs/ files that carry package-count table rows and/or prose counts.
 DOC_FILES = (
@@ -106,6 +109,67 @@ def _convert_admonitions(text: str) -> str:
     return _DANGER_RE.sub(repl, text)
 
 
+# Links between docs/ pages are written as repo-relative Markdown filenames
+# (`TOOL_INVENTORY.md`, `WINDOWS_INSTALL.ko.md`) because docs/ is also read raw:
+# on GitHub, and curl'd by the LLM setup flow. Mirrored verbatim onto the site
+# the same string becomes a dead URL — `/mfa-servicenow-mcp/ko/TOOL_INVENTORY.md`
+# is not a route — and nothing anywhere says so: the Astro build is green, the
+# page renders, and the link 404s only when somebody clicks it. 29 of them
+# shipped that way.
+#
+# So the mirror rewrites them, and a target this cannot resolve is a hard
+# failure rather than a link that looks fine until it is used.
+#
+# `../<PAGE>/` rather than an absolute path: every mirrored page sits exactly one
+# directory below its locale root, so one relative form is correct for the root
+# locale and for `ko/` alike, and it does not hard-code Astro's `base`.
+#
+# A locale suffix on the TARGET is dropped rather than honoured. The link's
+# locale is the locale of the page holding it: `TOOL_INVENTORY.ko.md` inside the
+# ko mirror and a bare `TOOL_INVENTORY.md` inside the same file must both land on
+# `/ko/TOOL_INVENTORY/`, and docs/ mixes the two forms today.
+#
+# The ONE exception is a page linking to its own base from a non-root locale.
+# `docs/TOOL_INVENTORY.ko.md` is a summary whose whole point is to hand the
+# reader the full English inventory, and on GitHub `./TOOL_INVENTORY.md` says
+# exactly that. Folded into the locale like every other link it became a link to
+# the page you are already reading — the promised document, replaced by itself,
+# in five locales. A self-link is never the intent, so it resolves one directory
+# further up: `../../<PAGE>/`, the root locale.
+_DOC_LINK_RE = re.compile(r"\]\((?P<target>[^)\s]+\.md)\)")
+_LOCALE_SUFFIXES = tuple(lang for lang in LANGS if lang)
+
+
+def _rewrite_doc_links(base: str, lang: str, text: str) -> str:
+    def repl(m: "re.Match[str]") -> str:
+        target = m.group("target")
+        # Absolute links (the GitHub blob URLs in llm-setup) are already valid
+        # off-site addresses and are left exactly as written.
+        if "://" in target or target.startswith("/"):
+            return m.group(0)
+
+        stem = target[:-3]
+        if stem.startswith("./"):
+            stem = stem[2:]
+        for suffix in _LOCALE_SUFFIXES:
+            if stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+
+        if stem not in MIRRORED_PAGES:
+            raise SystemExit(
+                f"docs/{base}{lang}.md links to {target!r}, which is not a mirrored page. "
+                f"Mirrored pages: {', '.join(sorted(MIRRORED_PAGES))}. Either point the link "
+                "at one of those, or make it an absolute URL — a relative *.md link cannot "
+                "survive the trip onto the site."
+            )
+        if stem == base and lang:
+            return f"](../../{stem}/)"
+        return f"](../{stem}/)"
+
+    return _DOC_LINK_RE.sub(repl, text)
+
+
 def _yaml_escape(s: str) -> str:
     return s.replace('"', '\\"')
 
@@ -131,6 +195,7 @@ def wrap_for_starlight(base: str, text: str, locale_dir: str = "") -> str:
     body = "\n".join(rest) + "\n"
     if base == "TOOL_PACKAGES":
         body = _convert_admonitions(body)
+    body = _rewrite_doc_links(base, _LANG_FOR_LOCALE_DIR.get(locale_dir, ""), body)
     description = MIRRORED_PAGES[base]
     slug = f"{locale_dir}/{base}" if locale_dir else base
     # Explicit slug pins the URL to the page's exact on-disk casing

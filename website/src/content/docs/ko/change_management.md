@@ -23,7 +23,7 @@ ServiceNow MCP 서버는 다음과 같은 변경 관리 도구를 제공합니�
    - `action="add_task"`: `change_id`, `task_short_description` 필수, 그 외 `task_description`, `task_assigned_to`, `task_planned_start_date`, `task_planned_end_date` 선택
 
 2. **`sn_query`** (`table=change_request`) - 임의의 필터로 변경 요청 목록을 조회합니다.
-   - 범용 테이블 쿼리 프리미티브로 변경 요청 목록을 조회합니다. `sn_query` 매개변수는 [Tool Inventory](TOOL_INVENTORY.md)를 참고하세요.
+   - 범용 테이블 쿼리 프리미티브로 변경 요청 목록을 조회합니다. `sn_query` 매개변수는 [Tool Inventory](../TOOL_INVENTORY/)를 참고하세요.
 
 3. **`manage_change(action="get")`** - 특정 변경 요청의 상세 정보를 조회합니다.
    - 매개변수:

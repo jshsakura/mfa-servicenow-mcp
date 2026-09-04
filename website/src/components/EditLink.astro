@@ -1,0 +1,85 @@
+---
+/**
+ * Starlight builds `editUrl` by appending the page's path INSIDE the content
+ * collection to `editLink.baseUrl`. For this site that path is a generated
+ * mirror (`scripts/regenerate_doc_counts.py::sync_mirrors`), so every link came
+ * out as `.../edit/main/docs/src/content/docs/<locale>/<PAGE>.md` — a path that
+ * exists in no branch. Measured on a build: 48 edit links, 0 of them resolving.
+ *
+ * The file a reader should actually open is the canonical source the mirror is
+ * generated from: `docs/<PAGE><.lang>.md`. Editing the mirror would be undone by
+ * the next generator run, so pointing at it was wrong twice over.
+ *
+ * Derived from `entry.filePath` rather than from the route's locale, because a
+ * page served through Starlight's fallback (llm-setup, untranslated in all five
+ * locales) lives at `/ko/llm-setup/` while its content really is
+ * `docs/llm-setup.md`. filePath names the file that was actually rendered, so
+ * the fallback case comes out right without a special branch.
+ *
+ * `editUrl` is still what decides whether to render at all: it is `undefined`
+ * when a page sets `editUrl: false` (the landing page does), and dropping that
+ * check would put an edit link on a page that opted out.
+ */
+import { Icon } from '@astrojs/starlight/components';
+
+const COLLECTION_ROOT = 'src/content/docs/';
+// Starlight locale directory -> the suffix docs/ uses for that translation.
+const DOCS_SUFFIX: Record<string, string> = {
+  es: '.es',
+  hi: '.hi',
+  ja: '.ja',
+  ko: '.ko',
+  zh: '.zh',
+};
+
+const { editUrl, entry } = Astro.locals.starlightRoute;
+
+/**
+ * `src/content/docs/ko/CLIENT_SETUP.md` -> `docs/CLIENT_SETUP.ko.md`.
+ * Returns undefined for anything that is not a mirrored docs page, so an
+ * unrecognised layout drops the link rather than publishing a guessed path.
+ */
+function canonicalDocsPath(filePath: string | undefined): string | undefined {
+  if (!filePath) return undefined;
+  const normalized = filePath.replaceAll('\\', '/');
+  const index = normalized.indexOf(COLLECTION_ROOT);
+  if (index === -1) return undefined;
+
+  const segments = normalized.slice(index + COLLECTION_ROOT.length).split('/');
+  const file = segments.pop();
+  if (!file || !file.endsWith('.md')) return undefined;
+
+  if (segments.length === 0) return `docs/${file}`;
+  if (segments.length > 1) return undefined;
+
+  const suffix = DOCS_SUFFIX[segments[0]!];
+  if (!suffix) return undefined;
+  return `docs/${file.slice(0, -3)}${suffix}.md`;
+}
+
+const docsPath = canonicalDocsPath(entry?.filePath);
+const href = docsPath
+  ? `https://github.com/jshsakura/mfa-servicenow-mcp/edit/main/${docsPath}`
+  : undefined;
+---
+
+{
+  editUrl && href && (
+    <a href={href} class="sl-flex print:hidden">
+      <Icon name="pencil" size="1.2em" />
+      {Astro.locals.t('page.editLink')}
+    </a>
+  )
+}
+
+<style>
+  a {
+    gap: 0.5rem;
+    align-items: center;
+    text-decoration: none;
+    color: var(--sl-color-gray-3);
+  }
+  a:hover {
+    color: var(--sl-color-white);
+  }
+</style>

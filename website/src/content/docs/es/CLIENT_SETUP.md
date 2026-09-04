@@ -52,7 +52,7 @@ Un Python del [instalador de python.org](https://www.python.org/downloads/) (fir
 
 Si **el bloqueo alcanza al propio PyPI** —una red corporativa que corta el índice de paquetes—, ninguna de las dos vías puede descargar nada. Pide a IT que incluya `pypi.org` y `files.pythonhosted.org` en la lista de permitidos, o que replique el paquete en un índice interno al que puedas apuntar con `pip install --index-url`.
 
-> Usuarios de Windows: consulta la [Guía de instalación en Windows](WINDOWS_INSTALL.md) para ver detalles paso a paso y notas sobre proxy/antivirus.
+> Usuarios de Windows: consulta la [Guía de instalación en Windows](../WINDOWS_INSTALL/) para ver detalles paso a paso y notas sobre proxy/antivirus.
 
 ### 3. Añade el servidor a la configuración de tu cliente MCP
 

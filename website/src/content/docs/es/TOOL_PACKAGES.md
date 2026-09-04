@@ -43,7 +43,7 @@ los dominios simultáneamente** (incidentes, cambios, portal, Flow Designer, flu
 solo prompt mal entendido o una alucinación pueden desencadenar cambios destructivos en varias áreas a la vez.
 
 **No subas de nivel desde `standard` a menos que:**
-- Comprendas cada herramienta de escritura que activa el paquete (consulta [Inventario de herramientas](TOOL_INVENTORY.md))
+- Comprendas cada herramienta de escritura que activa el paquete (consulta [Inventario de herramientas](../TOOL_INVENTORY/))
 - Estés trabajando en una instancia **no productiva** o **de pruebas (sandbox)**, o tengas activado el control `allow_writes`
 - Seas un desarrollador de ServiceNow con experiencia que sepa cómo recuperarse de cambios no deseados
 
@@ -92,4 +92,4 @@ Sin fallos silenciosos — el LLM sabe exactamente qué paquete solicitar.
 
 ## Lista completa de herramientas
 
-Para ver la lista completa de las 73 herramientas por categoría y pertenencia a paquete, consulta [Inventario de herramientas](TOOL_INVENTORY.md).
+Para ver la lista completa de las 73 herramientas por categoría y pertenencia a paquete, consulta [Inventario de herramientas](../TOOL_INVENTORY/).

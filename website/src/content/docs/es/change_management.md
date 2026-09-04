@@ -23,7 +23,7 @@ El servidor ServiceNow MCP proporciona las siguientes herramientas de gestión d
    - Para `action="add_task"`: `change_id`, `task_short_description`, además de los opcionales `task_description`, `task_assigned_to`, `task_planned_start_date`, `task_planned_end_date`
 
 2. **`sn_query`** (con `table=change_request`) - Listar solicitudes de cambio con filtros arbitrarios
-   - Utilice la primitiva genérica de consulta de tablas para listar solicitudes de cambio. Consulte [Inventario de herramientas](TOOL_INVENTORY.md) para conocer los parámetros de `sn_query`.
+   - Utilice la primitiva genérica de consulta de tablas para listar solicitudes de cambio. Consulte [Inventario de herramientas](../TOOL_INVENTORY/) para conocer los parámetros de `sn_query`.
 
 3. **`manage_change(action="get")`** - Obtener información detallada sobre una solicitud de cambio específica
    - Parámetros:

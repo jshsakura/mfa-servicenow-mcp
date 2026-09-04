@@ -10,7 +10,7 @@ slug: ja/TOOL_INVENTORY
 `full` にパッケージ化されたツール数: **61**
 登録済みだが現在パッケージ化されていないツール: **11**
 
-- ツールごとの完全な一覧: [英語版 TOOL_INVENTORY.md](./TOOL_INVENTORY.md)
+- ツールごとの完全な一覧: [英語版 TOOL_INVENTORY.md](../../TOOL_INVENTORY/)
 
 `list_tool_packages` は、`none` を除くすべての有効なパッケージに実行時に注入されます。
 本ファイルでは下記に記載していますが、本ファイル内のパッケージ数は YAML で定義されたツールサーフェスを反映しています。

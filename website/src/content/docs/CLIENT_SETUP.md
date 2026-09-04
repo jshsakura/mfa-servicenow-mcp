@@ -52,7 +52,7 @@ A Python from the [python.org installer](https://www.python.org/downloads/) (sig
 
 If **PyPI itself is unreachable** — a corporate network that blocks the package index — neither path can fetch anything. Ask IT to allowlist `pypi.org` and `files.pythonhosted.org`, or to mirror the package on an internal index you can point at with `pip install --index-url`.
 
-> Windows users: see [Windows Installation Guide](WINDOWS_INSTALL.md) for step-by-step details and proxy/antivirus notes.
+> Windows users: see [Windows Installation Guide](../WINDOWS_INSTALL/) for step-by-step details and proxy/antivirus notes.
 
 ### 3. Add the server to your MCP client config
 

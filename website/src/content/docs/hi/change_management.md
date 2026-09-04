@@ -23,7 +23,7 @@ ServiceNow MCP सर्वर निम्नलिखित चेंज म�
    - `action="add_task"` के लिए: `change_id`, `task_short_description`, साथ ही वैकल्पिक `task_description`, `task_assigned_to`, `task_planned_start_date`, `task_planned_end_date`
 
 2. **`sn_query`** (`table=change_request` के साथ) - मनमाने फ़िल्टर के साथ चेंज रिक्वेस्ट सूचीबद्ध करें
-   - चेंज रिक्वेस्ट सूचीबद्ध करने के लिए जेनेरिक टेबल-क्वेरी प्रिमिटिव का उपयोग करें। `sn_query` पैरामीटर के लिए [टूल इन्वेंट्री](TOOL_INVENTORY.md) देखें।
+   - चेंज रिक्वेस्ट सूचीबद्ध करने के लिए जेनेरिक टेबल-क्वेरी प्रिमिटिव का उपयोग करें। `sn_query` पैरामीटर के लिए [टूल इन्वेंट्री](../TOOL_INVENTORY/) देखें।
 
 3. **`manage_change(action="get")`** - किसी विशिष्ट चेंज रिक्वेस्ट के बारे में विस्तृत जानकारी प्राप्त करें
    - पैरामीटर:

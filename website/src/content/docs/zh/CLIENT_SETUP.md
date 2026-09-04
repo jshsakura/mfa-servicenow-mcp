@@ -52,7 +52,7 @@ python -m playwright install chromium
 
 **如果连 PyPI 本身都无法访问** —— 企业网络屏蔽了包索引 —— 那么两条路径都拿不到这个包。请让 IT 将 `pypi.org` 和 `files.pythonhosted.org` 加入白名单，或者在内部索引上做镜像，再用 `pip install --index-url` 指向它。
 
-> Windows 用户：分步细节及代理/杀毒软件注意事项请参阅 [Windows 安装指南](WINDOWS_INSTALL.md)。
+> Windows 用户：分步细节及代理/杀毒软件注意事项请参阅 [Windows 安装指南](../WINDOWS_INSTALL/)。
 
 ### 3. 将服务器添加到你的 MCP 客户端配置
 

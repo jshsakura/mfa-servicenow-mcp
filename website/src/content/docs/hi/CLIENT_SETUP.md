@@ -52,7 +52,7 @@ python -m playwright install chromium
 
 यदि **PyPI तक ही पहुँच अवरुद्ध है** — यानी कॉर्पोरेट नेटवर्क पैकेज इंडेक्स को ही ब्लॉक करता है — तो इनमें से कोई भी रास्ता पैकेज नहीं ला सकता। अपनी IT टीम से `pypi.org` और `files.pythonhosted.org` को allowlist कराएँ, या पैकेज को किसी आंतरिक इंडेक्स पर मिरर कराएँ जिसे आप `pip install --index-url` से इस्तेमाल कर सकें।
 
-> Windows उपयोगकर्ता: चरण-दर-चरण विवरण और proxy/antivirus नोट्स के लिए [Windows Installation Guide](WINDOWS_INSTALL.md) देखें।
+> Windows उपयोगकर्ता: चरण-दर-चरण विवरण और proxy/antivirus नोट्स के लिए [Windows Installation Guide](../WINDOWS_INSTALL/) देखें।
 
 ### 3. अपने MCP क्लाइंट कॉन्फ़िग में सर्वर जोड़ें
 

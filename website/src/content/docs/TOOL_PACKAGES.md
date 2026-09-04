@@ -43,7 +43,7 @@ domain simultaneously** (incidents, changes, portal, Flow Designer, workflows, s
 misunderstood prompt or hallucination can trigger destructive changes across multiple areas at once.
 
 **Do not opt up from `standard` unless:**
-- You understand every write tool the package activates (see [Tool Inventory](TOOL_INVENTORY.md))
+- You understand every write tool the package activates (see [Tool Inventory](../TOOL_INVENTORY/))
 - You are working in a **non-production** or **sandboxed** instance, or have `allow_writes` gating in place
 - You are an experienced ServiceNow developer who knows how to recover from unintended changes
 
@@ -92,4 +92,4 @@ No silent failures — the LLM knows exactly which package to request.
 
 ## Full tool list
 
-For the complete list of all 75 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).
+For the complete list of all 75 tools by category and package membership, see [Tool Inventory](../TOOL_INVENTORY/).
