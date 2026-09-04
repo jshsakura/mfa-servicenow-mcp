@@ -21,7 +21,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools._preview import build_update_preview
+from servicenow_mcp.tools._preview import build_create_preview, build_update_preview
 from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -251,12 +251,27 @@ def get_notification(
 
 
 def create_notification(
-    config: ServerConfig, auth_manager: AuthManager, **fields: Any
+    config: ServerConfig, auth_manager: AuthManager, *, dry_run: bool = False, **fields: Any
 ) -> Dict[str, Any]:
     """Create a notification. `category` is mandatory on the platform's own
     dictionary; omitting it is passed through rather than defaulted here —
     what happens then is the platform's rule to enforce, not this tool's to
-    guess."""
+    guess.
+
+    ``dry_run`` was already accepted here — it is declared on the tool's params
+    model, so every action takes it — and then dropped: `manage_notification`
+    simply did not pass it on. `_FIELDS_BY_ACTION` leaving it off `create` did
+    not reject it either, because that map narrows the ADVERTISED SCHEMA
+    (`server.py` -> `_narrow_action_schema`) and validates nothing at runtime.
+    A caller asking for a preview got a real record.
+
+    A create preview is thinner than an update's by nature and that is not a
+    defect: `build_update_preview` fetches the record and diffs it, and a create
+    has nothing to diff against. `build_create_preview` is the repo's answer for
+    that, already used by workflow_tools — used here rather than hand-rolled, so
+    every preview in this server keeps the same shape (`warnings`,
+    `precision_notes`) and a caller cannot tell them apart by accident.
+    """
     body = _build_body(
         config,
         auth_manager,
@@ -267,6 +282,11 @@ def create_notification(
     )
     if "__error__" in body:
         return {"success": False, "message": body["__error__"]}
+
+    if dry_run:
+        # After _build_body, so the preview shows the record the SERVER would
+        # receive — references already resolved to sys_ids, not the names typed.
+        return build_create_preview(table=NOTIF_TABLE, proposed=body)
 
     url = f"{config.instance_url}/api/now/table/{NOTIF_TABLE}"
     headers = auth_manager.get_headers()
@@ -417,8 +437,10 @@ def get_template(config: ServerConfig, auth_manager: AuthManager, *, sys_id: str
 
 
 def create_template(
-    config: ServerConfig, auth_manager: AuthManager, **fields: Any
+    config: ServerConfig, auth_manager: AuthManager, *, dry_run: bool = False, **fields: Any
 ) -> Dict[str, Any]:
+    """Create an email template. See `create_notification` for why `dry_run`
+    had to be threaded here rather than merely accepted."""
     body = _build_body(
         config,
         auth_manager,
@@ -429,6 +451,9 @@ def create_template(
     )
     if not body.get("name"):
         return {"success": False, "message": "name is required to create an email template"}
+
+    if dry_run:
+        return build_create_preview(table=TEMPLATE_TABLE, proposed=body)
 
     url = f"{config.instance_url}/api/now/table/{TEMPLATE_TABLE}"
     headers = auth_manager.get_headers()

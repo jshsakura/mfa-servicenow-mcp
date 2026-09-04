@@ -133,16 +133,16 @@ class ManageNotificationParams(BaseModel):
         description="Record name — notification or template (required on create_template)",
     )
 
-    dry_run: bool = Field(default=False, description="Preview update without committing")
+    dry_run: bool = Field(default=False, description="Preview the write without committing")
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
         "list": frozenset({"collection", "query", "active", "limit", "offset", "count_only"}),
         "get": frozenset({"sys_id"}),
-        "create": _NOTIF_WRITE_FIELDS,
+        "create": _NOTIF_WRITE_FIELDS | {"dry_run"},
         "update": _NOTIF_WRITE_FIELDS | {"sys_id", "dry_run"},
         "list_templates": frozenset({"collection", "query", "limit", "offset", "count_only"}),
         "get_template": frozenset({"sys_id"}),
-        "create_template": _TEMPLATE_WRITE_FIELDS,
+        "create_template": _TEMPLATE_WRITE_FIELDS | {"dry_run"},
         "update_template": _TEMPLATE_WRITE_FIELDS | {"sys_id", "dry_run"},
     }
 
@@ -229,7 +229,9 @@ def manage_notification(
         "send_self": params.send_self,
     }
     if params.action == "create":
-        return _svc.create_notification(config, auth_manager, **notif_kwargs)
+        return _svc.create_notification(
+            config, auth_manager, dry_run=params.dry_run, **notif_kwargs
+        )
     if params.action == "update":
         assert params.sys_id is not None
         return _svc.update_notification(
@@ -244,7 +246,7 @@ def manage_notification(
         "message_text": params.message_text,
     }
     if params.action == "create_template":
-        return _svc.create_template(config, auth_manager, **template_kwargs)
+        return _svc.create_template(config, auth_manager, dry_run=params.dry_run, **template_kwargs)
     # update_template
     assert params.sys_id is not None
     return _svc.update_template(

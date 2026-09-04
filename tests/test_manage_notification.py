@@ -274,6 +274,61 @@ class TestManageNotification(unittest.TestCase):
         self.assertTrue(args[1].endswith("/api/now/table/sysevent_email_template"))
         self.assertEqual("request.returned.notice", kwargs["json"]["name"])
 
+    # --- create: dry_run must not write ---
+    # The flag was accepted on create and dropped: it is declared on the params
+    # model so every action takes it, and _FIELDS_BY_ACTION leaving it off
+    # `create` rejected nothing (that map narrows the ADVERTISED schema, it does
+    # not validate). The caller asked for a preview and got a real record.
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_create_dry_run_previews_without_posting(self, mock_query):
+        mock_query.side_effect = [
+            ([{"sys_id": "cat1", "name": "Misc"}], 1),
+            ([{"sys_id": "tpl1", "name": "request.returned.notice"}], 1),
+        ]
+        result = self._run(
+            action="create",
+            category="Misc",
+            template="request.returned.notice",
+            collection="x_myapp",
+            subject="Returned",
+            dry_run=True,
+        )
+        self.assertTrue(result["dry_run"])
+        self.assertEqual("create", result["operation"])
+        self.assertEqual("sysevent_email_action", result["target"]["table"])
+        # Resolved to sys_ids: the preview shows what the SERVER would receive,
+        # not the names the caller typed.
+        self.assertEqual("cat1", result["proposed_record"]["category"])
+        self.assertEqual("tpl1", result["proposed_record"]["template"])
+        self.auth.make_request.assert_not_called()
+
+    def test_create_template_dry_run_previews_without_posting(self):
+        result = self._run(
+            action="create_template",
+            name="request.returned.notice",
+            subject="${number} returned",
+            dry_run=True,
+        )
+        self.assertTrue(result["dry_run"])
+        self.assertEqual("sysevent_email_template", result["target"]["table"])
+        self.assertEqual("request.returned.notice", result["proposed_record"]["name"])
+        self.auth.make_request.assert_not_called()
+
+    def test_a_create_preview_has_the_same_shape_as_every_other_preview(self):
+        """Built with the shared helper, not hand-rolled.
+
+        A create preview is thinner than an update's by nature — there is no
+        existing record to diff against — and that is fine. What is not fine is
+        a second preview shape under the same name: a caller who reads
+        `warnings` and `precision_notes` on one and not the other cannot tell
+        which guarantees it just got.
+        """
+        result = self._run(action="create_template", name="request.returned.notice", dry_run=True)
+        for key in ("dry_run", "operation", "target", "proposed_record", "warnings"):
+            self.assertIn(key, result)
+        self.assertIn("precision_notes", result)
+
     @patch(f"{SVC}.sn_query_page")
     def test_update_template_not_found(self, mock_query):
         mock_query.return_value = ([], 0)
