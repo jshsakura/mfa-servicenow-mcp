@@ -45,7 +45,7 @@ class TestManageUxList(unittest.TestCase):
                     "sys_id": "l1",
                     "title": "Direct OI",
                     "table": "x_myapp_beta",
-                    "view": {"display_value": "YKO_DIRECT_OI"},
+                    "view": {"display_value": "sample_list_view"},
                     "columns": "new_number,state",
                     "fixed_query": "company=abc",
                     "condition": "",
@@ -61,7 +61,7 @@ class TestManageUxList(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(1, len(result["lists"]))
         self.assertEqual("l1", result["lists"][0]["sys_id"])
-        self.assertEqual("YKO_DIRECT_OI", result["lists"][0]["view"])
+        self.assertEqual("sample_list_view", result["lists"][0]["view"])
         self.assertTrue(result["lists"][0]["active"])
         _, kwargs = mock_query.call_args
         self.assertEqual("table=x_myapp_beta", kwargs["query"])
@@ -128,7 +128,7 @@ class TestManageUxList(unittest.TestCase):
             ([{"sys_id": "80e4...view", "name": "yko_direct_oi"}], 1),
         ]
         self.auth.make_request.return_value = _mock_response({"sys_id": "l1", "title": "Direct OI"})
-        result = self._run(action="update", sys_id="l1", view="YKO_DIRECT_OI")
+        result = self._run(action="update", sys_id="l1", view="sample_list_view")
         self.assertTrue(result["success"])
         _, kwargs = self.auth.make_request.call_args
         # The reference field gets a real sys_id, never the display name.
