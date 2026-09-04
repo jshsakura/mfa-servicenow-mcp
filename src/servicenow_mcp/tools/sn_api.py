@@ -459,6 +459,17 @@ def invalidate_read_cache(namespace: Optional[str] = None) -> int:
         return len(keys)
 
 
+# Enough of a query to identify its SHAPE — which field, which operator, how
+# many ids — without pasting a kilobyte of sys_ids into every log line.
+_LOG_QUERY_CHARS = 300
+
+
+def _truncate_for_log(value: str) -> str:
+    if len(value) <= _LOG_QUERY_CHARS:
+        return value or "(none)"
+    return f"{value[:_LOG_QUERY_CHARS]}…(+{len(value) - _LOG_QUERY_CHARS} chars)"
+
+
 def sn_query_page(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -572,12 +583,26 @@ def sn_query_page(
         # end-of-data to every caller above this, so a swallowed read that left
         # no trace anywhere was unreconstructable after the fact: the only
         # evidence a page had been dropped was rows that were never there.
+        #
+        # The QUERY is logged too, and that was the missing half. Seven days of
+        # real sessions carried 70 silenced HTTP 400s on two portal m2m tables,
+        # and not one of them could be diagnosed afterwards: the request line
+        # records the URL without `sysparm_query`/`sysparm_fields`, and a 400
+        # with no parseable ServiceNow error body leaves the exception saying
+        # only "Bad Request". Table name, field names, query length and an empty
+        # IN list were each tested against a live instance and each cleared — so
+        # what was actually sent is the one thing that would have answered it,
+        # and it was the one thing nobody wrote down. Truncated because an IN
+        # list of ids is routinely kilobytes and the shape is what identifies it.
         logger.warning(
-            "sn_query_page silenced a failure (table=%s offset=%s limit=%s): %s — "
-            "returning an EMPTY page, which callers cannot tell from end-of-data",
+            "sn_query_page silenced a failure (table=%s offset=%s limit=%s "
+            "query=%s fields=%s): %s — returning an EMPTY page, which callers "
+            "cannot tell from end-of-data",
             table,
             offset,
             limit,
+            _truncate_for_log(str(params.get("sysparm_query") or "")),
+            _truncate_for_log(str(params.get("sysparm_fields") or "")),
             exc,
         )
         return [], None

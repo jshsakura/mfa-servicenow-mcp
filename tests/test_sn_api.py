@@ -504,11 +504,49 @@ def test_a_silenced_page_says_so_in_the_log(caplog):
 
     with caplog.at_level(logging.WARNING, logger="servicenow_mcp.tools.sn_api"):
         rows, total = sn_query_page(
-            cfg, am, table="incident", query="", fields="", limit=10, offset=40
+            cfg,
+            am,
+            table="incident",
+            query="active=true^assigned_toISEMPTY",
+            fields="number,short_description",
+            limit=10,
+            offset=40,
         )
 
     assert (rows, total) == ([], None)
-    assert any("silenced a failure" in record.getMessage() for record in caplog.records)
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("silenced a failure" in m for m in messages)
+    # The QUERY, not only the table. Seven days of production logs carried 70
+    # silenced 400s that could not be diagnosed afterwards, because the request
+    # line records the URL without sysparm_query/sysparm_fields and a 400 with
+    # no ServiceNow error body says only "Bad Request". What was actually sent
+    # is the one thing that would have answered it.
+    assert any("active=true^assigned_toISEMPTY" in m for m in messages)
+    assert any("number,short_description" in m for m in messages)
+
+
+def test_a_silenced_page_does_not_paste_a_kilobyte_of_ids_into_the_log(caplog):
+    """An IN list of sys_ids is routinely kilobytes; the SHAPE identifies it."""
+    import logging
+
+    from servicenow_mcp.tools.sn_api import _LOG_QUERY_CHARS, sn_query_page
+
+    cfg = _browser_cfg_for("https://silentpage2.service-now.com")
+    am = MagicMock()
+    am.make_request.side_effect = RuntimeError("connection reset")
+    huge = "sp_widgetIN" + ",".join("aaaa1111bbbb2222cccc3333dddd%04d" % i for i in range(100))
+
+    with caplog.at_level(logging.WARNING, logger="servicenow_mcp.tools.sn_api"):
+        sn_query_page(
+            cfg, am, table="m2m_sp_widget_dependency", query=huge, fields="", limit=50, offset=0
+        )
+
+    message = next(m for m in (r.getMessage() for r in caplog.records) if "silenced" in m)
+    assert "sp_widgetINaaaa1111bbbb2222cccc3333dddd0000" in message, "the shape must survive"
+    assert huge not in message, "the whole IN list must not be pasted into every log line"
+    assert f"+{len(huge) - _LOG_QUERY_CHARS} chars" in message, "the truncation must be stated"
+    # An absent field list reads as absent, not as an empty string nobody notices.
+    assert "fields=(none)" in message
 
 
 def test_a_count_only_tool_reports_a_failure_instead_of_zero(monkeypatch):

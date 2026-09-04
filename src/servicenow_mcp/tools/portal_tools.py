@@ -3222,31 +3222,68 @@ def _capture_widget_dependency_graph(
     widget_name_by_sys_id: Dict[str, str],
     scope_root: Path,
     warnings: List[str],
-) -> int:
+) -> Tuple[int, bool]:
     """Capture authoritative widget -> CSS/JS dependency edges to _dependency_graph.json.
 
     From m2m_sp_widget_dependency -> sp_dependency, captured at download so offline
     analysis reads the real relationship graph instead of guessing from code.
     Fully fail-safe: chunked, capped, and wrapped — a denied/empty dependency
     table never breaks the download (this metadata is additive, not load-bearing).
-    Returns the edge count; appends a non-fatal note to ``warnings`` on failure.
+
+    **Fail-safe is not the same as trustworthy, and this used to conflate them.**
+    The read ran with the default ``fail_silently=True``, so a refused page came
+    back EMPTY and this function wrote a graph with fewer edges than the instance
+    has, reported a count, and said nothing. Measured over seven days of real
+    sessions: 70 of 116 requests to this table and its provider sibling returned
+    HTTP 400, every one of them silently. Offline analysis then reads a missing
+    edge as "this widget has no dependencies" — an absence scored as a fact,
+    which is the failure this repo keeps finding.
+
+    So the read is no longer silent, and what could not be read is CARRIED:
+    ``_dependency_graph.json`` gets a ``_complete`` flag and the caller gets it
+    back. Same discipline as ``source_tools._read_related_values``, which returns
+    ``(values, complete)`` for exactly this reason one file over.
+
+    Returns ``(edge_count, complete)``; appends a note to ``warnings`` on failure.
     """
     if not widgets:
-        return 0
+        return 0, True
+    complete = True
     try:
         dep_widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
         widget_dep_edges: Dict[str, List[str]] = {}
         dep_ids: List[str] = []
         for sys_id_chunk in _chunked(dep_widget_sys_ids, 100):
-            for row in _sn_query_all(
-                config,
-                auth_manager,
-                table=WIDGET_DEPENDENCY_TABLE,
-                query=f"sp_widgetIN{','.join(_escape_query(v) for v in sys_id_chunk)}",
-                fields="sp_widget,sp_dependency",
-                page_size=params.page_size,
-                max_records=500,
-            ):
+            try:
+                dep_rows = _sn_query_all(
+                    config,
+                    auth_manager,
+                    table=WIDGET_DEPENDENCY_TABLE,
+                    query=f"sp_widgetIN{','.join(_escape_query(v) for v in sys_id_chunk)}",
+                    fields="sp_widget,sp_dependency",
+                    page_size=params.page_size,
+                    max_records=500,
+                    # The whole point: a refused page must reach this handler
+                    # instead of arriving as zero rows.
+                    fail_silently=False,
+                )
+            except Exception as chunk_exc:  # noqa: BLE001 - non-fatal, but never silent
+                complete = False
+                warnings.append(
+                    f"dependency graph: could not read {WIDGET_DEPENDENCY_TABLE} for "
+                    f"{len(sys_id_chunk)} widget(s) — {chunk_exc}. Those widgets have NO "
+                    "edges in _dependency_graph.json, which means UNREAD, not none."
+                )
+                continue
+            if len(dep_rows) >= 500:
+                # A cap is a limit, and a limit is a stop. Rows beyond it exist
+                # and are not in the graph.
+                complete = False
+                warnings.append(
+                    "dependency graph: a chunk hit the 500-row cap; some widgets list "
+                    "fewer dependencies than they have."
+                )
+            for row in dep_rows:
                 dep_id = _as_ref_sys_id(row.get("sp_dependency"))
                 widget_ref_id = _as_ref_sys_id(row.get("sp_widget"))
                 if dep_id and dep_id not in dep_ids:
@@ -3277,18 +3314,30 @@ def _capture_widget_dependency_graph(
             dep_names = sorted({dep_name_by_sys_id.get(d, d) for d in dep_sids})
             if dep_names:
                 widget_to_deps[widget_label] = dep_names
-        if widget_to_deps:
+        if widget_to_deps or not complete:
+            # `_complete` rides in the map under a reserved, underscore-prefixed
+            # key — the same convention the scope root already uses for its own
+            # files. Widget labels are widget names, so it cannot collide with
+            # one. Written even when no edges were found: "nothing here" and
+            # "nothing readable" are the two answers that must not look alike.
+            #
+            # It merges as False over a previous True on purpose. A file that is
+            # part old-complete data and part fresh-partial data is not complete,
+            # and the merge keeps the old edges rather than losing them.
             merge_map_file(
                 scope_root / "_dependency_graph.json",
-                widget_to_deps,
+                {**widget_to_deps, "_complete": complete},
                 writer=_write_json_file,
                 label="widget_dependency_graph",
             )
-            return sum(len(v) for v in widget_to_deps.values())
-        return 0
+            return sum(len(v) for v in widget_to_deps.values()), complete
+        return 0, complete
     except Exception as _dep_exc:
-        warnings.append(f"dependency graph: capture failed (non-fatal): {_dep_exc}")
-        return 0
+        warnings.append(
+            f"dependency graph: capture failed (non-fatal): {_dep_exc}. "
+            "_dependency_graph.json is INCOMPLETE — a missing edge there means unread."
+        )
+        return 0, False
 
 
 def _download_linked_script_includes(
@@ -3885,7 +3934,7 @@ def download_portal_sources(
             label="widget_provider_graph",
         )
 
-    dependency_edge_count = _capture_widget_dependency_graph(
+    dependency_edge_count, dependency_graph_complete = _capture_widget_dependency_graph(
         config,
         auth_manager,
         params,
@@ -3977,6 +4026,12 @@ def download_portal_sources(
             "angular_providers": len(exported_providers),
             "script_includes": len(exported_script_includes),
             "dependency_edges": dependency_edge_count,
+            # A count means nothing without this. An unreadable m2m page used to
+            # come back as zero rows, so "dependency_edges: 41" could describe a
+            # graph missing an unknown number of edges and read exactly like a
+            # complete one. False means _dependency_graph.json is a floor, not a
+            # census — the named warnings say which widgets are unproven.
+            "dependency_edges_complete": dependency_graph_complete,
         },
         "warnings": warnings,
         "widget_map_path": str(scope_root / "sp_widget" / "_map.json"),

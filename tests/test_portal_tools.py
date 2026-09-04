@@ -802,11 +802,85 @@ def test_download_portal_sources_persists_widget_dependency_graph(
 
     assert result["success"] is True
     assert result["summary"]["dependency_edges"] == 1
+    # A count is not an answer on its own: an unreadable m2m page used to come
+    # back as zero rows, so a short graph read exactly like a complete one.
+    assert result["summary"]["dependency_edges_complete"] is True
     dep_graph_path = tmp_path / "x_myapp" / "_dependency_graph.json"
     assert dep_graph_path.exists()
     dep_graph = json.loads(dep_graph_path.read_text(encoding="utf-8"))
-    # Authoritative widget -> CSS/JS dependency edge, name-keyed.
-    assert dep_graph == {"Quotation Widget": ["myStyles"]}
+    # Authoritative widget -> CSS/JS dependency edge, name-keyed, plus the
+    # reserved completeness marker (underscore-prefixed, so it cannot collide
+    # with a widget name).
+    assert dep_graph == {"Quotation Widget": ["myStyles"], "_complete": True}
+
+
+@patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+@patch("servicenow_mcp.tools.portal_tools.sn_query_page")
+def test_a_refused_dependency_read_is_not_reported_as_no_dependencies(
+    mock_sn_query_page, mock_sn_query_all, mock_config, mock_auth_manager, tmp_path
+):
+    """The download used to answer a refused m2m read with an empty graph.
+
+    Measured over seven days of real sessions: 70 of 116 requests to the two
+    portal m2m tables returned HTTP 400, every one of them silenced into an empty
+    page by `fail_silently=True`. `_dependency_graph.json` was then written short,
+    a count was reported, and nothing said a read had failed — so offline analysis
+    read a missing edge as "this widget has no dependencies".
+    """
+    import json
+
+    def _rows(*args, **kwargs):
+        table = kwargs.get("table", "")
+        if table == "sp_widget":
+            return [
+                {
+                    "sys_id": "wid-1",
+                    "name": "Quotation Widget",
+                    "id": "quotation_widget",
+                    "sys_scope": "x_myapp",
+                    "template": "<div>ok</div>",
+                    "script": "",
+                    "client_script": "",
+                    "link": "",
+                    "css": "",
+                    "option_schema": "",
+                    "demo_data": "",
+                }
+            ]
+        if table == "m2m_sp_widget_dependency":
+            raise RuntimeError("HTTP Error 400: Bad Request")
+        return []
+
+    mock_sn_query_all.side_effect = _rows
+    mock_sn_query_page.return_value = ([], None)
+
+    result = download_portal_sources(
+        mock_config,
+        mock_auth_manager,
+        DownloadPortalSourcesParams(
+            output_dir=str(tmp_path / "x_myapp"),
+            scope="x_myapp",
+            include_linked_script_includes=False,
+            include_linked_angular_providers=True,
+        ),
+    )
+
+    # The download still succeeds — this metadata is additive, not load-bearing.
+    assert result["success"] is True
+    # But it never claims a complete graph it did not read.
+    assert result["summary"]["dependency_edges"] == 0
+    assert result["summary"]["dependency_edges_complete"] is False
+    # And it says which read failed and what a blank edge list now means.
+    joined = " ".join(result["warnings"])
+    assert "m2m_sp_widget_dependency" in joined
+    assert "UNREAD, not none" in joined
+
+    # The file on disk carries it too, for whoever reads the graph offline
+    # without ever seeing this response.
+    dep_graph = json.loads(
+        (tmp_path / "x_myapp" / "_dependency_graph.json").read_text(encoding="utf-8")
+    )
+    assert dep_graph["_complete"] is False
 
 
 def _seed_widget_anchor(scope_root, entries, *, body="BODY"):
