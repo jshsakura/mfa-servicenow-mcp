@@ -92,7 +92,7 @@ def _killed(monkeypatch):
 
 def test_sidecars_are_not_mistaken_for_windows(mine, tmp_path):
     _plant(mine, instance_url="https://test.example.com", username="bob@ex.com")
-    for sidecar in (".cursor", ".login", ".launches", ".impersonation"):
+    for sidecar in (".cursor", ".login", ".launches", ".impersonation", ".owners"):
         # Both shapes: the window-scoped sidecars, and the SESSION-scoped ones
         # that carry a host since v1.24.7 (one window, several instances).
         for name in (

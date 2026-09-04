@@ -74,7 +74,7 @@ from ..browser._offload import PlaywrightUnavailable
 from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
 from ..browser.artifacts import prune as prune_artifacts
 from ..browser.badge import profile_label
-from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate
+from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate, pin_tab
 from ..browser.cursor import resolve_marks, write_mark
 from ..browser.impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, clear_marker
 from ..browser.impersonate import describe_detected as describe_impersonation
@@ -488,6 +488,15 @@ def open_debug_window(
         if moved.get("new_tab"):
             result["new_tab"] = True
             result["tabs"] = moved.get("tabs")
+        if moved.get("claimed_by_other_url"):
+            # Another MCP session is working in that tab and said so. Never
+            # silent: a tab appeared that this caller did not ask for, and the
+            # reason is somebody else's work, not a setting.
+            result["opened_beside"] = (
+                f"Opened in a new tab: another MCP session is working in the tab at "
+                f"{moved['claimed_by_other_url']}, and navigating it would have taken "
+                "the page out from under them."
+            )
         if moved.get("opened_beside_url"):
             # One window holds every instance this account can reach, so the tab
             # that was active is routinely another instance's — or the person's
@@ -538,6 +547,13 @@ def open_debug_window(
             except (NoPageFound, RuntimeError, TimeoutError) as exc:
                 logger.info("Could not give this instance a tab in the shared window: %s", exc)
         result["recording"] = bool(armed.get("armed"))
+        if opened and armed.get("tab_id"):
+            # A window this call just launched holds one tab and it was opened
+            # for this session, so it is this session's from here on. Every
+            # OTHER path into a tab leaves the pin alone: reading or driving a
+            # page somebody else is working in must not turn into a claim on it
+            # (see browser/tab_owner.py).
+            pin_tab(state, str(armed["tab_id"]))
         if armed.get("armed"):
             # The landed truth, read from the page while attached — so the
             # caller does not spend a follow-up inspect confirming the open.
@@ -711,6 +727,16 @@ def inspect_debug_window(
     if impersonation:
         result["impersonating"] = impersonation
 
+    if raw.get("tab_claimed_by_other"):
+        # A read of another session's tab is still a valid read — but of THEIR
+        # page. Said, never silent: the failure this replaces was two terminals
+        # describing one tab as if each had it to itself. Only raised when
+        # another LIVE session actually claims the tab; "not opened by me" is
+        # the ordinary case and saying it every call would be noise.
+        result["tab_note"] = (
+            "This tab is one another MCP session is working in. Reading it is fine; "
+            "call open_debug_window with a url to get a tab of your own before driving it."
+        )
     if identity.get("note"):
         result["session_note"] = identity["note"]
     elif not identity.get("window_user"):
@@ -873,6 +899,14 @@ def act_in_debug_window(
     if failed_step is not None:
         result["failed_step"] = failed_step
         result["skipped_steps"] = raw.get("skipped", 0)
+    if raw.get("tab_claimed_by_other"):
+        # Driving somebody else's tab is worse than reading it, so the same note
+        # is not optional here either.
+        result["tab_note"] = (
+            "These steps ran in a tab another MCP session is working in. Call "
+            "open_debug_window with a url to get a tab of your own before driving this "
+            "window again."
+        )
     if raw.get("dialogs"):
         # Accepted, not dismissed — see browser/actions.py. Always reported,
         # because "a confirm box appeared and was answered" changes what the

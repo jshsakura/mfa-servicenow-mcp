@@ -27,6 +27,7 @@ from servicenow_mcp.browser import (
     reset,
     server_scripts,
     session,
+    tab_owner,
     window,
 )
 from servicenow_mcp.browser.badge import badge_init_script, badge_label, hide_badge_script
@@ -733,10 +734,14 @@ def test_window_state_round_trips_through_disk(auth):
 
     window.write_window_state(auth, state)
 
-    # caller_url is the one field that is NOT persisted — it says which instance
-    # the reader asked about, and the file cannot know that.
+    # caller_url, owner_tab_id and owners_path are the fields that are NOT
+    # persisted — they say which instance the reader asked about and which tab
+    # THIS session works in, and the file cannot know either.
     assert window.read_window_state(auth) == window.replace_state(
-        state, caller_url=auth.instance_url
+        state,
+        caller_url=auth.instance_url,
+        owners_path=window.window_owners_path(auth),
+        owner_tab_id="",
     )
 
 
@@ -3761,22 +3766,49 @@ def test_the_session_files_chromium_restores_from_are_removed(tmp_path):
 class PresencePage:
     """A tab that answers the probe's presence question with a stamp."""
 
-    def __init__(self, url, last_human=None):
+    def __init__(self, url, last_human=None, tab_id=""):
         self.url = url
         self.last_human = last_human
+        self.tab_id = tab_id
 
     def evaluate(self, script):
         if "presence" in script:
             if self.last_human is None:
                 return None  # unarmed document: no say
-            return {"lastHuman": self.last_human, "now": 9_000.0}
+            return {"lastHuman": self.last_human, "now": 9_000.0, "tabId": self.tab_id}
         return None
+
+
+def _pick_state(instance_host, *, pin="", owners_path=""):
+    """A WindowState carrying just what tab selection reads.
+
+    ``_active_instance_page`` takes the state rather than a bare host string
+    because the choice now also depends on which tab THIS session pinned
+    (browser/tab_owner.py) — and the state is the object every call site
+    already holds, so nothing new had to be threaded to reach it.
+    """
+    return window.WindowState(
+        pid=1,
+        port=2,
+        profile_dir="/tmp/p",
+        instance_url=f"https://{instance_host}",
+        started_at=1.0,
+        owner_tab_id=pin,
+        owners_path=owners_path,
+    )
+
+
+def _pick(pages, instance_host, *, pin="", owners_path=""):
+    picked = capture_module._active_instance_page(
+        pages, _pick_state(instance_host, pin=pin, owners_path=owners_path)
+    )
+    return picked.page if picked else None
 
 
 def test_with_one_tab_nothing_is_asked():
     only = PresencePage("https://dev.example.com/sp")
 
-    assert capture_module._active_instance_page([only], "dev.example.com") is only
+    assert _pick([only], "dev.example.com") is only
 
 
 def test_the_tab_last_worked_in_wins_over_the_first_one():
@@ -3785,14 +3817,14 @@ def test_the_tab_last_worked_in_wins_over_the_first_one():
     old = PresencePage("https://dev.example.com/sp", last_human=1000.0)
     new = PresencePage("https://dev.example.com/incident_list.do", last_human=8000.0)
 
-    assert capture_module._active_instance_page([old, new], "dev.example.com") is new
+    assert _pick([old, new], "dev.example.com") is new
 
 
 def test_tabs_off_the_instance_are_never_chosen_over_one_on_it():
     off = PresencePage("https://docs.example.org/guide", last_human=9999.0)
     on = PresencePage("https://dev.example.com/sp", last_human=1.0)
 
-    assert capture_module._active_instance_page([off, on], "dev.example.com") is on
+    assert _pick([off, on], "dev.example.com") is on
 
 
 def test_when_no_tab_can_answer_the_first_instance_tab_is_used():
@@ -3800,7 +3832,7 @@ def test_when_no_tab_can_answer_the_first_instance_tab_is_used():
     first = PresencePage("https://dev.example.com/sp")
     second = PresencePage("https://dev.example.com/other")
 
-    assert capture_module._active_instance_page([first, second], "dev.example.com") is first
+    assert _pick([first, second], "dev.example.com") is first
 
 
 def test_a_tab_that_refuses_to_answer_does_not_break_the_choice():
@@ -3811,16 +3843,14 @@ def test_a_tab_that_refuses_to_answer_does_not_break_the_choice():
     hostile = Hostile("https://dev.example.com/a")
     answering = PresencePage("https://dev.example.com/b", last_human=42.0)
 
-    assert (
-        capture_module._active_instance_page([hostile, answering], "dev.example.com") is answering
-    )
+    assert _pick([hostile, answering], "dev.example.com") is answering
 
 
 def test_devtools_tabs_are_still_never_selected():
     devtools = PresencePage("devtools://devtools/bundled/inspector.html", last_human=9999.0)
     real = PresencePage("https://dev.example.com/sp", last_human=1.0)
 
-    assert capture_module._active_instance_page([devtools, real], "dev.example.com") is real
+    assert _pick([devtools, real], "dev.example.com") is real
 
 
 class ArmablePage:
@@ -4159,10 +4189,11 @@ def test_an_ordinary_expression_still_reads_freely(monkeypatch, tmp_path):
 class CdpTab:
     """A tab in the shared window, good enough for the probe and the dirty read."""
 
-    def __init__(self, url, dirty=(), last_human=0.0):
+    def __init__(self, url, dirty=(), last_human=0.0, tab_id=""):
         self.url = url
         self.dirty = list(dirty)
         self.last_human = last_human
+        self.tab_id = tab_id
         self.closed = False
         self.goto_urls = []
         self.calls = []
@@ -4170,8 +4201,12 @@ class CdpTab:
     def evaluate(self, script, *args):
         if "p.dirty()" in script:
             return {"fields": self.dirty, "observedFromStart": True}
-        if "lastHuman" in script:
-            return {"lastHuman": self.last_human}
+        # Matched on "p.presence()", the way the real script reads. It used to
+        # match on "lastHuman" — a string presence_script() does not contain, so
+        # this tab silently answered None to every presence read and the tests
+        # that depended on one were passing on the fallback path.
+        if "p.presence()" in script:
+            return {"lastHuman": self.last_human, "now": 9_000.0, "tabId": self.tab_id}
         return None
 
     def goto(self, url, wait_until=None):
@@ -4510,7 +4545,7 @@ def test_another_configured_instances_tab_is_never_the_fallback(monkeypatch):
     theirs = CdpTab("https://test.example.com/incident_list.do")
 
     assert capture_module._instance_page([theirs], "dev.example.com") is None
-    assert capture_module._active_instance_page([theirs], "dev.example.com") is None
+    assert _pick([theirs], "dev.example.com") is None
 
 
 def test_an_unconfigured_page_is_still_a_usable_fallback(monkeypatch):
@@ -4716,3 +4751,193 @@ def test_no_screenshot_means_no_cost_note():
     """A note on every reply is a note nobody reads."""
     out = report.compact({"tab_id": "tab-a", "events": []}, artifacts_dir="")
     assert "screenshot_cost" not in out
+
+
+# ---------------------------------------------------------------------------
+# One window, several MCP sessions: whose tab is this?
+#
+# The reported symptom was "one terminal holds the debug browser and the other
+# cannot use it". Nothing held anything — there is no lock on the use path. All
+# four entry points picked "the tab on this instance touched most recently", and
+# Playwright's own input is trusted, so the host that acted last owned the tab
+# for every host. These pin the way out: a tab a session opened stays its tab,
+# and a tab another LIVE session claims is never navigated out from under it.
+# ---------------------------------------------------------------------------
+
+
+def _owners_file(tmp_path, entries):
+    """An owners sidecar written by somebody else's session."""
+    path = str(tmp_path / "owners.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"pins": entries}, handle)
+    return path
+
+
+def test_a_pin_round_trips_and_is_scoped_per_instance(tmp_path):
+    """One window holds several instances, so a session wants a tab in each."""
+    path = str(tmp_path / "owners.json")
+
+    tab_owner.write_pin(path, "dev.example.com", "tab-dev")
+    tab_owner.write_pin(path, "test.example.com", "tab-test")
+
+    assert tab_owner.read_pin(path, "dev.example.com") == "tab-dev"
+    assert tab_owner.read_pin(path, "test.example.com") == "tab-test"
+    # A host this session never pinned is not somebody else's tab by default.
+    assert tab_owner.read_pin(path, "prod.example.com") == ""
+
+
+def test_a_missing_or_corrupt_pin_file_is_simply_no_pin(tmp_path):
+    """Every way of not knowing means "pick a tab the normal way", never a wrong tab."""
+    missing = str(tmp_path / "nope.json")
+    assert tab_owner.read_pin(missing, "dev.example.com") == ""
+
+    corrupt = str(tmp_path / "corrupt.json")
+    with open(corrupt, "w", encoding="utf-8") as handle:
+        handle.write("{not json")
+    assert tab_owner.read_pin(corrupt, "dev.example.com") == ""
+    assert tab_owner.claimed_by_others(corrupt, "dev.example.com") == set()
+
+
+def test_only_another_live_session_on_this_host_claims_a_tab(tmp_path):
+    """Each condition is required, so each one is checked on its own."""
+    path = _owners_file(
+        tmp_path,
+        {
+            # Alive, another session, this host: the one real claim.
+            f"other-{os.getpid()}|dev.example.com": {"tab_id": "tab-theirs", "pid": os.getpid()},
+            # A process that exited: its terminal is closed, it holds nothing.
+            "dead|dev.example.com": {"tab_id": "tab-dead", "pid": 2_147_400_000},
+            # Another instance entirely — a different tab, not this question.
+            f"other-{os.getpid()}|test.example.com": {
+                "tab_id": "tab-other-host",
+                "pid": os.getpid(),
+            },
+            # No tab id identifies no tab.
+            f"nameless-{os.getpid()}|dev.example.com": {"pid": os.getpid()},
+        },
+    )
+
+    assert tab_owner.claimed_by_others(path, "dev.example.com") == {"tab-theirs"}
+
+
+def test_my_own_pin_is_never_a_claim_against_me(tmp_path):
+    """Otherwise a session would step aside from the tab it just opened."""
+    path = str(tmp_path / "owners.json")
+    tab_owner.write_pin(path, "dev.example.com", "tab-mine")
+
+    assert tab_owner.claimed_by_others(path, "dev.example.com") == set()
+
+
+def test_a_pin_survives_a_tab_somebody_else_touched_more_recently(tmp_path):
+    """THE fix. Recency cannot separate two MCP hosts — a pin can.
+
+    Before this, terminal A's clicks (trusted input, via CDP) made A's tab the
+    most recently touched one, and terminal B asking the same question of the
+    same window was handed A's page. No error, no lock: just the wrong tab.
+    """
+    mine = PresencePage("https://dev.example.com/mine", last_human=1.0, tab_id="tab-mine")
+    theirs = PresencePage("https://dev.example.com/theirs", last_human=9_000.0, tab_id="tab-theirs")
+
+    picked = capture_module._active_instance_page(
+        [theirs, mine], _pick_state("dev.example.com", pin="tab-mine")
+    )
+
+    assert picked.page is mine
+    assert picked.mine is True
+    # Without the pin the newest stamp still wins — the old rule is intact.
+    assert _pick([theirs, mine], "dev.example.com") is theirs
+
+
+def test_a_pin_whose_tab_is_gone_is_dropped_and_falls_back(tmp_path):
+    """A pin nobody can match again must not be re-checked forever."""
+    path = str(tmp_path / "owners.json")
+    tab_owner.write_pin(path, "dev.example.com", "tab-closed")
+    live = PresencePage("https://dev.example.com/sp", last_human=5.0, tab_id="tab-live")
+
+    picked = capture_module._active_instance_page(
+        [live], _pick_state("dev.example.com", pin="tab-closed", owners_path=path)
+    )
+
+    assert picked.page is live
+    assert picked.mine is False
+    assert tab_owner.read_pin(path, "dev.example.com") == ""
+
+
+def test_a_pin_is_kept_when_a_tab_could_not_answer(tmp_path):
+    """An unread tab may BE the pinned one — "not asked" is not "not here".
+
+    Dropping the pin here would hand this session a brand new tab on every call
+    while its own sat in front of it, unrecognised.
+    """
+    path = str(tmp_path / "owners.json")
+    tab_owner.write_pin(path, "dev.example.com", "tab-mine")
+    silent = PresencePage("https://dev.example.com/quiet")  # unarmed: no say
+    other = PresencePage("https://dev.example.com/sp", last_human=5.0, tab_id="tab-other")
+
+    picked = capture_module._active_instance_page(
+        [silent, other], _pick_state("dev.example.com", pin="tab-mine", owners_path=path)
+    )
+
+    assert picked.mine is False
+    assert tab_owner.read_pin(path, "dev.example.com") == "tab-mine"
+
+
+def test_navigate_opens_its_own_tab_rather_than_taking_a_claimed_one(monkeypatch, tmp_path):
+    """The other half of the fix: never navigate somebody else's page away."""
+    theirs = CdpTab("https://dev.example.com/incident.do", last_human=5.0, tab_id="tab-theirs")
+    context = CdpContext([theirs])
+    _attach(monkeypatch, capture_module, context)
+    path = _owners_file(
+        tmp_path,
+        {f"other-{os.getpid()}|dev.example.com": {"tab_id": "tab-theirs", "pid": os.getpid()}},
+    )
+    state = window.replace_state(_state(), owners_path=path)
+
+    moved = capture_module.navigate(state, url="https://dev.example.com/sp")
+
+    assert moved["new_tab"] is True
+    assert moved["claimed_by_other_url"] == "https://dev.example.com/incident.do"
+    # Their page was never touched.
+    assert theirs.goto_urls == []
+    assert theirs.url == "https://dev.example.com/incident.do"
+
+
+def test_an_unclaimed_tab_is_still_reused_in_place(monkeypatch, tmp_path):
+    """A single terminal must not grow a tab per navigate.
+
+    "I have no pin" is the ordinary state of the only session in the room, and
+    of the person's own tab. Stepping aside from that would fill the window with
+    pages nobody asked for — the reason the rule is claims, not pins.
+    """
+    unclaimed = CdpTab("https://dev.example.com/home.do", last_human=5.0, tab_id="tab-free")
+    context = CdpContext([unclaimed])
+    _attach(monkeypatch, capture_module, context)
+    path = _owners_file(
+        tmp_path,
+        {"dead|dev.example.com": {"tab_id": "tab-free", "pid": 2_147_400_000}},
+    )
+    state = window.replace_state(_state(), owners_path=path)
+
+    moved = capture_module.navigate(state, url="https://dev.example.com/sp")
+
+    assert moved["new_tab"] is False
+    assert unclaimed.goto_urls == ["https://dev.example.com/sp"]
+    # Navigating it makes it this session's, so the next call comes back here.
+    assert tab_owner.read_pin(path, "dev.example.com") == "tab-free"
+
+
+def test_reading_a_tab_never_claims_it(monkeypatch, tmp_path):
+    """A read that lands on somebody's page must not turn into a standing claim.
+
+    Otherwise one collision becomes permanent: the session that happened to read
+    first owns the tab, which is the bug with the sides swapped.
+    """
+    theirs = CdpTab("https://dev.example.com/sp", last_human=5.0, tab_id="tab-theirs")
+    context = CdpContext([theirs])
+    _attach(monkeypatch, capture_module, context)
+    path = str(tmp_path / "owners.json")
+    state = window.replace_state(_state(), owners_path=path)
+
+    capture_module.arm(state, profile="dev")
+
+    assert tab_owner.read_pin(path, "dev.example.com") == ""

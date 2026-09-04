@@ -14,7 +14,7 @@ import io
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from . import image_budget, scroll_shot
@@ -29,6 +29,7 @@ from .badge import (
 from .evaluate import run_in_page
 from .probe import PROBE_SCRIPT, dirty_script, drain_script, presence_script
 from .session import read_effective_user
+from .tab_owner import claimed_by_others, drop_pin, write_pin
 from .window import WindowState
 
 logger = logging.getLogger(__name__)
@@ -243,36 +244,39 @@ def _instance_page(pages: Sequence[Any], instance_host: str) -> Optional[Any]:
     return real_pages[0]
 
 
-def _active_instance_page(pages: Sequence[Any], instance_host: str) -> Optional[Any]:
-    """The instance tab someone was last working in — not merely the first one.
+class TabPick(NamedTuple):
+    """The tab a call landed on, and what is actually known about it.
 
-    With one tab this is :func:`_instance_page` and costs nothing. With several
-    it matters a great deal: a new tab opened beside a form (see ``navigate``)
-    would otherwise leave the model reading the OLD tab while the person looks
-    at the new one, and "let's look at this together" quietly becomes two people
-    describing different pages.
+    ``mine`` is proven, never assumed: it is True only when this session had a
+    pin AND a tab answered with that exact id. A tab that could not be asked
+    (no probe, an unarmed document) is not mine — an unread signal is not a
+    match, and callers branch on this to decide whether to displace somebody.
 
-    Focus is not available: measured on the live window, every tab reports
-    ``document.visibilityState === 'visible'`` and ``hasFocus() === true`` once
-    CDP is attached, because attaching lifts background throttling. What IS
-    available is the probe's ``lastHuman`` stamp, kept per tab in sessionStorage
-    for the reaper. Whoever touched a tab most recently — the person or the
-    model's own clicks, which arrive through the same input pipeline — is
-    working there, and that is the tab to continue in.
-
-    Falls back to the first instance tab whenever the probe cannot answer: an
-    unarmed document is not a reason to pick the wrong page.
+    ``tab_id`` is "" for the same reason: the probe did not say.
     """
-    candidates = _usable(pages, instance_host)
-    if instance_host:
-        on_instance = [page for page in candidates if instance_host in str(page.url)]
-        candidates = on_instance or candidates
-    if len(candidates) <= 1:
-        return candidates[0] if candidates else None
 
-    best: Optional[Any] = None
-    best_stamp = -1.0
-    for page in candidates:
+    page: Any
+    tab_id: str
+    mine: bool
+    # Another LIVE session's pinned tab. Separate from ``not mine`` on purpose:
+    # "not mine" is the ordinary case (a single terminal has no pin until it
+    # opens something, and the person's own tab has none ever), while this one
+    # names a session that said it is working here. Only the second is a reason
+    # to step aside — treating the first as one would open a tab on every
+    # navigate for everybody. Proven, never assumed: an unknown tab id matches
+    # no claim, so it is not claimed.
+    claimed_by_other: bool = False
+
+
+def _tab_readings(pages: Sequence[Any]) -> Dict[int, Tuple[str, float]]:
+    """``id(page) -> (tabId, lastHuman)`` for every tab that answers.
+
+    Best effort by design: a tab with no probe simply has no say, and is left
+    out rather than represented by a default that would compete on equal terms
+    with a real reading.
+    """
+    readings: Dict[int, Tuple[str, float]] = {}
+    for page in pages:
         try:
             reading = page.evaluate(presence_script())
         except Exception as exc:  # noqa: BLE001 - an unarmed tab simply has no say
@@ -283,13 +287,125 @@ def _active_instance_page(pages: Sequence[Any], instance_host: str) -> Optional[
         try:
             stamp = float(reading.get("lastHuman") or 0.0)
         except (TypeError, ValueError):
-            continue
+            stamp = 0.0
+        readings[id(page)] = (str(reading.get("tabId") or ""), stamp)
+    return readings
+
+
+def _active_instance_page(pages: Sequence[Any], state: WindowState) -> Optional[TabPick]:
+    """The tab this call should work in: this session's, else the live one.
+
+    **This session's pinned tab wins.** Several MCP hosts share one window
+    (see tab_owner.py), and until v1.24.8 they shared one TAB with it: the rule
+    below picks the most recently touched tab, and Playwright's own clicks are
+    trusted input, so whichever host acted last owned the tab for every host.
+    Two terminals on one instance silently drove the same page, and a form one
+    of them was typing into came back to the other as ``blocked_by_unsaved_input``
+    — a window that looked locked, by a lock that never existed.
+
+    A pin that no longer matches any open tab is dropped here rather than left
+    to fail the same way on every future call. It is NOT replaced by a guess:
+    the returned ``mine`` says the tab is not this session's, and the caller
+    decides what that is worth (``navigate`` opens its own; a read says so).
+
+    Without a pin the old rule stands, and its reasoning is unchanged. Focus is
+    not available — measured on the live window, every tab reports
+    ``visibilityState === 'visible'`` and ``hasFocus() === true`` once CDP is
+    attached, because attaching lifts background throttling. What IS available
+    is the probe's ``lastHuman`` stamp. Whoever touched a tab most recently is
+    working there, and that is the tab to continue in.
+
+    Falls back to the first instance tab whenever no tab can answer: an unarmed
+    document is not a reason to pick the wrong page.
+    """
+    instance_host = state.instance_host
+    candidates = _usable(pages, instance_host)
+    if instance_host:
+        on_instance = [page for page in candidates if instance_host in str(page.url)]
+        candidates = on_instance or candidates
+    if not candidates:
+        return None
+
+    # Read FIRST, and cheaply: a local file, no round trip. It has to come
+    # before the decision below because the collision this fixes happens in the
+    # one-tab case above all — two sessions, one tab, no pin yet. Skipping the
+    # probe read there ("nothing to decide") would leave the tab id blank, match
+    # no claim, and hand the tab straight over, which is the bug.
+    claims = claimed_by_others(state.owners_path, instance_host) if state.owners_path else set()
+
+    # The round trip is still skipped when nothing can turn on it: one tab, no
+    # pin of ours, and nobody else claiming anything here. That is the ordinary
+    # single-terminal call, and it costs exactly what it did before.
+    readings = (
+        _tab_readings(candidates) if state.owner_tab_id or claims or len(candidates) > 1 else {}
+    )
+
+    if state.owner_tab_id:
+        for page in candidates:
+            if readings.get(id(page), ("", 0.0))[0] == state.owner_tab_id:
+                return TabPick(page, state.owner_tab_id, True)
+        # Only once every candidate has ANSWERED can "not here" be distinguished
+        # from "not asked". A tab that failed to report its id may well be the
+        # pinned one, and dropping the pin on that evidence would hand this
+        # session a new tab every call while its own sat there unrecognised.
+        if len(readings) == len(candidates):
+            logger.debug("Dropping a debug-window tab pin whose tab is gone")
+            drop_pin(state.owners_path, instance_host)
+
+    best: Optional[Any] = None
+    best_stamp = -1.0
+    for page in candidates:
+        stamp = readings.get(id(page), ("", -1.0))[1]
         if stamp > best_stamp:
             best, best_stamp = page, stamp
 
-    if best is not None and best_stamp > 0:
-        return best
-    return _instance_page(pages, instance_host)
+    if best is None or best_stamp <= 0:
+        best = _instance_page(pages, instance_host)
+        if best is None:
+            return None
+        # The fallback is chosen from `pages`, which `readings` may not cover
+        # when it was never read (the cheap path). Ask now rather than report a
+        # blank id: the id is what the claim check below is judged on, and an
+        # absent one would read as "nobody claims this".
+        if id(best) not in readings and (state.owner_tab_id or claims or len(candidates) > 1):
+            readings.update(_tab_readings([best]))
+
+    tab_id = readings.get(id(best), ("", 0.0))[0]
+    # `mine` was ruled out above, so the only remaining question is whether
+    # somebody else said this tab is theirs. With no tab id there is nothing to
+    # match — not a clean answer, but the only one available, and it is reached
+    # solely when nobody claims anything on this host anyway.
+    return TabPick(best, tab_id, False, bool(tab_id) and tab_id in claims)
+
+
+def _tab_id(page: Any) -> str:
+    """This tab's probe id, or "" when it cannot say.
+
+    Called only where a pin is about to be written, so the read paths keep the
+    round trip they had. "" is not an error: an unarmed tab has no id yet, and a
+    pin nobody can match later is worse than no pin at all.
+    """
+    try:
+        reading = page.evaluate(presence_script())
+    except Exception as exc:  # noqa: BLE001 - an unarmed tab simply has no id
+        logger.debug("Could not read a tab id: %s", exc)
+        return ""
+    return str(reading.get("tabId") or "") if isinstance(reading, dict) else ""
+
+
+def pin_tab(state: WindowState, tab_id: str) -> None:
+    """Remember ``tab_id`` as this session's tab on the caller's instance.
+
+    Called with whatever tab id the operation already had in hand, so it costs
+    no round trip. Never raises: a pin is an optimization, and losing one costs
+    a single re-pick on the next call.
+    """
+    if not tab_id or not state.owners_path:
+        return
+    try:
+        write_pin(state.owners_path, state.instance_host, tab_id)
+    except Exception as exc:  # noqa: BLE001 - never fail a call over a pin
+        logger.debug("Could not pin a debug-window tab: %s", exc)
 
 
 def _probe_scripts(state: WindowState, profile: str, account: str = "") -> Tuple[str, ...]:
@@ -530,9 +646,10 @@ def capture(
                 # tab is being worked in, and staying unarmed is how it keeps
                 # not having one.
                 _arm_tabs(context.pages, state, profile, account)
-                page = _active_instance_page(context.pages, state.instance_host)
-                if page is None:
+                pick = _active_instance_page(context.pages, state)
+                if pick is None:
                     raise NoPageFound(no_page_message(context.pages, state.instance_host))
+                page = pick.page
 
                 _install_probe(context, page, state, profile, account)
                 _set_activity(page, True)
@@ -563,6 +680,10 @@ def capture(
                     "title": str(drained.get("title") or page.title()),
                     "seq": int(drained.get("seq") or 0),
                     "tab_id": str(drained.get("tabId") or ""),
+                    # Reported, never claimed: reading a tab does not make it
+                    # this session's. See actions.py for the same note.
+                    "tab_is_mine": pick.mine,
+                    "tab_claimed_by_other": pick.claimed_by_other,
                     "dropped": int(drained.get("dropped") or 0),
                     "events": list(drained.get("events") or []),
                     "styles": _computed_styles(page, style_selectors),
@@ -604,17 +725,26 @@ def arm(state: WindowState, *, profile: str, account: str = "") -> Dict[str, Any
             # tab is being worked in, and staying unarmed is how it keeps
             # not having one.
             _arm_tabs(context.pages, state, profile, account)
-            page = _active_instance_page(context.pages, state.instance_host)
-            if page is None:
+            pick = _active_instance_page(context.pages, state)
+            if pick is None:
                 return {
                     "armed": False,
                     "reason": no_page_message(context.pages, state.instance_host),
                 }
+            page = pick.page
             _install_probe(context, page, state, profile, account)
             # Read while attached: the landed url and signed-in user answer the
             # "did the open land where I asked, as whom?" question the caller
-            # used to spend a follow-up inspect on.
-            return {"armed": True, "url": str(page.url), "user": _effective_user(page)}
+            # used to spend a follow-up inspect on. ``tab_id`` rides along for
+            # the pin (tab_owner.py) — read after _install_probe, because a tab
+            # armed a moment ago is exactly the one that had no id before.
+            return {
+                "armed": True,
+                "url": str(page.url),
+                "user": _effective_user(page),
+                "tab_id": pick.tab_id or _tab_id(page),
+                "tab_is_mine": pick.mine,
+            }
 
     return run_off_loop(_work, timeout_s=60.0)
 
@@ -740,12 +870,26 @@ def navigate(
                 raise NoPageFound("The debug window has no browser context.")
             context = contexts[0]
             _arm_tabs(context.pages, state, profile, account)
-            existing = _active_instance_page(context.pages, state.instance_host)
+            pick = _active_instance_page(context.pages, state)
+            existing = pick.page if pick else None
 
             # Decided before anything moves: a guess steps aside into a new
             # tab, observed input still refuses. See the docstring.
             stepped_aside: Dict[str, Any] = {}
             use_new_tab = new_tab
+            if existing is not None and pick is not None and pick.claimed_by_other:
+                # Another LIVE MCP session said it is working in this tab. Taking
+                # it over is the whole reported problem: several hosts share this
+                # window, tab choice went by "most recently touched", and
+                # Playwright's own input is trusted, so whoever navigated last
+                # won the tab for everybody — the other one's half-filled form
+                # then came back to them as `blocked_by_unsaved_input`, looking
+                # like a lock that never existed. Open a tab instead of taking
+                # one. Deliberately NOT triggered by "not mine": an unclaimed tab
+                # is still reused in place, or a single terminal would open a new
+                # tab on every navigate.
+                use_new_tab = True
+                stepped_aside = {"claimed_by_other_url": str(existing.url)}
             if existing is not None and not _on_instance(existing, state.instance_host):
                 # The window holds every instance this account can reach, so
                 # the tab we would otherwise take over is routinely ANOTHER
@@ -775,10 +919,16 @@ def navigate(
                 page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded")
                 page.bring_to_front()
+                # This tab exists because this session asked for it, so it is
+                # this session's from here on. Pinned only on tabs we created or
+                # already held: pinning a tab we merely landed on would turn a
+                # one-call collision into a permanent claim on somebody's page.
+                pin_tab(state, _tab_id(page))
                 return {
                     "navigated": True,
                     "url": str(page.url),
                     "new_tab": True,
+                    "tab_is_mine": True,
                     "previous_url": (str(existing.url) if existing else None),
                     "tabs": len(context.pages),
                     **stepped_aside,
@@ -793,10 +943,21 @@ def navigate(
             # miss everything the page does while loading.
             _install_probe(context, page, state, profile, account)
             page.goto(url, wait_until="domcontentloaded")
+            # Ours, or proven unclaimed a moment ago and now navigated by this
+            # session — either way this is the tab we are working in. Pinning a
+            # tab we merely READ would be a claim on somebody's page; pinning the
+            # one we just pointed somewhere is a record of what we did.
+            #
+            # The id is asked for when the selection never needed it (one tab,
+            # no pin, no claims): that path is precisely the one where this
+            # session is about to acquire its first tab, so it is the one call
+            # that must not go unrecorded.
+            pin_tab(state, (pick.tab_id if pick else "") or _tab_id(page))
             return {
                 "navigated": True,
                 "url": str(page.url),
                 "new_tab": False,
+                "tab_is_mine": True,
                 "previous_url": previous_url,
             }
 

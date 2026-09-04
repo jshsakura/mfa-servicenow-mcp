@@ -412,9 +412,10 @@ def act(
                     raise NoPageFound("The debug window has no browser context.")
                 context = contexts[0]
                 _arm_tabs(context.pages, state, profile, account)
-                page = _active_instance_page(context.pages, state.instance_host)
-                if page is None:
+                pick = _active_instance_page(context.pages, state)
+                if pick is None:
                     raise NoPageFound(no_page_message(context.pages, state.instance_host))
+                page = pick.page
 
                 # The window may already be sitting on Background Scripts, in
                 # which case the whole batch is refused rather than half-run:
@@ -489,6 +490,13 @@ def act(
                     "title": str(drained.get("title") or page.title()),
                     "seq": int(drained.get("seq") or 0),
                     "tab_id": str(drained.get("tabId") or ""),
+                    # Deliberately NOT pinned here. Driving a tab does not make
+                    # it this session's: pinning one we merely landed on would
+                    # turn a single collision into a standing claim on a page
+                    # somebody else is working in. A tab becomes ours by being
+                    # opened for us (capture.navigate) — this only reports.
+                    "tab_is_mine": pick.mine,
+                    "tab_claimed_by_other": pick.claimed_by_other,
                     "dropped": int(drained.get("dropped") or 0),
                     "events": list(drained.get("events") or []),
                     "styles": {},

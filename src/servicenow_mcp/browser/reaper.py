@@ -75,7 +75,7 @@ PRESENCE_TIMEOUT_S = 8.0
 # sidecar without updating this list fails loudly in tests, not silently in a
 # reaper that mistakes it for a window.
 _STATE_PREFIX = "debug_window_"
-_SIDECAR_SUFFIXES = (".cursor", ".login", ".launches", ".impersonation")
+_SIDECAR_SUFFIXES = (".cursor", ".login", ".launches", ".impersonation", ".owners")
 
 
 def _cache_root(auth_manager: Any) -> str:

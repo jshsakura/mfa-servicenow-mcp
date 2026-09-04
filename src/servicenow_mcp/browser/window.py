@@ -34,6 +34,7 @@ from ..auth._process import _is_pid_alive
 from ._launch_lock import launch_claim
 from ._offload import playwright_session, require_playwright, run_off_loop
 from .launch_budget import check_launch_allowed, record_launch
+from .tab_owner import read_pin
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,17 @@ class WindowState:
     # the shape this repo keeps finding — a stale copy of a fact used where the
     # live one was meant.
     caller_url: str = ""
+    # This MCP session's tab on the caller's instance, and where that pin is
+    # recorded. Stamped on every read alongside ``caller_url`` and, like it,
+    # deliberately NOT persisted: both describe the CALL, not the window.
+    #
+    # Threading them through would have meant four more signatures (the same
+    # four ``caller_url`` avoided), and every one of them ends at a function
+    # that already receives this state. ``owner_tab_id`` is "" when this session
+    # has no tab yet on this instance — which is a question, not an answer: see
+    # capture.py for what each caller does about it.
+    owner_tab_id: str = ""
+    owners_path: str = ""
 
     @property
     def cdp_endpoint(self) -> str:
@@ -286,6 +298,20 @@ def window_cursor_path(auth_manager: Any) -> str:
     )
 
 
+def window_owners_path(auth_manager: Any) -> str:
+    """Which tab each MCP session is working in (see tab_owner.py).
+
+    Keyed by WINDOW, not by session: one window's tabs are one set, and each
+    entry names its own instance host inside the file. A per-host file would
+    split one session's pins across several files for no gain — unlike the login
+    budget and the impersonation marker, a pin makes no claim about a server
+    session, so there is nothing here that a dev fact could assert about test.
+    """
+    return os.path.join(
+        _cache_root(auth_manager), f"debug_window_{_window_key(auth_manager)}.owners.json"
+    )
+
+
 def window_login_path(auth_manager: Any) -> str:
     """Records that this window already spent its one auto-login attempt.
 
@@ -423,7 +449,13 @@ def read_window_state(auth_manager: Any) -> Optional[WindowState]:
     # threaded through four signatures: the window is shared across instances,
     # so the host every consumer wants is the CALLER's, and the file only knows
     # which instance the window was launched for.
-    return replace_state(state, caller_url=_caller_url(auth_manager))
+    stamped = replace_state(state, caller_url=_caller_url(auth_manager))
+    owners_path = window_owners_path(auth_manager)
+    return replace_state(
+        stamped,
+        owners_path=owners_path,
+        owner_tab_id=read_pin(owners_path, stamped.instance_host),
+    )
 
 
 def write_window_state(auth_manager: Any, state: WindowState) -> None:
@@ -971,6 +1003,7 @@ __all__ = [
     "window_history_path",
     "window_impersonation_path",
     "window_login_path",
+    "window_owners_path",
     "window_liveness",
     "window_profile_dir",
     "window_state_path",
