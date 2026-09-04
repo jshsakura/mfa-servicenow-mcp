@@ -4941,3 +4941,86 @@ def test_reading_a_tab_never_claims_it(monkeypatch, tmp_path):
     capture_module.arm(state, profile="dev")
 
     assert tab_owner.read_pin(path, "dev.example.com") == ""
+
+
+# ---------------------------------------------------------------------------
+# A window closed mid-call is a state, not a stack trace
+# ---------------------------------------------------------------------------
+
+
+class TestWindowClosedMidCall:
+    """Observed once in a real session: `open_debug_window` returned
+
+        BrowserContext.new_page: Target page, context or browser has been closed
+
+    The window was alive when `ensure_window` checked it and gone by the time
+    `navigate` asked its context for a tab — someone closed a window that is, by
+    design, sitting on their screen. Two things were wrong with that outcome: a
+    Playwright internal naming a method reached the caller, and the state file
+    was left describing a window that is not there, so the next call would reuse
+    a dead pid.
+    """
+
+    def test_the_closed_target_family_is_recognised(self):
+        for message in (
+            "BrowserContext.new_page: Target page, context or browser has been closed",
+            "TargetClosedError: target closed",
+            "Browser has been closed",
+            "Connection closed while reading from the driver",
+        ):
+            assert window.window_is_gone(RuntimeError(message)), message
+
+    def test_ordinary_failures_are_not_mistaken_for_a_closed_window(self):
+        """Narrow on purpose: dropping live window state puts a second Chromium
+        on the screen, so only the window going away may trigger it."""
+        for message in (
+            "Timeout 30000ms exceeded",
+            "Element is not attached to the DOM",
+            "net::ERR_CONNECTION_REFUSED",
+            "waiting for selector '#nope'",
+        ):
+            assert not window.window_is_gone(RuntimeError(message)), message
+
+    def test_a_closed_window_clears_its_state_and_says_what_to_do(self, auth, tmp_path):
+        window.write_window_state(
+            auth,
+            window.WindowState(
+                pid=4242,
+                port=9333,
+                profile_dir=str(tmp_path),
+                instance_url="https://dev.example.com",
+                started_at=1.0,
+            ),
+        )
+        assert window.read_window_state(auth) is not None
+
+        result = tools._window_gone_result(
+            auth, RuntimeError("Target page, context or browser has been closed")
+        )
+
+        assert result["success"] is False
+        assert result["window_open"] is False
+        assert result["window_closed_mid_call"] is True
+        # The next call is named. The raw error named a BrowserContext method.
+        assert "open_debug_window" in result["error"]
+        assert "BrowserContext" not in result["error"]
+        # Stale state dropped, or the next ensure_window reuses a dead pid.
+        assert window.read_window_state(auth) is None
+
+    def test_act_does_not_claim_nothing_ran(self, auth, tmp_path):
+        """Steps may have run before the window went away — that is unknown, and
+        the read paths' "nothing was read or changed" would be a claim nobody
+        checked."""
+        result = tools._window_gone_result(
+            auth,
+            RuntimeError("Target page, context or browser has been closed"),
+            steps_outcome="unknown",
+            error="The debug window was closed while these steps were running, so how "
+            "many of them ran is unknown — check the record before re-running "
+            "them. Its stale state has been cleared; call open_debug_window to "
+            "get a window again.",
+        )
+
+        assert result["steps_outcome"] == "unknown"
+        assert "unknown" in result["error"]
+        assert "nothing was read or changed" not in result["error"]

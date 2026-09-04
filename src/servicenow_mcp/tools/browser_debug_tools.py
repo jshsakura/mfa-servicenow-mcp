@@ -89,12 +89,14 @@ from ..browser.reset import reset_session
 from ..browser.server_scripts import ServerScriptBlocked, navigation_rejection, surface_for_url
 from ..browser.session import api_username, describe_window_user
 from ..browser.window import (
+    clear_window_state,
     ensure_window,
     find_window,
     window_artifacts_dir,
     window_cursor_path,
     window_history_path,
     window_impersonation_path,
+    window_is_gone,
     window_login_path,
 )
 from ..utils.config import ServerConfig
@@ -320,6 +322,39 @@ def _window_identity(state: Any, config: ServerConfig) -> Dict[str, Any]:
     return {"instance_target": state.instance_host or str(config.instance_url or "")}
 
 
+def _window_gone_result(
+    auth_manager: AuthManager, exc: BaseException, **extra: Any
+) -> Dict[str, Any]:
+    """The window was closed while this call ran. Say that, not Playwright.
+
+    Two things have to happen and neither is optional. The state file still
+    describes a window that is not there, so it is dropped — otherwise the next
+    ``ensure_window`` reuses a dead pid and the failure comes back wearing a
+    different message. And the caller gets a sentence naming the next call,
+    because the raw error names a ``BrowserContext`` method, which tells the
+    reader nothing about what to do.
+
+    Reported as ``window_open: False`` rather than as a tool failure with a stack
+    string: nothing was read and nothing was done, which is a state, not a fault.
+    """
+    logger.info("The debug window was closed mid-call: %s", exc)
+    try:
+        clear_window_state(auth_manager)
+    except OSError as clear_exc:  # pragma: no cover - best effort
+        logger.debug("Could not clear the stale debug-window state: %s", clear_exc)
+    return {
+        "success": False,
+        "window_open": False,
+        "window_closed_mid_call": True,
+        "error": (
+            "The debug window was closed while this call was running, so nothing was "
+            "read or changed. Its stale state has been cleared — call open_debug_window "
+            "to get a window again."
+        ),
+        **extra,
+    }
+
+
 @register_tool(
     name="open_debug_window",
     params=OpenDebugWindowParams,
@@ -467,7 +502,11 @@ def open_debug_window(
                 allow_discard=params.discard_unsaved_input,
                 new_tab=params.new_tab,
             )
-        except (NoPageFound, RuntimeError, TimeoutError) as exc:
+        except Exception as exc:  # noqa: BLE001 - narrowed immediately below
+            if window_is_gone(exc):
+                return _window_gone_result(auth_manager, exc, **housekeeping)
+            if not isinstance(exc, (NoPageFound, RuntimeError, TimeoutError)):
+                raise
             return {**result, "success": False, "error": str(exc)}
         if not moved.get("navigated"):
             # Only reachable now when a real keystroke was observed — a guess
@@ -565,7 +604,11 @@ def open_debug_window(
                 f"Not recording yet ({armed.get('reason')}). Open a page in the window; "
                 "inspect_debug_window will arm it on the next call."
             )
-    except (PlaywrightUnavailable, RuntimeError, TimeoutError, OSError) as exc:
+    except Exception as exc:  # noqa: BLE001 - narrowed immediately below
+        if window_is_gone(exc):
+            return _window_gone_result(auth_manager, exc, **housekeeping)
+        if not isinstance(exc, (PlaywrightUnavailable, RuntimeError, TimeoutError, OSError)):
+            raise
         logger.info("Could not arm the debug collector yet: %s", exc)
         result["recording"] = False
 
@@ -695,7 +738,11 @@ def inspect_debug_window(
         )
     except (NoPageFound, PlaywrightUnavailable) as exc:
         return {"success": False, "window_open": True, "error": str(exc)}
-    except (RuntimeError, TimeoutError, ValueError, OSError) as exc:
+    except Exception as exc:  # noqa: BLE001 - narrowed immediately below
+        if window_is_gone(exc):
+            return _window_gone_result(auth_manager, exc)
+        if not isinstance(exc, (RuntimeError, TimeoutError, ValueError, OSError)):
+            raise
         logger.warning("Debug window inspection failed: %s", exc)
         return {"success": False, "window_open": True, "error": str(exc)}
 
@@ -875,7 +922,25 @@ def act_in_debug_window(
         }
     except (NoPageFound, PlaywrightUnavailable) as exc:
         return {"success": False, "window_open": True, "error": str(exc)}
-    except (RuntimeError, TimeoutError, ValueError, OSError) as exc:
+    except Exception as exc:  # noqa: BLE001 - narrowed immediately below
+        if window_is_gone(exc):
+            # Steps may have run before the window went away, so the default
+            # "nothing was read or changed" would be a claim nobody checked.
+            # Overridden rather than softened everywhere: on the read paths
+            # nothing DID happen, and saying so is worth keeping.
+            return _window_gone_result(
+                auth_manager,
+                exc,
+                steps_outcome="unknown",
+                error=(
+                    "The debug window was closed while these steps were running, so how "
+                    "many of them ran is unknown — check the record before re-running "
+                    "them. Its stale state has been cleared; call open_debug_window to "
+                    "get a window again."
+                ),
+            )
+        if not isinstance(exc, (RuntimeError, TimeoutError, ValueError, OSError)):
+            raise
         logger.warning("Driving the debug window failed: %s", exc)
         return {"success": False, "window_open": True, "error": str(exc)}
 

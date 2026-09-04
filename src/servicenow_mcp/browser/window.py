@@ -486,6 +486,38 @@ def touch_window(auth_manager: Any, state: WindowState) -> WindowState:
     return stamped
 
 
+# Playwright's way of saying the window went away underneath us. Matched on the
+# message rather than the class because `playwright` is an optional dependency
+# here — importing its error types to catch them would make the handler need the
+# very thing whose absence is already handled elsewhere. The auth layer matches
+# the same family the same way (auth_manager, the login poll).
+_GONE_MARKERS = (
+    "target page, context or browser has been closed",
+    "target closed",
+    "browser has been closed",
+    "connection closed",
+)
+
+
+def window_is_gone(exc: BaseException) -> bool:
+    """Did this call fail because the window was closed while it was running?
+
+    The window is on somebody's screen and closing it is an ordinary thing to
+    do. ``ensure_window`` checks liveness before it hands the state back, so the
+    race it cannot cover is the one just after: alive when we looked, gone by the
+    time we asked its context for a tab. Observed in a real session as a raw
+    ``BrowserContext.new_page: Target page, context or browser has been closed``
+    reaching the caller — a Playwright internal naming a method, where the useful
+    answer was "the window was closed, open another one".
+
+    Deliberately narrow. A page that merely navigated mid-call, a timeout, a
+    detached element — none of those mean the WINDOW is gone, and treating them
+    as such would drop live window state and put a second Chromium on the screen.
+    """
+    text = str(exc).lower()
+    return any(marker in text for marker in _GONE_MARKERS)
+
+
 def clear_window_state(auth_manager: Any) -> None:
     try:
         os.remove(window_state_path(auth_manager))
@@ -1004,6 +1036,7 @@ __all__ = [
     "window_impersonation_path",
     "window_login_path",
     "window_owners_path",
+    "window_is_gone",
     "window_liveness",
     "window_profile_dir",
     "window_state_path",
