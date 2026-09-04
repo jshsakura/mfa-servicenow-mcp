@@ -709,6 +709,16 @@ class TestConfigureLogging:
             self._restore(root, saved_handlers, saved_level)
 
     def test_stale_process_logs_swept_fresh_kept(self, tmp_path):
+        """Age decides, and nothing else — deliberately reversing an earlier rule.
+
+        This used to assert the opposite for `other_slug`: "sweep must stay
+        scoped to its own instance slug". That scoping is what made the
+        retention window apply to exactly one of however many instances are
+        configured — a week of work against dev swept nothing belonging to test,
+        prod or `default`, and a real cache directory accumulated files three
+        months past retention. The liveness argument (a running process keeps its
+        file's mtime fresh) never depended on which instance the file was for.
+        """
         import time
 
         from servicenow_mcp.cli import _LOG_RETENTION_DAYS, _sweep_stale_process_logs
@@ -717,17 +727,25 @@ class TestConfigureLogging:
         stale_rotated = tmp_path / "servicenow-mcp_default.99999.log.2"
         fresh = tmp_path / "servicenow-mcp_default.11111.log"
         other_slug = tmp_path / "servicenow-mcp_otherhost.99999.log"
-        for f in (stale, stale_rotated, fresh, other_slug):
+        # The pre-PID filename: no segment between the slug and `.log`, so the
+        # old glob could not match it at all and it survived forever.
+        legacy = tmp_path / "servicenow-mcp_otherhost.log"
+        # Not ours. This directory is the shared cache root — window state,
+        # profiles and artifacts live here and are not the log sweeper's to take.
+        not_a_log = tmp_path / "debug_window_alice_at_example_com.json"
+        for f in (stale, stale_rotated, fresh, other_slug, legacy, not_a_log):
             f.write_text("x")
         old = time.time() - (_LOG_RETENTION_DAYS + 1) * 86400
-        for f in (stale, stale_rotated, other_slug):
+        for f in (stale, stale_rotated, other_slug, legacy, not_a_log):
             os.utime(f, (old, old))
 
-        _sweep_stale_process_logs(str(tmp_path), "default")
+        _sweep_stale_process_logs(str(tmp_path))
 
         assert not stale.exists() and not stale_rotated.exists()
         assert fresh.exists(), "files inside the retention window must survive"
-        assert other_slug.exists(), "sweep must stay scoped to its own instance slug"
+        assert not other_slug.exists(), "another instance's stale log must be swept too"
+        assert not legacy.exists(), "the pre-PID filename must not be immortal"
+        assert not_a_log.exists(), "only this package's log files may be deleted"
 
 
 class TestServerName:

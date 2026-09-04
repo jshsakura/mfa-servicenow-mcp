@@ -107,12 +107,31 @@ def _is_broken_pipe_group(exc: BaseException) -> bool:
 _LOG_RETENTION_DAYS = 7
 
 
-def _sweep_stale_process_logs(log_dir: str, slug: str) -> None:
-    """Delete per-process log files (and their rotated siblings) older than the
-    retention window. A live process keeps its file's mtime fresh, so age alone
-    is a safe liveness proxy — no PID probing, portable everywhere."""
+def _sweep_stale_process_logs(log_dir: str) -> None:
+    """Delete log files older than the retention window, whichever instance and
+    whichever naming they came from.
+
+    A live process keeps its file's mtime fresh, so age alone is a safe liveness
+    proxy — no PID probing, portable everywhere. That argument never depended on
+    which instance the file belongs to, but the glob used to: it was
+    ``servicenow-mcp_{slug}.*.log*`` for the slug of the instance THIS process
+    was started for. Two kinds of file therefore aged out never —
+
+    - another instance's. A week against dev swept nothing belonging to test,
+      prod or the unconfigured ``default`` slug, so the retention window applied
+      to exactly one of however many instances are set up.
+    - anything named ``servicenow-mcp_<slug>.log``, the pre-PID form: the glob
+      required a segment between the slug and ``.log``, and these have none. They
+      were immortal. Measured on a real cache directory, the three oldest files
+      present were exactly these, three months past retention.
+
+    So the sweep is by age over every file this package writes here. The
+    ``servicenow-mcp_`` prefix is still required — the directory is the shared
+    cache root, and it holds window state, profiles and artifacts that are not
+    ours to delete.
+    """
     cutoff = time.time() - _LOG_RETENTION_DAYS * 86400
-    for path in Path(log_dir).glob(f"servicenow-mcp_{slug}.*.log*"):
+    for path in Path(log_dir).glob("servicenow-mcp_*.log*"):
         try:
             if path.stat().st_mtime < cutoff:
                 path.unlink()
@@ -158,8 +177,11 @@ def configure_logging(force: bool = False) -> None:
             log_dir = os.path.dirname(log_file_path)
             if log_dir:
                 os.makedirs(log_dir, exist_ok=True)
-            if slug and log_dir:
-                _sweep_stale_process_logs(log_dir, slug)
+            if log_dir:
+                # Not gated on `slug` any more: a LOG_FILE pointing straight at a
+                # file still shares its directory with per-process logs, and
+                # those are the ones that pile up.
+                _sweep_stale_process_logs(log_dir)
             handlers.append(
                 logging.handlers.RotatingFileHandler(
                     log_file_path,
