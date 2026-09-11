@@ -201,7 +201,7 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 - **Authoritative relationship graphs on disk** — `_graph.json` (widget→Angular Provider, from the live M2M) and `_page_graph.json` (page→widget, from `sp_instance`) let the LLM answer dependency questions offline instead of re-querying the instance
 - **Incremental sync** (`incremental=True`) — re-download only records changed since last sync (`sys_updated_on` watermark), like `git pull`; `reconcile_deletions=True` flags records deleted on the instance
 - **Cross-scope dep auto-resolve** in `download_app_sources` — pulls global-scope Script Includes, Widgets, Angular Providers, and UI Macros that the app references, so the local bundle is self-contained for analysis
-- **Attachment download** (`download_attachment`) — fetch a record's attachment file(s) (xlsx, PDF, Word, …) to local disk by attachment sys_id or by parent `table`+`record`; resolves a record's attachments automatically and writes bytes to disk so the LLM reads them from `saved_path`
+- **Attachment download** (`download_attachment`) — save a record's attachment file(s) locally and return `saved_path`; successful small downloads also carry a short-lived MCP `ResourceLink`, so isolated clients can explicitly fetch the file as a binary resource without putting base64 in the initial LLM context
 - **Excel without boilerplate** (`manage_workbook`) — list sheets, read rows, regex-find across a tracking workbook; write styled sheets from a plain data spec (house header/border/wrap applied server-side); or fill a COPY of a company form, screenshots embedded. Built for test sign-off and hand-over documents; the form itself is an input and is never written to
 - **Dry-run preview** on every write tool (`dry_run=True`) — returns field-level diff, dependency counts, and precision notes before any side effect. Uses read-only APIs, works under all auth modes.
 - Write intent gate: every mutation requires an explicit `confirm='approve'` (accidental-write guardrail, not an adversarial boundary — see [Safety Policy](#safety-policy))
@@ -211,6 +211,10 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 - Developer productivity tools: activity tracking, uncommitted changes, dependency mapping, daily summary
 - Full coverage of core ServiceNow artifact tables (see [Supported Tables](https://github.com/jshsakura/mfa-servicenow-mcp#supported-servicenow-tables))
 - CI/CD with auto-tagging, PyPI publishing, and Docker multi-platform builds
+
+#### Attachment delivery in isolated environments
+
+`download_attachment` always keeps its existing disk-first behavior. Local agents and containers with a shared volume should read `saved_path`. By default, a successful file up to 10 MiB also returns an MCP `ResourceLink`; a remote client can explicitly call `resources/read` within 15 minutes to receive that exact downloaded file as a typed binary blob. The first tool response never contains the file's base64. Server operators can lower or raise the resource limit with `SERVICENOW_ATTACHMENT_RESOURCE_MAX_MB`, up to a hard maximum of 25 MiB. Links are process-local, are not transferable to another MCP server, and expire when the issuing server restarts. Larger files remain successfully downloaded and the response retains `saved_path`, while explaining that the resource limit was exceeded.
 
 ### Supported ServiceNow Tables
 

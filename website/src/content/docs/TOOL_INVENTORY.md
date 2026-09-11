@@ -47,7 +47,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `download_attachment` | R | Download ServiceNow attachment file(s) to disk by attachment_sys_id, or table+record. Read from saved_path. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_attachment` | R | Download attachments. Use saved_path locally; read the ResourceLink remotely when needed. | standard, portal_developer, platform_developer, service_desk, full |
 
 ### Audit Tools (1)
 

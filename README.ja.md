@@ -201,7 +201,7 @@ TLS インスペクションを行うプロキシ（Zscaler など）や PyPI �
 - **ディスク上の信頼できる関係グラフ** — `_graph.json`（widget→Angular Provider、ライブ M2M 由来）と `_page_graph.json`（page→widget、`sp_instance` 由来）により、LLM はインスタンスへ再クエリすることなくオフラインで依存関係の質問に答えられます
 - **増分同期**（`incremental=True`）— 前回の同期以降に変更されたレコードのみを再ダウンロード（`sys_updated_on` ウォーターマーク）。`git pull` のように動作します。`reconcile_deletions=True` はインスタンス上で削除されたレコードをフラグ付けします
 - `download_app_sources` における **スコープ横断の依存関係自動解決** — アプリが参照する global スコープの Script Include、Widget、Angular Provider、UI Macro を取得し、ローカルバンドルを分析用に自己完結させます
-- **添付ファイルのダウンロード**（`download_attachment`）— レコードの添付ファイル（xlsx、PDF、Word など）を、添付ファイルの sys_id または親の `table`+`record` 指定でローカルディスクに取得します。レコードの添付ファイルを自動的に解決してバイト列をディスクに書き込むため、LLM は `saved_path` から読み取れます
+- **添付ファイルのダウンロード**（`download_attachment`）— 添付ファイルをローカルに保存して `saved_path` を返します。小さなファイルには短期間有効な MCP `ResourceLink` も付くため、分離されたクライアントは初回の LLM コンテキストへ base64 を入れず、必要な時だけ binary resource として取得できます
 - **定型コードなしの Excel**（`manage_workbook`）— シート一覧・行読み取り・正規表現検索で管理台帳を照会し、データ仕様を渡すだけで書式（ヘッダー・罫線・折り返し）はサーバー側が適用してシートを生成、会社の様式は**コピーに**値とスクリーンショットを差し込みます。検収確認書や引き継ぎ資料のための機能で、元の様式は入力として扱われ上書きされません
 - すべての書き込みツールでの **ドライラン・プレビュー**（`dry_run=True`）— 副作用が発生する前に、フィールド単位の差分、依存関係の数、精度に関する注記を返します。読み取り専用 API を使用し、すべての認証モードで動作します。
 - `confirm='approve'` による安全な書き込み確認

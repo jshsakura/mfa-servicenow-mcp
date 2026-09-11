@@ -1,9 +1,9 @@
 """ServiceNow Attachment API download tool.
 
 Downloads the actual file content behind a ``sys_attachment`` record via the
-documented Attachment REST API and writes it to local disk, returning only a
-summary (path + metadata) to context — never the raw bytes (a 5MB xlsx would
-blow the LLM context budget). The caller then Reads the file from ``saved_path``.
+documented Attachment REST API and writes it to local disk. The tool result
+keeps raw bytes out of context; the MCP server may add a pull-based ResourceLink
+for clients that cannot access ``saved_path``.
 
 Intelligent resolution: accept an explicit ``attachment_sys_id``, OR a parent
 ``table`` + ``record`` (sys_id or display number, e.g. INC0010023) and resolve
@@ -216,7 +216,7 @@ def _download_one(
 @register_tool(
     "download_attachment",
     params=DownloadAttachmentParams,
-    description="Download ServiceNow attachment file(s) to disk by attachment_sys_id, or table+record. Read from saved_path.",
+    description="Download attachments. Use saved_path locally; read the ResourceLink remotely when needed.",
     serialization="raw_dict",
     return_type=dict,
 )

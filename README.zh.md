@@ -201,7 +201,7 @@ TLS 检查代理（Zscaler 之类）和被封锁的 PyPI 访问各有对应的�
 - **磁盘上的权威关系图**——`_graph.json`（widget→Angular Provider，来自实时 M2M）和 `_page_graph.json`（page→widget，来自 `sp_instance`）让 LLM 可以离线回答依赖问题，而无需重新查询实例
 - **增量同步**（`incremental=True`）——仅重新下载自上次同步以来更改的记录（`sys_updated_on` 水位线），类似 `git pull`；`reconcile_deletions=True` 会标记在实例上已删除的记录
 - `download_app_sources` 中的**跨作用域依赖自动解析**——拉取应用引用的全局作用域 Script Includes、Widgets、Angular Providers 和 UI Macros，使本地包自成一体，便于分析
-- **附件下载**（`download_attachment`）——通过附件 sys_id 或父级 `table`+`record` 将某条记录的附件文件（xlsx、PDF、Word 等）获取到本地磁盘；自动解析记录的附件并将字节写入磁盘，使 LLM 从 `saved_path` 读取它们
+- **附件下载**（`download_attachment`）——将附件保存到本地并返回 `saved_path`；成功下载的小文件还会附带一个短期有效的 MCP `ResourceLink`，使隔离客户端只在需要时将文件作为 binary resource 获取，而不会把 base64 放入初始 LLM 上下文
 - **无样板代码的 Excel**（`manage_workbook`）——列出工作表、读取行、正则检索台账；只需给出数据规格，表头/边框/换行等样式由服务端套用并生成工作表；公司模板则在**副本上**填值并嵌入截图。为验收确认书与交接文档而建，模板本身是输入，绝不会被写入
 - 每个写入工具上的**试运行预览**（`dry_run=True`）——在产生任何副作用之前返回字段级差异、依赖计数和精度提示。使用只读 API，在所有认证模式下均可工作。
 - 通过 `confirm='approve'` 进行安全的写入确认

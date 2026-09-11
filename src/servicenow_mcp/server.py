@@ -4,6 +4,7 @@ ServiceNow MCP Server
 This module provides the main implementation of the ServiceNow MCP server.
 """
 
+import base64
 import contextlib
 import logging
 import os
@@ -19,6 +20,12 @@ from mcp.server.lowlevel import Server
 from pydantic import AnyUrl, ValidationError
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.resources.attachment_resources import (
+    AttachmentResourceError,
+    AttachmentResourceStore,
+    AttachmentResourceTooLarge,
+    is_attachment_resource_uri,
+)
 from servicenow_mcp.resources.skill_resources import build_tool_to_skills_map, load_skills
 from servicenow_mcp.tools.sync_tools import set_instance_resolver
 from servicenow_mcp.utils import json_fast
@@ -614,6 +621,9 @@ class ServiceNowMCP:
         }
         self._skill_entries = load_skills()
         self._tool_to_skills = build_tool_to_skills_map()
+        # Opaque, process-local links to the exact files written by
+        # download_attachment. The store keeps paths and hashes, never bytes.
+        self._attachment_resources = AttachmentResourceStore()
         self._load_package_config()
         self._determine_enabled_tools()
 
@@ -1177,9 +1187,101 @@ class ServiceNowMCP:
             )
         ]
 
+    def _attach_downloaded_resources(
+        self, result: Dict[str, Any]
+    ) -> tuple[Dict[str, Any], List[types.ResourceLink]]:
+        """Add pull-based MCP links to successful attachment download results."""
+        updated: Dict[str, Any] = {**result}
+        direct = bool(updated.get("success") and updated.get("saved_path"))
+        if direct:
+            file_results = [updated]
+        else:
+            original_files = updated.get("files")
+            if not isinstance(original_files, list):
+                return updated, []
+            copied_files = [
+                dict(item) if isinstance(item, dict) else item for item in original_files
+            ]
+            updated["files"] = copied_files
+            file_results = [
+                item
+                for item in copied_files
+                if isinstance(item, dict) and item.get("success") and item.get("saved_path")
+            ]
+
+        source = updated.get("instance_source")
+        source_instance = source.get("alias", "") if isinstance(source, dict) else ""
+        links: List[types.ResourceLink] = []
+        for item in file_results:
+            try:
+                entry = self._attachment_resources.register(
+                    item["saved_path"],
+                    file_name=str(item.get("file_name") or "attachment"),
+                    mime_type=item.get("content_type"),
+                    source_instance=source_instance,
+                )
+            except AttachmentResourceTooLarge as exc:
+                item["resource_available"] = False
+                item["resource_unavailable_reason"] = (
+                    f"File saved to {item['saved_path']}; MCP resource not created: {exc}"
+                )
+                item["resource_next_action"] = (
+                    "Use saved_path when the MCP server and agent share a filesystem."
+                )
+                continue
+            except AttachmentResourceError as exc:
+                logger.warning("Could not register downloaded attachment resource: %s", exc)
+                item["resource_available"] = False
+                item["resource_unavailable_reason"] = str(exc)
+                continue
+
+            item["resource_available"] = True
+            item["resource_uri"] = entry.uri
+            item["resource_expires_in_seconds"] = self._attachment_resources.ttl_seconds
+            item["resource_next_action"] = (
+                "When file content is needed, read resource_uri with MCP resources/read."
+            )
+            links.append(
+                types.ResourceLink(
+                    type="resource_link",
+                    uri=AnyUrl(entry.uri),
+                    name=entry.file_name,
+                    description=(
+                        "Downloaded ServiceNow attachment. Read this resource only when the file "
+                        "content is needed."
+                    ),
+                    mimeType=entry.mime_type,
+                    size=entry.size_bytes,
+                )
+            )
+
+        if links:
+            updated["safety_notice"] = (
+                "File written to saved_path; bytes are not in this response. "
+                "Use the returned ResourceLink only when file content is needed."
+            )
+        return updated, links
+
     async def _read_resource_impl(self, uri) -> list:
-        """Read a single skill guide by URI."""
+        """Read a skill guide or an explicitly requested attachment resource."""
         uri_str = str(uri)
+        if is_attachment_resource_uri(uri_str):
+            if "download_attachment" not in self.enabled_tool_names:
+                raise ValueError(
+                    "Attachment resources are unavailable because download_attachment "
+                    "is disabled in the current tool package."
+                )
+            try:
+                entry, attachment_bytes = self._attachment_resources.read(uri_str)
+            except AttachmentResourceError as exc:
+                raise ValueError(str(exc)) from exc
+            return [
+                types.BlobResourceContents(
+                    uri=AnyUrl(entry.uri),
+                    mimeType=entry.mime_type,
+                    blob=base64.b64encode(attachment_bytes).decode("ascii"),
+                )
+            ]
         for skill_uri, _name, _desc, _cat, _tools, content in self._skill_entries:
             if skill_uri == uri_str:
                 return [types.TextResourceContents(uri=uri, text=content, mimeType="text/markdown")]
@@ -1290,7 +1392,7 @@ class ServiceNowMCP:
         self._tool_list_cache = tool_list
         return tool_list
 
-    async def _call_tool_impl(self, name: str, arguments: dict) -> list[types.TextContent]:
+    async def _call_tool_impl(self, name: str, arguments: dict) -> list[types.ContentBlock]:
         """
         Implementation for the call_tool MCP endpoint.
         Handles argument parsing, tool execution, result serialization (to string),
@@ -1301,7 +1403,7 @@ class ServiceNowMCP:
             arguments: The arguments for the tool as a dictionary.
 
         Returns:
-            A list containing a single TextContent object with the tool output.
+            A TextContent result, plus ResourceLink items for downloaded attachments.
 
         Raises:
             ValueError: If the tool is unknown, disabled, or if arguments are invalid.
@@ -1617,6 +1719,10 @@ class ServiceNowMCP:
             if us_ctx:
                 result = {**result, "update_set_context": us_ctx}
 
+        resource_links: List[types.ResourceLink] = []
+        if name == "download_attachment" and isinstance(result, dict):
+            result, resource_links = self._attach_downloaded_resources(result)
+
         # Serialize the result to a string (preferably JSON) using the helper
         serialized_string = serialize_tool_output(result, name)
         # Observability: the debug line below shows only the first 500 chars, so a
@@ -1634,8 +1740,9 @@ class ServiceNowMCP:
             )
         logger.debug(f"Serialized value for tool '{name}': {serialized_string[:500]}...")
 
-        # Return a list with a TextContent object
-        return [types.TextContent(type="text", text=serialized_string)]
+        # Keep the JSON TextContent first for backwards compatibility. Resource
+        # links are pointers only; bytes move on a separate resources/read call.
+        return [types.TextContent(type="text", text=serialized_string), *resource_links]
 
     def _progress_channel(self):
         """Return (progress_token, session) for the in-flight request, or

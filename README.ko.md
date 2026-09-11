@@ -200,7 +200,7 @@ TLS 검사 프록시(Zscaler 등)나 PyPI 차단 환경은 별도 안내가 있�
 - **권위 관계 그래프를 디스크에** — `_graph.json`(위젯→Angular Provider, 라이브 M2M 기반)과 `_page_graph.json`(페이지→위젯, `sp_instance` 기반)으로 LLM이 인스턴스에 다시 묻지 않고 의존성 질문을 오프라인으로 답합니다
 - **증분 동기화** (`incremental=True`) — 지난 동기화 이후 바뀐 레코드만 다시 받음(`sys_updated_on` 워터마크, `git pull` 방식); `reconcile_deletions=True`로 인스턴스에서 삭제된 레코드 경고
 - **크로스-스코프 의존성 자동 해석** — `download_app_sources`가 앱 코드에서 참조하는 글로벌 스코프의 Script Include, Widget, Angular Provider, UI Macro까지 함께 받아 로컬 번들을 분석에 자족적으로 만듭니다
-- **첨부파일 다운로드** (`download_attachment`) — 레코드 첨부파일(xlsx, PDF, Word 등)을 attachment sys_id 또는 부모 `table`+`record`로 받아 로컬 디스크에 저장. 레코드의 첨부를 자동 해석하고 바이트를 디스크에 쓰므로 LLM은 `saved_path`에서 파일을 읽습니다
+- **첨부파일 다운로드** (`download_attachment`) — 레코드 첨부파일을 로컬에 저장하고 `saved_path`를 반환합니다. 작은 파일은 수명이 짧은 MCP `ResourceLink`도 함께 제공하므로, 격리된 클라이언트가 초기 LLM 컨텍스트에 base64를 넣지 않고 필요할 때만 binary resource로 가져올 수 있습니다
 - **엑셀 보일러플레이트 제거** (`manage_workbook`) — 시트 목록·행 읽기·정규식 검색으로 관리대장을 조회하고, 데이터 스펙만 넘기면 서식(헤더·테두리·줄바꿈)은 서버가 입혀 시트를 생성하며, 회사 양식은 **사본에** 값과 스크린샷을 채웁니다. 검수확인서·인수인계 문서를 위한 도구이며 원본 양식은 입력이라 절대 덮어쓰지 않습니다
 - **Dry-run 프리뷰** — 모든 쓰기 도구에서 `dry_run=True` 지원. 실행 전 필드 단위 diff, 의존성 카운트, 정확도 노트를 반환합니다. 읽기 전용 API만 사용하므로 모든 인증 모드에서 동작.
 - `confirm='approve'` 기반 안전한 수정 승인 정책
@@ -210,6 +210,10 @@ TLS 검사 프록시(Zscaler 등)나 PyPI 차단 환경은 별도 안내가 있�
 - 개발자 도구: 활동 추적, 미커밋 변경사항, 의존성 매핑, 일일 요약
 - 핵심 ServiceNow 아티팩트 테이블 전체 커버리지 ([지원 테이블](#지원하는-servicenow-테이블) 참조)
 - CI/CD: 자동 태깅, PyPI 퍼블리싱, Docker 멀티플랫폼 빌드
+
+#### 격리 환경의 첨부파일 전달
+
+`download_attachment`는 기존의 디스크 우선 동작을 항상 유지합니다. 로컬 에이전트와 공유 볼륨이 있는 컨테이너는 `saved_path`를 읽으면 됩니다. 기본적으로 성공적으로 받은 10 MiB 이하 파일에는 MCP `ResourceLink`도 제공되며, 원격 클라이언트는 15분 안에 `resources/read`를 명시적으로 호출해 다운로드된 바로 그 파일을 typed binary blob으로 받을 수 있습니다. 최초 도구 응답에는 파일 base64가 포함되지 않습니다. 서버 운영자는 `SERVICENOW_ATTACHMENT_RESOURCE_MAX_MB`로 한도를 조정할 수 있으며 절대 상한은 25 MiB입니다. 링크는 발급한 MCP 서버 프로세스에서만 유효하고 다른 MCP 서버로 이전할 수 없으며, 서버가 재시작되면 만료됩니다. 더 큰 파일도 다운로드는 성공하고 응답에 `saved_path`가 유지되며, Resource 한도 초과 사유가 함께 제공됩니다.
 
 ### 지원하는 ServiceNow 테이블
 
