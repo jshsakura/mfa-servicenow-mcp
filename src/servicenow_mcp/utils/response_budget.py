@@ -462,7 +462,7 @@ def enforce_response_budget(
         # destroy it — but never quietly: an oversize response the CLIENT
         # may truncate is still a silent abridging to the agent, so say the
         # server did not modify anything and let the receiver decide.
-        marker = {
+        whole_marker = {
             "_abridged_note": (
                 "Response exceeds the response budget but nothing could be safely "
                 "abridged. Returned WHOLE and unmodified by this server; the client "
@@ -471,10 +471,10 @@ def enforce_response_budget(
             )
         }
         if isinstance(result, dict):
-            return {**result, **marker}, True
+            return {**result, **whole_marker}, True
         if isinstance(result, list):
             # Trailing marker entry, same shape as the row-truncation marker.
-            return result + [marker], True
+            return result + [whole_marker], True
         return result, False
 
     if isinstance(bounded, dict):
