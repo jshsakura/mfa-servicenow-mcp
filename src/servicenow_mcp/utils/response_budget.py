@@ -458,7 +458,23 @@ def enforce_response_budget(
 
     if not stubbed and dropped == 0:
         # Oversized but nothing safely abridgeable (e.g. one huge protected
-        # field). Leave it whole — the client's scratchpad copy is recoverable.
+        # field). Leave the payload whole — stubbing a computed value would
+        # destroy it — but never quietly: an oversize response the CLIENT
+        # may truncate is still a silent abridging to the agent, so say the
+        # server did not modify anything and let the receiver decide.
+        marker = {
+            "_abridged_note": (
+                "Response exceeds the response budget but nothing could be safely "
+                "abridged. Returned WHOLE and unmodified by this server; the client "
+                "may truncate or overflow this response to a file. Re-run with a "
+                "narrower scope if you need guaranteed-complete values."
+            )
+        }
+        if isinstance(result, dict):
+            return {**result, **marker}, True
+        if isinstance(result, list):
+            # Trailing marker entry, same shape as the row-truncation marker.
+            return result + [marker], True
         return result, False
 
     if isinstance(bounded, dict):

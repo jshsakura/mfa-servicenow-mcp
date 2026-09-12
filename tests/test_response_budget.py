@@ -138,16 +138,18 @@ def test_marker_overhead_kept_under_budget():
 
 
 def test_non_record_backed_field_left_whole():
-    # No sys_id in the container -> not stubbed (its scratchpad copy is recoverable).
+    # No sys_id in the container -> not stubbed (its scratchpad copy is
+    # recoverable); over budget, so it carries the whole-but-oversize marker.
     result = {"blob": _big(90_000)}
     bounded, abridged = enforce_response_budget(result, tool_name="x", budget=1_000)
-    assert abridged is False
-    assert bounded is result
+    assert abridged is True
+    assert bounded["blob"] == _big(90_000)  # not a stub
+    assert "WHOLE" in bounded["_abridged_note"]
 
 
 def test_computed_diff_not_destroyed():
     # diff_local_component returns a computed diff with no sys_id/table; stubbing
-    # it would be irrecoverable, so it must be left whole.
+    # it would be irrecoverable, so it must be left whole — and announced.
     result = {
         "mode": "diff",
         "component": {"table": "sp_widget", "name": "w"},
@@ -156,8 +158,9 @@ def test_computed_diff_not_destroyed():
     bounded, abridged = enforce_response_budget(
         result, tool_name="diff_local_component", budget=1_000
     )
-    assert abridged is False
+    assert abridged is True
     assert bounded["diffs"][0]["diff"] == _big(90_000)
+    assert "WHOLE" in bounded["_abridged_note"]
 
 
 # --------------------------------------------------------------------------- #
@@ -195,12 +198,16 @@ def test_safety_notice_protected():
     assert "diff" in PROTECTED_KEYS and "diffs" in PROTECTED_KEYS
 
 
-def test_single_huge_protected_field_left_whole():
-    # Nothing safely abridgeable -> leave whole; the client scratchpad copy is recoverable.
+def test_single_huge_protected_field_left_whole_but_marked():
+    # Nothing safely abridgeable -> payload stays whole (a stub would destroy
+    # the computed value), but never unannounced: an oversize the client may
+    # silently truncate gets an explicit whole-but-oversize marker.
     result = {"success": False, "error": "boom", "message": _big(200_000)}
     bounded, abridged = enforce_response_budget(result, tool_name="x", budget=75_000)
-    assert abridged is False
-    assert bounded is result
+    assert abridged is True
+    assert bounded["message"] == _big(200_000)  # payload whole, not a stub
+    assert "WHOLE" in bounded["_abridged_note"]
+    assert result == {"success": False, "error": "boom", "message": _big(200_000)}
 
 
 # --------------------------------------------------------------------------- #
@@ -381,11 +388,13 @@ def test_list_nested_in_list_truncated():
 
 
 def test_min_stub_field_floor_respected():
-    # A record-backed field under the floor is never stubbed.
+    # A record-backed field under the floor is never stubbed — but the result
+    # is still over budget and unsafely-abridgeable, so it is marked, not silent.
     result = {"sys_id": "s", "table": "sp_widget", "small": _big(MIN_STUB_FIELD_BYTES - 1)}
     bounded, abridged = enforce_response_budget(result, tool_name="x", budget=500)
-    assert abridged is False  # under floor, nothing eligible, left whole
-    assert bounded is result
+    assert bounded["small"] == _big(MIN_STUB_FIELD_BYTES - 1)  # not a stub
+    assert abridged is True
+    assert "WHOLE" in bounded["_abridged_note"]
 
 
 # --------------------------------------------------------------------------- #
@@ -411,13 +420,25 @@ def test_stub_full_length_is_utf8_bytes_not_chars():
 def test_computed_list_not_truncated_left_whole():
     # A large list of computed (no sys_id) items overflowing by COUNT must NOT be
     # row-truncated: the dropped tail would be unrecoverable, strictly worse than
-    # the client's own scratchpad truncation. Leave it whole instead.
+    # the client's own scratchpad truncation. Leave it whole — announced.
     result = {"success": True, "findings": [f"finding-{i} " + _big(50) for i in range(2_000)]}
     assert byte_len(result) > 3_000
     bounded, abridged = enforce_response_budget(result, tool_name="audit", budget=3_000)
-    assert abridged is False
-    assert bounded is result
+    assert abridged is True  # marker attached
     assert len(bounded["findings"]) == 2_000  # nothing dropped
+    assert "WHOLE" in bounded["_abridged_note"]
+
+
+def test_top_level_computed_list_oversize_marked():
+    # A bare computed list (no sys_id anywhere): nothing stubbable or
+    # row-truncatable — payload stays whole with a trailing marker entry,
+    # the same shape the row-truncation marker uses.
+    result = [{"diff": _big(50_000)}, {"diff": _big(50_000)}]
+    bounded, abridged = enforce_response_budget(result, tool_name="x", budget=5_000)
+    assert abridged is True
+    assert bounded[0] == result[0] and bounded[1] == result[1]  # payload whole
+    assert len(bounded) == 3
+    assert "WHOLE" in bounded[-1]["_abridged_note"]
 
 
 def test_mixed_record_and_computed_lists_only_record_truncated():

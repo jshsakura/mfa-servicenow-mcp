@@ -1,7 +1,7 @@
 """serialize_tool_output must route dict, list AND Pydantic results through the
 response-size guard end-to-end: small results untouched, oversized record-backed
 results abridged under budget, oversized-but-unabridgeable results passed through
-whole, and Pydantic/list outputs covered (not just dicts)."""
+whole with an explicit marker, and Pydantic/list outputs covered (not just dicts)."""
 
 import json
 
@@ -35,12 +35,15 @@ def test_oversized_record_backed_abridged_under_budget(monkeypatch):
 
 def test_oversized_unabridgeable_passed_through(monkeypatch):
     # A single huge PROTECTED field cannot be safely abridged; emit it whole
-    # (the client's scratchpad copy is recoverable) rather than corrupt it.
+    # (the client's scratchpad copy is recoverable) rather than corrupt it —
+    # but never quietly: the whole-but-oversize marker must ride along.
     monkeypatch.setenv("SERVICENOW_RESPONSE_BUDGET_CHARS", "5000")
     result = {"success": False, "error": "boom", "message": "z" * 50_000}
     out = serialize_tool_output(result, "x")
-    assert "_abridged" not in out
-    assert json.loads(out) == result
+    parsed = json.loads(out)
+    assert parsed["success"] is False and parsed["error"] == "boom"
+    assert parsed["message"] == "z" * 50_000  # payload whole, not corrupted
+    assert "WHOLE" in parsed["_abridged_note"]
 
 
 class _RecordModel(BaseModel):
