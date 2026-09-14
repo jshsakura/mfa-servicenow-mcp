@@ -478,6 +478,40 @@ def test_honesty_still_over_budget_reported():
     assert byte_len(bounded) > 5_000  # honest: genuinely still over, not a fake fit
 
 
+def test_honesty_still_over_budget_reported_for_top_level_list():
+    # List counterpart of the test above: stubbing fired inside the list items
+    # but a huge protected field keeps it over budget. The trailing marker must
+    # carry the same honesty note dicts get, not silently skip it.
+    result = [
+        {
+            "sys_id": "r0",
+            "message": _big(200_000),  # protected, cannot be abridged
+            "script": _big(40_000),  # record-backed, stubbed
+        }
+    ]
+    bounded, abridged = enforce_response_budget(result, tool_name="x", budget=5_000)
+    assert abridged is True
+    assert isinstance(bounded[0]["script"], dict)  # stubbed
+    assert bounded[0]["message"] == _big(200_000)  # protected kept whole
+    marker = bounded[-1]
+    assert "still over budget" in marker["_abridged_note"]
+    assert "[0].script" in marker["_abridged_fields"]
+    assert byte_len(bounded) > 5_000  # honest: genuinely still over
+
+
+def test_top_level_record_list_truncated_gets_top_marker():
+    # A bare record list overflowing by count: rows are cut with the inline
+    # _truncated_items row marker, and the list also gets the trailing
+    # _abridged_note marker dict results have always received.
+    result = [{"sys_id": f"r{i}", "desc": "y" * 500} for i in range(300)]
+    bounded, abridged = enforce_response_budget(result, tool_name="x", budget=15_000)
+    assert abridged is True
+    assert byte_len(bounded) <= 15_000
+    assert bounded[-2]["_truncated_items"] > 0  # inline row marker
+    assert "NOT the complete content" in bounded[-1]["_abridged_note"]
+    assert bounded[-1]["_truncated_items"] > 0  # top-level drop count
+
+
 # --------------------------------------------------------------------------- #
 # Protected keys never abridged at NON-ZERO depth
 # --------------------------------------------------------------------------- #

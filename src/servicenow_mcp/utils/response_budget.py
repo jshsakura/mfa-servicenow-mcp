@@ -330,6 +330,10 @@ def _is_record_list(value: Any) -> bool:
 def _largest_list(obj: Any, path: Tuple[Any, ...] = ()) -> Optional[Tuple[Tuple[Any, ...], int]]:
     """Locate the (path, byte_len) of the largest truncatable record list, or None."""
     best: Optional[Tuple[Tuple[Any, ...], int]] = None
+    # The ROOT list itself is a truncation candidate too; only nested lists
+    # were considered before, so a bare record list could never be row-truncated.
+    if _is_record_list(obj):
+        best = (path, byte_len(obj))
     if isinstance(obj, dict):
         for key, value in obj.items():
             if key in PROTECTED_KEYS:
@@ -477,18 +481,26 @@ def enforce_response_budget(
             return result + [whole_marker], True
         return result, False
 
+    marker: Dict[str, Any] = {"_abridged_note": _ABRIDGED_NOTE}
+    if stubbed:
+        marker["_abridged_fields"] = stubbed
+    if dropped:
+        marker["_truncated_items"] = dropped
+
     if isinstance(bounded, dict):
-        marker: Dict[str, Any] = {"_abridged_note": _ABRIDGED_NOTE}
-        if stubbed:
-            marker["_abridged_fields"] = stubbed
-        if dropped:
-            marker["_truncated_items"] = dropped
         still_over = byte_len({**bounded, **marker}) > budget
-        if still_over:
-            marker["_abridged_note"] = (
-                _ABRIDGED_NOTE + " NOTE: still over budget after best-effort abridging; "
-                "the client may store the remainder in an overflow file."
-            )
+    else:
+        still_over = byte_len(bounded + [marker]) > budget
+
+    if still_over:
+        marker["_abridged_note"] = (
+            _ABRIDGED_NOTE + " NOTE: still over budget after best-effort abridging; "
+            "the client may store the remainder in an overflow file."
+        )
+
+    if isinstance(bounded, dict):
         bounded = {**bounded, **marker}
+    else:
+        bounded = bounded + [marker]
 
     return bounded, True
