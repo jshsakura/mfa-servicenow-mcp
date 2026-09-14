@@ -2,7 +2,7 @@
 # Pin hatchling to the 1.27 line: it emits Metadata-Version 2.4, which twine /
 # the PyPI publish action accept. hatchling >= 1.28 emits Metadata-Version 2.5,
 # which is not yet in the metadata spec and twine rejects ("'2.5' is not a valid
-# metadata version") — breaking `uv build` + publish. Revisit when twine ships
+# metadata version"), breaking `uv build` + publish. Revisit when twine ships
 # 2.5 support.
 requires = ["hatchling>=1.27,<1.28"]
 build-backend = "hatchling.build"
@@ -29,7 +29,7 @@ dependencies = [
     # pull the latest allowed combo (no lockfile), so an upstream major with a
     # breaking schema/transport/validation API would otherwise break a fresh
     # install with no code change here. We bind deeply to mcp's schema gen,
-    # pydantic v2 model API, and httpx's 0.x transport — the riskiest surfaces.
+    # pydantic v2 model API, and httpx's 0.x transport, the riskiest surfaces.
     # Floor at 1.28.1: <1.28.1 carries three high-sev advisories (WebSocket
     # Host/Origin validation, HTTP-transport principal check, task-handler
     # cross-client access). uvx/PyPI installs have no lockfile, so the floor is
@@ -42,7 +42,7 @@ dependencies = [
     "PyYAML>=6.0,<7",
     "orjson>=3.9.0,<4",
     # v1.24.55: pillow promoted from the `browser` extra to a regular
-    # dependency, for the same reason curl_cffi was below — the failure it
+    # dependency, for the same reason curl_cffi was below, the failure it
     # prevents is invisible.
     #
     # It was placed beside playwright on the theory that only the debug window
@@ -52,7 +52,7 @@ dependencies = [
     # the seven uv environments on a real developer machine: all seven had
     # playwright and NONE had pillow, so the extra had never once been
     # installed. Screenshots were silently written full-size, uncompressed,
-    # for as long as the option has existed — the caller sees a screenshot
+    # for as long as the option has existed, the caller sees a screenshot
     # either way, which is why nobody noticed. ~4MB, against a screenshot that
     # costs three times the tokens to read.
     "pillow>=10.0.0,<14",
@@ -64,7 +64,7 @@ dependencies = [
     # detection (observed on a hardened customer instance) reject stock
     # Python requests no matter how valid the captured session is. Wheels
     # ship for macOS / Linux / Windows × Python 3.11+, ~20MB on first
-    # install — small enough not to gate the feature behind extras when
+    # install, small enough not to gate the feature behind extras when
     # the symptom is "real browser works, MCP doesn't, no recovery path".
     "curl_cffi>=0.7.0,<1",
     # v1.24.24: openpyxl promoted from the [excel] extra to a regular
@@ -72,7 +72,7 @@ dependencies = [
     # weight: 0.24MB universal wheel (py2.py3-none-any, no platform matrix,
     # no C extension), one tiny dep. As an extra, manage_workbook shipped
     # REGISTERED BUT ALWAYS FAILING for every uvx user, and the fix was a
-    # client-config edit plus a restart — a recovery path nobody discovers
+    # client-config edit plus a restart, a recovery path nobody discovers
     # from the error. Bundling costs less than documenting the workaround.
     "openpyxl>=3.1.0,<4",
 ]
@@ -104,7 +104,7 @@ include = ["src/servicenow_mcp/config/*"]
 # Ship the repo-root skills/ inside the package as servicenow_mcp/skills/ so
 # pip/uvx installs expose them too. skill_resources._find_skills_dir() already
 # probes "<package>/skills", and setup_skills prefers this bundled copy over a
-# GitHub download — keeping the installed server and its skills on one version.
+# GitHub download, keeping the installed server and its skills on one version.
 [tool.hatch.build.targets.wheel.force-include]
 "skills" = "servicenow_mcp/skills"
 
@@ -130,7 +130,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "B"]
-# E501 (line too long): black already manages line length — keeping E501 on
+# E501 (line too long): black already manages line length, keeping E501 on
 # would just flag long docstrings/tool descriptions black intentionally leaves
 # alone. Strings cannot be wrapped without changing their content.
 ignore = ["E501"]
@@ -144,7 +144,7 @@ addopts = "--ignore=examples --cov=src/servicenow_mcp --cov-report=term-missing"
 markers = [
     # Cosmetic / auto-generatable documentation consistency (mirror byte-equality,
     # README count phrases, generated-doc equality). These must NOT gate the PyPI
-    # deploy — a stale translation count should never block shipping working code.
+    # deploy, a stale translation count should never block shipping working code.
     # CI runs them in a separate, non-blocking `docs` job; regenerate with
     # `python scripts/regenerate_doc_counts.py` and resync mirrors.
     "docs: documentation/count consistency (non-blocking for deploy)",
