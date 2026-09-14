@@ -8,6 +8,12 @@ import json
 from pydantic import BaseModel
 
 from servicenow_mcp.server import serialize_tool_output
+from servicenow_mcp.utils.response_budget import (
+    _ABRIDGED_NOTE,
+    _abridge_strings,
+    _row_marker,
+    byte_len,
+)
 
 
 def _utf8(s: str) -> int:
@@ -35,7 +41,7 @@ def test_oversized_record_backed_abridged_under_budget(monkeypatch):
 
 def test_oversized_unabridgeable_passed_through(monkeypatch):
     # A single huge PROTECTED field cannot be safely abridged; emit it whole
-    # (the client's scratchpad copy is recoverable) rather than corrupt it —
+    # (the client's scratchpad copy is recoverable) rather than corrupt it.
     # but never quietly: the whole-but-oversize marker must ride along.
     monkeypatch.setenv("SERVICENOW_RESPONSE_BUDGET_CHARS", "5000")
     result = {"success": False, "error": "boom", "message": "z" * 50_000}
@@ -72,3 +78,41 @@ def test_oversized_list_result_routed_through_budget(monkeypatch):
     assert "_abridged" in out
     assert _utf8(out) <= 3000
     assert json.loads(out)[0]["script"]["_abridged"] is True
+
+
+def test_list_marker_is_measured_through_serialization_path(monkeypatch):
+    result = [
+        {
+            "sys_id": f"aaaa1111bbbb2222cccc3333dddd{index:04x}",
+            "table": "sp_widget",
+            "script": "x" * (4_000 + index),
+            "detail": "y" * 1_999,
+        }
+        for index in range(5)
+    ]
+    stubbed_fields = []
+    stubbed_body = _abridge_strings(
+        result,
+        tool_name="x",
+        threshold=2_000,
+        stubbed=stubbed_fields,
+    )
+    marker = {
+        "_abridged_note": _ABRIDGED_NOTE,
+        "_abridged_fields": stubbed_fields,
+    }
+    body_size = byte_len(stubbed_body)
+    marked_size = byte_len(stubbed_body + [marker])
+    budget = (body_size + marked_size) // 2
+    safe_marker = {**marker, "_truncated_items": 1}
+    safe_candidate = stubbed_body[:-1] + [_row_marker(1), safe_marker]
+    assert body_size < budget < marked_size
+    assert byte_len(safe_candidate) <= budget
+    monkeypatch.setenv("SERVICENOW_RESPONSE_BUDGET_CHARS", str(budget))
+
+    out = serialize_tool_output(result, "x")
+
+    parsed = json.loads(out)
+    assert _utf8(out) <= budget
+    assert parsed[-1]["_abridged_fields"] == stubbed_fields
+    assert parsed[-1]["_truncated_items"] == parsed[-2]["_truncated_items"]

@@ -1,14 +1,14 @@
 """Bound a tool result's serialized size so the MCP client never SILENTLY
-truncates it to an opaque scratchpad file — which is exactly what makes an
+truncates it to an opaque scratchpad file. That is exactly what makes an
 agent lose its place.
 
 The client (Claude Code) caps a single tool result at ~MAX_MCP_OUTPUT_TOKENS
 (default 25000). When the server returns more, the client abridges to a file on
 the user's disk and the agent must guess where to resume.
 
-Design — accuracy and not-getting-lost over byte count, and NEVER make it worse:
+Design: accuracy and not-getting-lost over byte count, and NEVER make it worse:
 
-  1. Only RECORD-BACKED strings are abridged — a value is stubbed only when its
+  1. Only RECORD-BACKED strings are abridged. A value is stubbed only when its
      immediate container carries a `sys_id`, so every stub can hand back a
      precise, correct re-fetch instruction. Computed values (a diff, a rendered
      payload) have no sys_id and are LEFT WHOLE: the client's scratchpad copy of
@@ -19,9 +19,9 @@ Design — accuracy and not-getting-lost over byte count, and NEVER make it wors
   4. Largest-first and minimal: stub as few fields as needed to fit; if records
      overflow by COUNT rather than size, drop trailing rows with a paging hint.
   5. Honest: if even that cannot fit (e.g. one huge protected field), return
-     best-effort and say so — never claim a fit that did not happen.
+      best-effort and say so. Never claim a fit that did not happen.
 
-Pure functions, no network, no mutation — fully unit-testable.
+Pure functions, no network, no mutation, fully unit-testable.
 """
 
 from __future__ import annotations
@@ -113,10 +113,6 @@ _TABLE_BY_TOOL = {
 }
 
 _PORTAL_TABLE_PREFIX = "sp_"
-
-# Bytes reserved for the top-level abridged marker appended after row truncation.
-_MARKER_RESERVE = 400
-
 
 # --------------------------------------------------------------------------- #
 # Measurement
@@ -264,16 +260,25 @@ def _abridge_strings(
     return obj
 
 
-def _with_marker(obj: Any, stubbed: List[str]) -> Any:
-    """Attach the top-level abridged marker (dict results only) for measurement."""
-    if isinstance(obj, dict) and stubbed:
-        return {**obj, "_abridged_fields": stubbed, "_abridged_note": _ABRIDGED_NOTE}
+def _with_marker(obj: Any, stubbed: List[str], dropped: int = 0) -> Any:
+    """Attach the exact top-level abridged marker used by the final response."""
+    if not stubbed and dropped == 0:
+        return obj
+    marker: Dict[str, Any] = {"_abridged_note": _ABRIDGED_NOTE}
+    if stubbed:
+        marker["_abridged_fields"] = stubbed
+    if dropped:
+        marker["_truncated_items"] = dropped
+    if isinstance(obj, dict):
+        return {**obj, **marker}
+    if isinstance(obj, list):
+        return obj + [marker]
     return obj
 
 
 _ABRIDGED_NOTE = (
     "Large values were abridged to fit the response budget; each stub carries _full_length_bytes, "
-    "_sha256, _preview, and a _fetch hint. This is NOT the complete content — fetch any field "
+    "_sha256, _preview, and a _fetch hint. This is NOT the complete content. Fetch any field "
     "you need in full via its _fetch instruction."
 )
 
@@ -316,7 +321,7 @@ def _is_record_list(value: Any) -> bool:
 
     Row truncation drops trailing elements, so it is restricted to such lists:
     a dropped record row gets an actionable re-fetch hint. A computed list (no
-    sys_id — rendered lines, paths, audit findings) is LEFT WHOLE instead, so the
+    sys_id, such as rendered lines, paths, or audit findings) is LEFT WHOLE instead, so the
     client's scratchpad copy stays recoverable. Mirrors the stubbing sys_id gate;
     without it row truncation would be strictly worse than client truncation.
     """
@@ -377,7 +382,7 @@ def _set_at(obj: Any, path: Tuple[Any, ...], value: Any) -> Any:
     return value
 
 
-def _fit_by_row_truncation(bounded: Any, *, budget: int, reserve: int) -> Tuple[Any, int]:
+def _fit_by_row_truncation(bounded: Any, *, budget: int, stubbed: List[str]) -> Tuple[Any, int]:
     """Drop trailing elements of the largest list until the result fits.
 
     Returns (new_result, dropped_count). dropped_count is 0 when no list could
@@ -391,21 +396,23 @@ def _fit_by_row_truncation(bounded: Any, *, budget: int, reserve: int) -> Tuple[
     if not isinstance(rows, list) or len(rows) <= 1:
         return bounded, 0
 
-    # Largest keep-count whose truncated result still fits, reserving room for
-    # the top-level abridged marker that enforce_response_budget appends after
-    # (which carries the variable-size _abridged_fields list — sized by caller).
-    target = max(0, budget - reserve)
-    lo, hi, best_keep = 0, len(rows) - 1, 0
+    # Largest keep-count whose complete result, including its exact top-level
+    # marker, fits the budget.
+    lo, hi = 0, len(rows) - 1
+    best_keep: Optional[int] = None
     while lo <= hi:
         mid = (lo + hi) // 2
         dropped = len(rows) - mid
         kept = rows[:mid] + [_row_marker(dropped)]
-        if byte_len(_set_at(bounded, path, kept)) <= target:
+        candidate = _set_at(bounded, path, kept)
+        if byte_len(_with_marker(candidate, stubbed, dropped)) <= budget:
             best_keep = mid
             lo = mid + 1
         else:
             hi = mid - 1
 
+    if best_keep is None:
+        return bounded, 0
     dropped = len(rows) - best_keep
     kept = rows[:best_keep] + [_row_marker(dropped)]
     return _set_at(bounded, path, kept), dropped
@@ -455,15 +462,12 @@ def enforce_response_budget(
 
     dropped = 0
     if byte_len(_with_marker(bounded, stubbed)) > budget:
-        # Reserve room for the marker enforce appends, whose _abridged_fields list
-        # grows with the stub count — a fixed reserve would undercount it.
-        reserve = _MARKER_RESERVE + (byte_len(stubbed) if stubbed else 0)
-        bounded, dropped = _fit_by_row_truncation(bounded, budget=budget, reserve=reserve)
+        bounded, dropped = _fit_by_row_truncation(bounded, budget=budget, stubbed=stubbed)
 
     if not stubbed and dropped == 0:
         # Oversized but nothing safely abridgeable (e.g. one huge protected
-        # field). Leave the payload whole — stubbing a computed value would
-        # destroy it — but never quietly: an oversize response the CLIENT
+        # field). Leave the payload whole. Stubbing a computed value would
+        # destroy it, but never quietly: an oversize response the CLIENT
         # may truncate is still a silent abridging to the agent, so say the
         # server did not modify anything and let the receiver decide.
         whole_marker = {

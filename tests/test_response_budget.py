@@ -13,11 +13,14 @@ Invariants under test:
 import copy
 
 from servicenow_mcp.utils.response_budget import (
+    _ABRIDGED_NOTE,
     DEFAULT_BUDGET_BYTES,
     ENV_BUDGET,
     MIN_STUB_FIELD_BYTES,
     PREVIEW_CHARS,
     PROTECTED_KEYS,
+    _abridge_strings,
+    _row_marker,
     _sha256,
     byte_len,
     enforce_response_budget,
@@ -97,7 +100,7 @@ def test_largest_field_stubbed_small_kept_and_fits():
 
 
 def test_only_largest_stubbed_when_sufficient():
-    # Stubbing the single biggest field alone fits — smaller eligible fields stay.
+    # Stubbing the single biggest field alone fits. Smaller eligible fields stay.
     result = {
         "sys_id": "s",
         "table": "sp_widget",
@@ -149,7 +152,7 @@ def test_non_record_backed_field_left_whole():
 
 def test_computed_diff_not_destroyed():
     # diff_local_component returns a computed diff with no sys_id/table; stubbing
-    # it would be irrecoverable, so it must be left whole — and announced.
+    # it would be irrecoverable, so it must be left whole and announced.
     result = {
         "mode": "diff",
         "component": {"table": "sp_widget", "name": "w"},
@@ -164,7 +167,7 @@ def test_computed_diff_not_destroyed():
 
 
 # --------------------------------------------------------------------------- #
-# Protected keys — never abridged at any depth
+# Protected keys: never abridged at any depth
 # --------------------------------------------------------------------------- #
 
 
@@ -247,6 +250,66 @@ def test_row_count_overflow_truncated_and_fits():
     assert bounded["_truncated_items"] > 0
     # Kept rows are intact.
     assert bounded["results"][0] == {"sys_id": "r0", "desc": "y" * 500}
+
+
+def test_row_truncation_keeps_records_when_no_candidate_can_fit():
+    rows = [
+        {
+            "sys_id": f"aaaa1111bbbb2222cccc3333dddd{index:04x}",
+            "detail": "y" * (MIN_STUB_FIELD_BYTES - 1),
+        }
+        for index in range(5)
+    ]
+    result = {"message": _big(200_000), "rows": rows}
+    snapshot = copy.deepcopy(result)
+    budget = 1_000
+
+    bounded, abridged = enforce_response_budget(result, tool_name="x", budget=budget)
+
+    assert abridged is True
+    assert bounded["rows"] == rows
+    assert "WHOLE" in bounded["_abridged_note"]
+    assert "_truncated_items" not in bounded
+    assert all("_truncated_items" not in row for row in bounded["rows"])
+    assert byte_len(bounded) > budget
+    assert result == snapshot
+
+
+def test_top_level_list_marker_is_measured_at_budget_boundary():
+    result = [
+        {
+            "sys_id": f"aaaa1111bbbb2222cccc3333dddd{index:04x}",
+            "table": "sp_widget",
+            "script": _big(4_000 + index),
+            "detail": "y" * (MIN_STUB_FIELD_BYTES - 1),
+        }
+        for index in range(5)
+    ]
+    stubbed_fields = []
+    stubbed_body = _abridge_strings(
+        result,
+        tool_name="x",
+        threshold=MIN_STUB_FIELD_BYTES,
+        stubbed=stubbed_fields,
+    )
+    marker = {
+        "_abridged_note": _ABRIDGED_NOTE,
+        "_abridged_fields": stubbed_fields,
+    }
+    body_size = byte_len(stubbed_body)
+    marked_size = byte_len(stubbed_body + [marker])
+    budget = (body_size + marked_size) // 2
+    safe_marker = {**marker, "_truncated_items": 1}
+    safe_candidate = stubbed_body[:-1] + [_row_marker(1), safe_marker]
+    assert body_size < budget < marked_size
+    assert byte_len(safe_candidate) <= budget
+
+    bounded, abridged = enforce_response_budget(result, tool_name="x", budget=budget)
+
+    assert abridged is True
+    assert byte_len(bounded) <= budget
+    assert bounded[-1]["_abridged_fields"] == stubbed_fields
+    assert bounded[-1]["_truncated_items"] == bounded[-2]["_truncated_items"]
 
 
 # --------------------------------------------------------------------------- #
@@ -388,7 +451,7 @@ def test_list_nested_in_list_truncated():
 
 
 def test_min_stub_field_floor_respected():
-    # A record-backed field under the floor is never stubbed — but the result
+    # A record-backed field under the floor is never stubbed, but the result
     # is still over budget and unsafely-abridgeable, so it is marked, not silent.
     result = {"sys_id": "s", "table": "sp_widget", "small": _big(MIN_STUB_FIELD_BYTES - 1)}
     bounded, abridged = enforce_response_budget(result, tool_name="x", budget=500)
@@ -404,7 +467,7 @@ def test_min_stub_field_floor_respected():
 
 def test_stub_full_length_is_utf8_bytes_not_chars():
     # A CJK body: _full_length_bytes must report UTF-8 bytes (3x chars), matching
-    # _sha256/budget — so an agent comparing it to a re-fetched body's byte size agrees.
+    # _sha256/budget, so an agent comparing it to a re-fetched body's byte size agrees.
     body = "가" * 10_000  # 10_000 chars == 30_000 UTF-8 bytes
     result = {"sys_id": "s", "table": "sp_widget", "script": body}
     bounded, _ = enforce_response_budget(result, tool_name="x", budget=5_000)
@@ -420,7 +483,7 @@ def test_stub_full_length_is_utf8_bytes_not_chars():
 def test_computed_list_not_truncated_left_whole():
     # A large list of computed (no sys_id) items overflowing by COUNT must NOT be
     # row-truncated: the dropped tail would be unrecoverable, strictly worse than
-    # the client's own scratchpad truncation. Leave it whole — announced.
+    # the client's own scratchpad truncation. Leave it whole and announced.
     result = {"success": True, "findings": [f"finding-{i} " + _big(50) for i in range(2_000)]}
     assert byte_len(result) > 3_000
     bounded, abridged = enforce_response_budget(result, tool_name="audit", budget=3_000)
@@ -431,7 +494,7 @@ def test_computed_list_not_truncated_left_whole():
 
 def test_top_level_computed_list_oversize_marked():
     # A bare computed list (no sys_id anywhere): nothing stubbable or
-    # row-truncatable — payload stays whole with a trailing marker entry,
+    # row-truncatable. Payload stays whole with a trailing marker entry,
     # the same shape the row-truncation marker uses.
     result = [{"diff": _big(50_000)}, {"diff": _big(50_000)}]
     bounded, abridged = enforce_response_budget(result, tool_name="x", budget=5_000)
@@ -519,7 +582,7 @@ def test_top_level_record_list_truncated_gets_top_marker():
 
 def test_protected_field_in_nested_record_kept():
     # A large protected field inside a nested record-backed dict (own sys_id) must
-    # be kept whole while its stubbable sibling is stubbed — proving the protected
+    # be kept whole while its stubbable sibling is stubbed, proving the protected
     # skip holds when reached recursively, not only at depth 0.
     result = {
         "sys_id": "p",
