@@ -4,7 +4,7 @@
 # which is not yet in the metadata spec and twine rejects ("'2.5' is not a valid
 # metadata version"), breaking `uv build` + publish. Revisit when twine ships
 # 2.5 support.
-requires = ["hatchling>=1.27,<1.28"]
+requires = ["hatchling>=1.27,<1.33"]
 build-backend = "hatchling.build"
 
 [project]
