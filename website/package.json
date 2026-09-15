@@ -9,7 +9,7 @@
     "check": "astro check"
   },
   "dependencies": {
-    "@astrojs/mdx": "^7.0.7",
+    "@astrojs/mdx": "^8.0.1",
     "@astrojs/starlight": "^0.42.0",
     "astro": "^7.3.2",
     "sharp": "^0.35.3"
