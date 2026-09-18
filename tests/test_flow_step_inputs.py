@@ -292,7 +292,7 @@ class TestTriggersReadTheSameOnEitherAuth:
 class TestReadAndEditJoinUp:
     """ "Change this one to that" has to be answerable from what the read returned.
 
-    The write path (flow_edit_tools._find_node) matches a node on `id` /
+    The node_id drill-down matches a node on `id` /
     `uiUniqueIdentifier`. The structure read printed order, type, name and
     bindings — and no handle at all, so the model could describe a step
     perfectly and still not name it in set_action_input.

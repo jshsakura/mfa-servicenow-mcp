@@ -136,7 +136,7 @@ portal_developer:
     - preview_portal_component_update
     # Portal CRUD (Page/Layout)
     - scaffold_page
-    # Flow Designer — full action surface (read+update+edit workflow)
+    # Flow Designer (Read) — unified tool; it has no write actions any more
     - manage_flow_designer
     # Local Sync writes
     - update_remote_from_local
@@ -145,7 +145,7 @@ portal_developer:
 platform_developer:
   _extends: standard
   _tools:
-    # Flow Designer — full action surface
+    # Flow Designer (Read) — unified tool; it has no write actions any more
     - manage_flow_designer
     # UI Policy writes
     # Portal CRUD
@@ -213,7 +213,7 @@ full:
     - submit_change_for_approval
     - approve_change
     - reject_change
-    # Flow Designer — full action surface
+    # Flow Designer (Read) — unified tool; it has no write actions any more
     - manage_flow_designer
     # Portal debugging (specialized read — moved out of standard)
     - detect_angular_implicit_globals

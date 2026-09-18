@@ -216,7 +216,7 @@ result = manage_workflow({"action": "reorder_activities",
 Flow Designer（`sys_hub_flow`）是旧版工作流的现代继任者。MCP 服务器通过 processflow API 暴露了一个屏幕保真级的读取，加上一个经验证的编辑面（条件、action 输入、属性、复制、激活），并按工具包进行门控。它唯一**不会**伪造的是发布：快照重编译受编辑器门控，因此该工具会返回一条手动发布指令，而非伪造的成功。对 `sys_hub_*` 的原始 Table-API 写入被阻止（守卫 G6），因为它们会损坏 flow 快照。
 
 ### `manage_flow_designer`（统一）
-带操作分派的单个复合工具。取代了此前 6 个独立的 flow 工具（`list_flow_designers`、`get_flow_designer_detail`、`get_flow_designer_executions`、`compare_flows`、`update_flow_designer`、`manage_flow_edit`）。action 枚举在 `standard` 中被收窄为只读，并在 `portal_developer` / `platform_developer` / `full` 中解锁。
+带操作分派的单个复合工具。取代了此前 6 个独立的 flow 工具（`list_flow_designers`、`get_flow_designer_detail`、`get_flow_designer_executions`、`compare_flows`、`update_flow_designer`、`manage_flow_edit`）。action 枚举在所有包中均为只读——写操作已移除；请在 Flow Designer UI 中编辑流程。
 
 读取操作（在 `standard` 中可用）：
 - `action="read"`（v1.18.6）—— **屏幕保真**级的读取：一棵有序的、If/Else 嵌套的步骤树（action + 逻辑 + subflow 按执行顺序合并），条件**解码为人类可读文本**，data pill 解析到其生成步骤的标签，并附带自定义 Action 类型及其 Script 正文。已对环路/缺失 uid 加守卫。一个 142 节点的 flow 约 18K token（此前约 130K）—— 从这里开始理解一个 flow。
@@ -226,7 +226,7 @@ Flow Designer（`sys_hub_flow`）是旧版工作流的现代继任者。MCP 服�
 - `action="get_executions"` —— 运行时历史（过滤器）或单次执行详情。关键参数：`context_id`（单次模式）、`flow_id`、`flow_name`、`exec_state`、`source_record`、`errors_only`、`limit`/`offset`。
 - `action="compare"` —— 按 `flow_id_a`/`flow_id_b` 或 `name_a`/`name_b` 比对两个 flow。报告结构差异、subflow 绑定、触发器差异。优于两次调用 `get_detail`。
 
-写入操作已撤销。`manage_flow_designer` 只读取和分析流程，不会修改它们 — 请在 Flow Designer 界面中编辑。流程编辑会将整个 processflow 负载 PUT 回去，而本工具只是部分建模了该内部格式：`label_cache` 中缺失的一个 pill 会产生通过 API 读取正常、**在界面上为空**的条件，并且每次保存都会成为随之发布的更新集条目。处理函数保留在 `flow_tools.py` 的 `_DISABLED_WRITE_ACTIONS` 下。
+写入操作已撤销。`manage_flow_designer` 只读取和分析流程，不会修改它们 — 请在 Flow Designer 界面中编辑。流程编辑会将整个 processflow 负载 PUT 回去，而本工具只是部分建模了该内部格式：`label_cache` 中缺失的一个 pill 会产生通过 API 读取正常、**在界面上为空**的条件，并且每次保存都会成为随之发布的更新集条目。处理函数也一并删除；原因记录在 `flow_tools.py` 的 `git log` 中。
 
 ### Flow Designer 表对照
 

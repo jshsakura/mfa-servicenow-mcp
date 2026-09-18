@@ -220,7 +220,7 @@ result = manage_workflow({"action": "reorder_activities",
 Flow Designer (`sys_hub_flow`) is the modern successor to legacy workflows. The MCP server exposes a screen-fidelity read plus a verified edit surface (conditions, action inputs, properties, copy, activate) via the processflow API, gated by tool package. The one thing it will **not** fake is publish: snapshot recompile is editor-gated, so the tool returns a manual-publish instruction instead of a false success. Raw Table-API writes to `sys_hub_*` are blocked (guard G6) because they corrupt flow snapshots.
 
 ### `manage_flow_designer` (unified)
-Single composite tool with action dispatch. Replaces the previous 6 standalone flow tools (`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`). Action enum is narrowed to read-only in `standard` and unlocked in `portal_developer` / `platform_developer` / `full`.
+Single composite tool with action dispatch. Replaces the previous 6 standalone flow tools (`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`). Action enum is read-only in every package — write actions were removed; edit flows in the Flow Designer UI.
 
 Read actions (available in `standard`):
 - `action="read"` (v1.18.6) — the **screen-fidelity** read: one ordered, If/Else-nested step tree (actions + logic + subflows merged by execution order), conditions **decoded to human-readable text**, data pills resolved to their producing-step labels, and custom Action types with their Script bodies. Cycle/missing-uid guarded. ~18K tokens for a 142-node flow (vs ~130K before) — start here to understand a flow.
@@ -230,7 +230,7 @@ Read actions (available in `standard`):
 - `action="get_executions"` — runtime history (filters) or single execution detail. Key params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
 - `action="compare"` — diff two flows by `flow_id_a`/`flow_id_b` or `name_a`/`name_b`. Reports structural diff, subflow bindings, trigger differences. Preferred over calling `get_detail` twice.
 
-Write actions are withdrawn. `manage_flow_designer` reads and analyses flows; it does not change them — edit in the Flow Designer UI. A flow edit PUTs the whole processflow payload back, and this tool models that internal format only partially: a pill missing from `label_cache` gave a condition that read correctly over the API and was **empty on screen**, and every save becomes an update-set entry that ships. The handlers are kept in `flow_tools.py` under `_DISABLED_WRITE_ACTIONS`.
+Write actions are withdrawn. `manage_flow_designer` reads and analyses flows; it does not change them — edit in the Flow Designer UI. A flow edit PUTs the whole processflow payload back, and this tool models that internal format only partially: a pill missing from `label_cache` gave a condition that read correctly over the API and was **empty on screen**, and every save becomes an update-set entry that ships. The handlers were removed with them; `git log` on `flow_tools.py` carries the reasoning.
 
 ### Flow Designer Table Map
 

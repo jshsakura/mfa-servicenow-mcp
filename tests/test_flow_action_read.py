@@ -7,11 +7,8 @@ including the full Script body.
 from unittest.mock import MagicMock, patch
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.flow_edit_tools import (
-    ManageFlowEditParams,
-    _compact_action_summary,
-    manage_flow_edit,
-)
+from servicenow_mcp.tools.flow_action_read import _compact_action_summary
+from servicenow_mcp.tools.flow_tools import ManageFlowDesignerParams, manage_flow_designer
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig, ServerConfig
 
 _ACTION = {
@@ -73,11 +70,11 @@ def test_read_action_dispatch():
     )
     auth = MagicMock(spec=AuthManager)
     with patch(
-        "servicenow_mcp.tools.flow_edit_tools._try_processflow_action",
+        "servicenow_mcp.tools.flow_tools._try_processflow_action",
         return_value={"action": _ACTION, "steps": _STEPS},
     ):
-        result = manage_flow_edit(
-            cfg, auth, ManageFlowEditParams(action="read_action", flow_id="act1")
+        result = manage_flow_designer(
+            cfg, auth, ManageFlowDesignerParams(action="read_action", flow_id="act1")
         )
     assert result["success"] is True
     assert result["summary"]["name"] == "My Resolve Action"
@@ -91,11 +88,11 @@ def test_read_action_surfaces_fetch_error():
     )
     auth = MagicMock(spec=AuthManager)
     with patch(
-        "servicenow_mcp.tools.flow_edit_tools._try_processflow_action",
+        "servicenow_mcp.tools.flow_tools._try_processflow_action",
         return_value={"_error": "not found"},
     ):
-        result = manage_flow_edit(
-            cfg, auth, ManageFlowEditParams(action="read_action", flow_id="bad")
+        result = manage_flow_designer(
+            cfg, auth, ManageFlowDesignerParams(action="read_action", flow_id="bad")
         )
     assert result["success"] is False
     assert "not found" in result["error"]

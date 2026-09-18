@@ -216,7 +216,7 @@ result = manage_workflow({"action": "reorder_activities",
 Flow Designer（`sys_hub_flow`）は、レガシーワークフローのモダンな後継です。MCP サーバーは、processflow API を介して、画面忠実度の高い読み取りと、検証済みの編集サーフェス（条件、アクション入力、プロパティ、コピー、アクティブ化）を、ツールパッケージでゲートして公開します。唯一フェイクしないのは publish です: スナップショットの再コンパイルはエディタでゲートされているため、ツールは誤った成功ではなく手動公開の指示を返します。`sys_hub_*` への生の Table API 書き込みは、フロースナップショットを破損させるためブロックされます（ガード G6）。
 
 ### `manage_flow_designer`（統合）
-アクションディスパッチを備えた単一の複合ツール。以前の 6 つの独立したフローツール（`list_flow_designers`、`get_flow_designer_detail`、`get_flow_designer_executions`、`compare_flows`、`update_flow_designer`、`manage_flow_edit`）を置き換えます。アクション列挙は `standard` では読み取り専用に絞られ、`portal_developer` / `platform_developer` / `full` でアンロックされます。
+アクションディスパッチを備えた単一の複合ツール。以前の 6 つの独立したフローツール（`list_flow_designers`、`get_flow_designer_detail`、`get_flow_designer_executions`、`compare_flows`、`update_flow_designer`、`manage_flow_edit`）を置き換えます。アクション列挙はすべてのパッケージで読み取り専用です。書き込みアクションは削除されました。フローの編集はFlow Designer UIで行ってください。
 
 読み取りアクション（`standard` で利用可能）:
 - `action="read"`（v1.18.6）— **画面忠実度の高い** 読み取り: 1 つの順序付けされた If/Else ネストのステップツリー（アクション + ロジック + サブフローを実行順にマージ）、条件を **人間が読めるテキストにデコード**、データピルを生成元ステップのラベルに解決、カスタム Action タイプとそのスクリプト本文を含む。サイクル/欠落 uid をガード。142 ノードのフローで約 18K トークン（以前は約 130K）— フローを理解するにはここから始める。
@@ -226,7 +226,7 @@ Flow Designer（`sys_hub_flow`）は、レガシーワークフローのモダ�
 - `action="get_executions"` — 実行履歴（フィルタ）または単一実行の詳細。主なパラメータ: `context_id`（単一モード）、`flow_id`、`flow_name`、`exec_state`、`source_record`、`errors_only`、`limit`/`offset`。
 - `action="compare"` — `flow_id_a`/`flow_id_b` または `name_a`/`name_b` で 2 つのフローを差分する。構造差分、サブフローバインディング、トリガーの差異を報告する。`get_detail` を 2 回呼び出すより優先される。
 
-書き込みアクションは取り下げられました。`manage_flow_designer` はフローの読み取りと解析のみを行い、変更はしません — 編集は Flow Designer の UI で行ってください。フロー編集は processflow ペイロード全体を PUT しますが、本ツールはその内部フォーマットを部分的にしかモデル化していません。`label_cache` から漏れたピルにより、API では正しく読めて**画面では空**になる条件が生まれ、保存は毎回そのまま配布される更新セット項目になります。ハンドラは `flow_tools.py` の `_DISABLED_WRITE_ACTIONS` に残してあります。
+書き込みアクションは取り下げられました。`manage_flow_designer` はフローの読み取りと解析のみを行い、変更はしません — 編集は Flow Designer の UI で行ってください。フロー編集は processflow ペイロード全体を PUT しますが、本ツールはその内部フォーマットを部分的にしかモデル化していません。`label_cache` から漏れたピルにより、API では正しく読めて**画面では空**になる条件が生まれ、保存は毎回そのまま配布される更新セット項目になります。ハンドラも併せて削除しました。理由は `flow_tools.py` の `git log` に残っています。
 
 ### Flow Designer テーブルマップ
 

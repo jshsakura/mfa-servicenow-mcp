@@ -220,7 +220,7 @@ result = manage_workflow({"action": "reorder_activities",
 Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입니다. MCP 서버는 화면 충실도(screen-fidelity) 읽기 + 검증된 편집 표면(조건/액션입력/속성/복사/활성화)을 processflow API로 노출하며, 패키지 단위로 게이팅합니다. 단 **퍼블리시는 위조하지 않습니다** — 스냅샷 재컴파일은 에디터 전용이라, 거짓 성공 대신 수동 퍼블리시 안내를 반환합니다. `sys_hub_*`로의 원시 Table API 쓰기는 플로우 스냅샷을 손상시키므로 가드 G6가 차단합니다.
 
 ### `manage_flow_designer` (통합 도구)
-단일 합성 도구. 기존 6개 개별 도구(`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`)를 대체합니다. `standard`에서는 action enum이 읽기 전용으로 좁혀지고, `portal_developer` / `platform_developer` / `full`에서 쓰기까지 풀립니다.
+단일 합성 도구. 기존 6개 개별 도구(`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`)를 대체합니다. 모든 패키지에서 action enum은 읽기 전용입니다 — 쓰기 액션은 제거되었고, 플로우 수정은 Flow Designer UI에서 합니다.
 
 읽기 액션 (`standard` 포함):
 - `action="read"` (v1.18.6) — **화면 충실도** 읽기: 실행 순서로 병합된 하나의 If/Else 중첩 스텝 트리(액션+로직+서브플로우), 조건을 **사람이 읽는 텍스트로 디코드**, 데이터 pill을 생산 스텝 라벨로 해석, 커스텀 Action 타입의 Script 본문까지. 사이클/누락 uid 가드. 142노드 플로우 ~18K 토큰(이전 ~130K) — 플로우 이해는 여기서 시작.
@@ -230,7 +230,7 @@ Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입�
 - `action="get_executions"` — 실행 이력(필터) 또는 단일 실행 상세. 주요 파라미터: `context_id`(단일 모드), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
 - `action="compare"` — 두 플로우 diff. `flow_id_a`/`flow_id_b` 또는 `name_a`/`name_b`. 구조/서브플로우/트리거 차이 리포트. `get_detail` 두 번 호출보다 권장.
 
-쓰기 액션은 철회되었습니다. `manage_flow_designer`는 플로우를 읽고 분석할 뿐 변경하지 않습니다 — 편집은 Flow Designer UI에서 하세요. 플로우 편집은 processflow 페이로드를 통째로 PUT하는데 이 툴은 그 내부 포맷을 부분적으로만 모델링합니다. `label_cache`에서 빠진 pill 하나 때문에 API로는 정상으로 읽히고 **화면에서는 빈 칸**인 조건이 만들어졌고, 저장은 매번 배포되는 업데이트셋 항목이 됩니다. 핸들러는 `flow_tools.py`의 `_DISABLED_WRITE_ACTIONS` 아래에 남겨두었습니다.
+쓰기 액션은 철회되었습니다. `manage_flow_designer`는 플로우를 읽고 분석할 뿐 변경하지 않습니다 — 편집은 Flow Designer UI에서 하세요. 플로우 편집은 processflow 페이로드를 통째로 PUT하는데 이 툴은 그 내부 포맷을 부분적으로만 모델링합니다. `label_cache`에서 빠진 pill 하나 때문에 API로는 정상으로 읽히고 **화면에서는 빈 칸**인 조건이 만들어졌고, 저장은 매번 배포되는 업데이트셋 항목이 됩니다. 핸들러도 함께 제거했습니다. 이유는 `flow_tools.py`의 `git log`에 남아 있습니다.
 
 ### Flow Designer 테이블 맵
 

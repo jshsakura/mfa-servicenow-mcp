@@ -8,6 +8,7 @@ the SAME body, never a narrowed one.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 import servicenow_mcp.tools.sn_api as sn_api
 from servicenow_mcp.tools.flow_tools import (
@@ -97,29 +98,12 @@ def test_get_detail_cache_keys_on_options():
     assert gfd.call_count == 2
 
 
-def test_disabled_write_action_is_refused_and_leaves_the_cache_alone():
-    """Flow Designer writes are withdrawn: the Literal refuses one at parse time,
-    so build the params directly to reach the dispatcher. It must answer with the
-    reason, never call the edit handler, and not disturb a primed read cache."""
-    read_p = ManageFlowDesignerParams(action="get_detail", flow_id="F1")
-    ok = {"success": True, "name": "Flow"}
-    with (
-        patch("servicenow_mcp.tools.flow_tools.get_flow_details", return_value=ok) as gfd,
-        patch("servicenow_mcp.tools.flow_tools._do_edit") as edit,
-    ):
-        _do_get_detail(_cfg(), MagicMock(), read_p)  # prime cache (call 1)
-        result = manage_flow_designer(
-            _cfg(),
-            MagicMock(),
-            ManageFlowDesignerParams.model_construct(action="publish", flow_id="F1"),
-        )
-        _do_get_detail(_cfg(), MagicMock(), read_p)  # still cached → no 2nd fetch
-
-    assert result["success"] is False
-    assert "disabled" in result["error"]
-    assert result["instead"]
-    edit.assert_not_called()
-    assert gfd.call_count == 1
+def test_write_actions_are_not_part_of_the_surface():
+    """Flow Designer writes were removed, not gated: the action does not exist,
+    so pydantic refuses it before any handler is reached."""
+    for action in ("save", "publish", "set_branch_condition", "checkout", "update"):
+        with pytest.raises(ValidationError):
+            ManageFlowDesignerParams(action=action, flow_id="F1")
 
 
 def test_read_action_does_not_invalidate():

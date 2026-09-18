@@ -3,8 +3,8 @@ human-readable builder rows the Flow Designer canvas shows — an opaque
 'a=1^ORb=2' blob causes confusion on follow-up edits.
 """
 
+from servicenow_mcp.tools.flow_action_read import _render_inputs
 from servicenow_mcp.tools.flow_designer_tools import _decode_condition, _readable_pill
-from servicenow_mcp.tools.flow_edit_tools import _render_inputs
 
 
 def test_single_is_condition_with_pill():

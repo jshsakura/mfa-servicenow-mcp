@@ -220,7 +220,7 @@ result = manage_workflow({"action": "reorder_activities",
 Flow Designer (`sys_hub_flow`) legacy workflows का आधुनिक उत्तराधिकारी है। MCP सर्वर processflow API के माध्यम से एक स्क्रीन-फ़िडेलिटी read के साथ-साथ एक सत्यापित edit सतह (conditions, action inputs, properties, copy, activate) उजागर करता है, जो tool पैकेज द्वारा गेट किया गया है। एक चीज़ जिसे यह **नकली नहीं बनाएगा** वह है publish: snapshot recompile editor-गेटेड है, इसलिए टूल झूठी सफलता के बजाय एक manual-publish निर्देश लौटाता है। `sys_hub_*` पर Raw Table-API writes अवरुद्ध (guard G6) हैं क्योंकि वे flow snapshots को भ्रष्ट कर देते हैं।
 
 ### `manage_flow_designer` (एकीकृत)
-action डिस्पैच के साथ एकल समग्र टूल। पिछले 6 स्टैंडअलोन flow टूल (`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`) को प्रतिस्थापित करता है। Action enum को `standard` में read-only तक संकुचित किया गया है और `portal_developer` / `platform_developer` / `full` में अनलॉक किया गया है।
+action डिस्पैच के साथ एकल समग्र टूल। पिछले 6 स्टैंडअलोन flow टूल (`list_flow_designers`, `get_flow_designer_detail`, `get_flow_designer_executions`, `compare_flows`, `update_flow_designer`, `manage_flow_edit`) को प्रतिस्थापित करता है। Action enum हर पैकेज में read-only है — लिखने की क्रियाएँ हटा दी गई हैं; फ़्लो को Flow Designer UI में संपादित करें।
 
 Read actions (`standard` में उपलब्ध):
 - `action="read"` (v1.18.6) — **स्क्रीन-फ़िडेलिटी** read: एक क्रमबद्ध, If/Else-नेस्टेड step वृक्ष (actions + logic + subflows निष्पादन क्रम के अनुसार मर्ज किए गए), conditions **मानव-पठनीय पाठ में डिकोड की गई**, data pills उन्हें उत्पन्न करने वाले step लेबल्स से हल किए गए, और custom Action प्रकार उनके Script बॉडी के साथ। Cycle/missing-uid गार्डेड। 142-नोड flow के लिए ~18K टोकन (पहले के ~130K की तुलना में) — किसी flow को समझने के लिए यहाँ से शुरू करें।
@@ -230,7 +230,7 @@ Read actions (`standard` में उपलब्ध):
 - `action="get_executions"` — रनटाइम इतिहास (फ़िल्टर) या एकल execution विवरण। मुख्य params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`।
 - `action="compare"` — दो flows की तुलना `flow_id_a`/`flow_id_b` या `name_a`/`name_b` द्वारा करें। संरचनात्मक diff, subflow bindings, trigger अंतर रिपोर्ट करता है। `get_detail` को दो बार कॉल करने की तुलना में प्राथमिकता दी जाती है।
 
-राइट ऐक्शन वापस ले लिए गए हैं। `manage_flow_designer` फ़्लो को पढ़ता और विश्लेषित करता है, बदलता नहीं — संपादन Flow Designer UI में करें। फ़्लो संपादन पूरा processflow पेलोड वापस PUT करता है, और यह टूल उस आंतरिक फ़ॉर्मैट को केवल आंशिक रूप से मॉडल करता है: `label_cache` से छूटे एक pill ने ऐसी कंडीशन बनाई जो API से सही पढ़ी जाती थी और **स्क्रीन पर खाली** थी, और हर सेव एक अपडेट-सेट प्रविष्टि बन जाता है जो आगे भेजी जाती है। हैंडलर `flow_tools.py` में `_DISABLED_WRITE_ACTIONS` के नीचे रखे गए हैं।
+राइट ऐक्शन वापस ले लिए गए हैं। `manage_flow_designer` फ़्लो को पढ़ता और विश्लेषित करता है, बदलता नहीं — संपादन Flow Designer UI में करें। फ़्लो संपादन पूरा processflow पेलोड वापस PUT करता है, और यह टूल उस आंतरिक फ़ॉर्मैट को केवल आंशिक रूप से मॉडल करता है: `label_cache` से छूटे एक pill ने ऐसी कंडीशन बनाई जो API से सही पढ़ी जाती थी और **स्क्रीन पर खाली** थी, और हर सेव एक अपडेट-सेट प्रविष्टि बन जाता है जो आगे भेजी जाती है। हैंडलर भी हटा दिए गए; कारण `flow_tools.py` के `git log` में दर्ज है।
 
 ### Flow Designer Table Map
 

@@ -7,19 +7,20 @@ and above.
 
 Backed by existing implementations in:
 - flow_designer_tools.py (list/get_detail/get_executions/compare/update)
-- flow_edit_tools.py     (checkout/save/discard/patch workflow)
+- flow_action_read.py    (reading a custom Action type)
 """
 
 import logging
-from typing import Any, ClassVar, Dict, Literal, Optional, cast
+from typing import Any, ClassVar, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.sn_api import invalidate_read_cache, read_cache_get, read_cache_put
+from servicenow_mcp.tools.sn_api import read_cache_get, read_cache_put
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
+from .flow_action_read import _compact_action_summary, _try_processflow_action
 from .flow_designer_tools import (
     FLOW_TABLE,
     CompareFlowsParams,
@@ -27,15 +28,12 @@ from .flow_designer_tools import (
     GetFlowDetailsParams,
     GetFlowExecutionsParams,
     ListFlowsParams,
-    UpdateFlowDesignerParams,
     compare_flows,
     get_action_source,
     get_flow_details,
     get_flow_executions,
     list_flows,
-    update_flow_designer,
 )
-from .flow_edit_tools import ManageFlowEditParams, manage_flow_edit
 from .sn_api import sn_query_page
 
 logger = logging.getLogger(__name__)
@@ -47,86 +45,23 @@ _READ_ACTIONS = frozenset(
         "get_detail",
         "get_executions",
         "compare",
-        "edit_status",
         "get_action_source",
         "read_action",
     }
 )
-_EDIT_ACTIONS = frozenset(
-    {
-        "checkout",
-        "set_action_input",
-        "set_trigger_condition",
-        "set_branch_condition",
-        "add_branch",
-        "set_property",
-        "save",
-        "save_properties",
-        "publish",
-        "activate",
-        "deactivate",
-        "copy",
-        "read_action",
-        "discard",
-        "edit_status",
-    }
-)
-# Flow Designer writes are disabled — this tool reads flows, it does not change
-# them. A flow edit PUTs the whole processflow payload back, and we model that
-# internal format only partially: a pill missing from `label_cache` gave a
-# condition that read correctly here and was EMPTY on screen, and it reached a
-# published subflow and an update set before anyone noticed. Edit in the UI.
-# The handlers below are kept, not deleted — re-exposing one means adding it
-# back to ManageFlowDesignerParams.action.
-_DISABLED_WRITE_ACTIONS = frozenset(
-    {
-        "update",
-        "checkout",
-        "discard",
-        "edit_status",
-        "set_action_input",
-        "set_trigger_condition",
-        "set_branch_condition",
-        "add_branch",
-        "set_property",
-        "save",
-        "save_properties",
-        "publish",
-        "activate",
-        "deactivate",
-        "copy",
-    }
-)
-
-
 _NEEDS_FLOW_ID = frozenset(
     {
         # get_detail is intentionally NOT here — it accepts flow_id OR flow_name
         # (see _validate_per_action + _resolve_flow_id_by_name).
         "get_executions",
-        "update",
-        "checkout",
-        "set_action_input",
-        "set_trigger_condition",
-        "set_branch_condition",
-        "add_branch",
-        "set_property",
-        "save",
-        "save_properties",
-        "publish",
-        "activate",
-        "deactivate",
-        "copy",
         "read_action",
-        "discard",
-        "edit_status",
     }
 )
 
 
 class ManageFlowDesignerParams(BaseModel):
-    """Unified Flow Designer tool — read and analyse. Editing is not supported
-    here; use the Flow Designer UI (see _DISABLED_WRITE_ACTIONS).
+    """Unified Flow Designer tool — read and analyse. It does not edit flows;
+    the Flow Designer UI owns that.
 
     Required per action:
       list:              (none — all optional; flow_type=action|playbook|decision lists those tabs)
@@ -206,11 +141,6 @@ class ManageFlowDesignerParams(BaseModel):
     name_b: Optional[str] = Field(default=None, description="Second flow name fallback")
     include_label_cache: bool = Field(default=True, description="Include label_cache diff")
 
-    # ---- update ----
-    new_name: Optional[str] = Field(default=None, description="New flow name")
-    description: Optional[str] = Field(default=None, description="New flow description")
-    active: Optional[bool] = Field(default=None, description="New active status")
-
     # ---- get_action_source ----
     action_ref: Optional[str] = Field(
         default=None,
@@ -220,22 +150,11 @@ class ManageFlowDesignerParams(BaseModel):
         default=False, description="get_action_source: include published-snapshot versions"
     )
 
-    # ---- edit workflow ----
+    # ---- get_detail drill-down ----
     node_id: Optional[str] = Field(
         default=None,
         description="Action/logic/trigger instance id; on get_detail reads that ONE step in full",
     )
-    input_name: Optional[str] = Field(default=None, description="Input field name")
-    value: Optional[str] = Field(default=None, description="New value")
-    condition_label: Optional[str] = Field(default=None, description="Branch condition label")
-    publish: bool = Field(
-        default=False,
-        description="save: publish (recompile snapshot); required for the edit to take effect.",
-    )
-    verify: bool = Field(
-        default=True, description="save: re-read after write to confirm edits persisted."
-    )
-    dry_run: bool = Field(default=False, description="save: show plan, don't write.")
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
         "list": frozenset(
@@ -278,22 +197,7 @@ class ManageFlowDesignerParams(BaseModel):
         ),
         "compare": frozenset({"flow_id_a", "flow_id_b", "name_a", "name_b", "include_label_cache"}),
         "get_action_source": frozenset({"action_ref", "include_versions", "limit"}),
-        "update": frozenset({"flow_id", "new_name", "description", "active"}),
-        "checkout": frozenset({"flow_id"}),
-        "set_action_input": frozenset({"flow_id", "node_id", "input_name", "value"}),
-        "set_trigger_condition": frozenset({"flow_id", "node_id", "value"}),
-        "set_branch_condition": frozenset({"flow_id", "node_id", "value", "condition_label"}),
-        "add_branch": frozenset({"flow_id", "node_id", "value", "condition_label"}),
-        "set_property": frozenset({"flow_id", "input_name", "value"}),
-        "save": frozenset({"flow_id", "publish", "verify", "dry_run"}),
-        "save_properties": frozenset({"flow_id"}),
-        "publish": frozenset({"flow_id"}),
-        "activate": frozenset({"flow_id"}),
-        "deactivate": frozenset({"flow_id"}),
-        "copy": frozenset({"flow_id", "value"}),
         "read_action": frozenset({"flow_id"}),
-        "discard": frozenset({"flow_id"}),
-        "edit_status": frozenset({"flow_id"}),
     }
 
     @model_validator(mode="after")
@@ -314,40 +218,6 @@ class ManageFlowDesignerParams(BaseModel):
 
         if action == "get_action_source" and not self.action_ref:
             raise ValueError("get_action_source requires action_ref")
-
-        if action == "update":
-            if self.new_name is None and self.description is None and self.active is None:
-                raise ValueError("update requires at least one of: new_name, description, active")
-
-        if action == "set_action_input":
-            if not self.node_id:
-                raise ValueError("set_action_input requires node_id")
-            if not self.input_name:
-                raise ValueError("set_action_input requires input_name")
-            if self.value is None:
-                raise ValueError("set_action_input requires value")
-
-        if action == "set_property":
-            if not self.input_name:
-                raise ValueError("set_property requires input_name (runAs/protection/...)")
-            if self.value is None:
-                raise ValueError("set_property requires value")
-
-        if action == "set_branch_condition":
-            if not self.node_id:
-                raise ValueError("set_branch_condition requires node_id")
-            if self.value is None:
-                raise ValueError("set_branch_condition requires value")
-
-        if action == "add_branch":
-            if not self.node_id:
-                raise ValueError("add_branch requires node_id (existing branch to clone)")
-            if self.value is None:
-                raise ValueError("add_branch requires value (new branch condition)")
-
-        if action == "set_trigger_condition":
-            if self.value is None:
-                raise ValueError("set_trigger_condition requires value")
 
         return self
 
@@ -519,22 +389,6 @@ def _do_compare(
     )
 
 
-def _do_update(
-    config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
-) -> Dict[str, Any]:
-    assert p.flow_id is not None  # guaranteed by _validate_per_action
-    return update_flow_designer(
-        config,
-        auth_manager,
-        UpdateFlowDesignerParams(
-            flow_id=p.flow_id,
-            name=p.new_name,
-            description=p.description,
-            active=p.active,
-        ),
-    )
-
-
 def _do_get_action_source(
     config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
 ) -> Dict[str, Any]:
@@ -550,65 +404,19 @@ def _do_get_action_source(
     )
 
 
-# Map unified action → ManageFlowEditParams.action (1:1 except edit_status).
-_EDIT_ACTION_MAP: Dict[str, str] = {
-    "checkout": "checkout",
-    "set_action_input": "set_action_input",
-    "set_trigger_condition": "set_trigger_condition",
-    "set_branch_condition": "set_branch_condition",
-    "add_branch": "add_branch",
-    "set_property": "set_property",
-    "save": "save",
-    "save_properties": "save_properties",
-    "publish": "publish",
-    "activate": "activate",
-    "deactivate": "deactivate",
-    "copy": "copy",
-    "read_action": "read_action",
-    "discard": "discard",
-    "edit_status": "status",  # rename to avoid collision with flow_status field
-}
-
-
-_EditActionT = Literal[
-    "checkout",
-    "set_action_input",
-    "set_trigger_condition",
-    "set_branch_condition",
-    "add_branch",
-    "set_property",
-    "save",
-    "save_properties",
-    "publish",
-    "activate",
-    "deactivate",
-    "copy",
-    "read_action",
-    "discard",
-    "status",
-]
-
-
-def _do_edit(
+def _do_read_action(
     config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
 ) -> Dict[str, Any]:
+    """A custom Action type reads through its own model, not the flow one."""
     assert p.flow_id is not None  # guaranteed by _validate_per_action
-    edit_action = cast(_EditActionT, _EDIT_ACTION_MAP[p.action])
-    return manage_flow_edit(
-        config,
-        auth_manager,
-        ManageFlowEditParams(
-            action=edit_action,
-            flow_id=p.flow_id,
-            node_id=p.node_id,
-            input_name=p.input_name,
-            value=p.value,
-            condition_label=p.condition_label,
-            publish=p.publish,
-            verify=p.verify,
-            dry_run=p.dry_run,
-        ),
-    )
+    pf = _try_processflow_action(config, auth_manager, p.flow_id)
+    if pf.get("_error"):
+        return {"success": False, "error": pf["_error"]}
+    return {
+        "success": True,
+        "action": "read_action",
+        "summary": _compact_action_summary(pf.get("action", {}), pf.get("steps")),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -622,7 +430,7 @@ _DISPATCH = {
     "get_executions": _do_get_executions,
     "compare": _do_compare,
     "get_action_source": _do_get_action_source,
-    "update": _do_update,
+    "read_action": _do_read_action,
 }
 
 
@@ -643,27 +451,8 @@ def manage_flow_designer(
     params: ManageFlowDesignerParams,
 ) -> Dict[str, Any]:
     """Dispatch to the underlying implementation by action."""
-    # The Literal already refuses a withdrawn action at parse time; this catches a
-    # direct Python caller and, more usefully, answers WHY rather than "unknown
-    # action" — the handler is still right there in the file.
-    if params.action in _DISABLED_WRITE_ACTIONS:
-        return {
-            "success": False,
-            "action": params.action,
-            "error": f"Flow Designer writes are disabled - '{params.action}' is not available.",
-            "why": "We model the processflow payload only partially; see _DISABLED_WRITE_ACTIONS.",
-            "instead": "Edit in the Flow Designer UI. Reads still work: get_detail, compare, "
-            "get_executions, get_action_source, read_action.",
-        }
-
-    # A write may change any flow's structure; clear cached get_detail trees so
-    # the next read reflects the edit rather than a stale pre-write snapshot.
-    if params.action not in _READ_ACTIONS:
-        invalidate_read_cache(_FLOW_DETAIL_NS)
     handler = _DISPATCH.get(params.action)
     if handler is not None:
         return handler(config, auth_manager, params)
-    if params.action in _EDIT_ACTION_MAP:
-        return _do_edit(config, auth_manager, params)
     # Should be unreachable — Literal[...] gates this at parse time.
     return {"success": False, "error": f"Unknown action: {params.action}"}

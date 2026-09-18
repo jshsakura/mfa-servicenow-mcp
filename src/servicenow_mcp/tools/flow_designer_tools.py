@@ -23,7 +23,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import AuthType, ServerConfig
 
 from ..utils.response_budget import byte_len
-from .sn_api import invalidate_query_cache, sn_count, sn_count_by_group, sn_query_page
+from .sn_api import sn_count, sn_count_by_group, sn_query_page
 from .sn_batch import batch_get, batch_rows, table_query_url
 
 logger = logging.getLogger(__name__)
@@ -208,15 +208,6 @@ class GetFlowExecutionsParams(BaseModel):
         default=False,
         description="Only return executions with errors",
     )
-
-
-class UpdateFlowDesignerParams(BaseModel):
-    """Parameters for updating a Flow Designer flow."""
-
-    flow_id: str = Field(..., description="Flow sys_id from sys_hub_flow table")
-    name: Optional[str] = Field(default=None, description="New name for the flow")
-    description: Optional[str] = Field(default=None, description="New description for the flow")
-    active: Optional[bool] = Field(default=None, description="Set active status")
 
 
 # ---------------------------------------------------------------------------
@@ -692,7 +683,7 @@ def _build_subflow_row(
 
 
 # --- Shared condition / data-pill decoding (used by the compact renderer and
-# by flow_edit_tools) -------------------------------------------------------
+# by the action reader) -----------------------------------------------------
 # ServiceNow encoded-query operators, longest/most-specific token first so e.g.
 # ">=" beats ">" and "ISNOTEMPTY" beats "ISEMPTY". Mapped to the human label the
 # Flow Designer condition builder shows.
@@ -806,45 +797,7 @@ def _condition_to_text(query: str, label_map: Optional[Dict[str, str]] = None) -
     return " ".join(parts)
 
 
-# Reverse maps for ENCODING human condition rows back into an encoded query —
-# the inverse of _decode_condition. Lets callers describe conditions as
-# {field, operator, value} instead of hand-writing 'a=1^ORb=2'.
-_OP_LABEL_TO_TOKEN = {label.lower(): token for token, label in _QUERY_OPERATORS}
-_OP_TOKENS = {token for token, _label in _QUERY_OPERATORS}
 _NO_VALUE_OPS = frozenset({"ISEMPTY", "ISNOTEMPTY", "ANYTHING"})
-
-
-def _encode_condition(rows: List[Dict[str, Any]]) -> str:
-    """Build a ServiceNow encoded query from human-friendly rows — inverse of
-    _decode_condition. Each row: {field, operator, value, conjunction?}. The
-    `operator` may be a raw token ('=', 'LIKE', 'CHANGESTO') OR a human label
-    ('is', 'contains', 'changes to'). conjunction: AND (default, '^') | OR
-    ('^OR') | NEW_GROUP ('^NQ'). Value is omitted for is empty/not empty/anything.
-
-    So [{field:'state',operator:'is',value:'6'},
-        {field:'priority',operator:'is',value:'1'}]
-    -> 'state=6^priority=1'.
-    """
-    parts: List[str] = []
-    for idx, r in enumerate(rows or []):
-        field = str(r.get("field", "")).strip()
-        if not field:
-            continue
-        op_in = str(r.get("operator", "is")).strip()
-        token = op_in if op_in in _OP_TOKENS else _OP_LABEL_TO_TOKEN.get(op_in.lower(), "=")
-        value = "" if token in _NO_VALUE_OPS else str(r.get("value", ""))
-        term = f"{field}{token}{value}"
-        conj = str(r.get("conjunction", "AND")).upper().replace("-", "_")
-        if idx == 0:
-            prefix = ""
-        elif conj == "OR":
-            prefix = "^OR"
-        elif conj in ("NEW_GROUP", "NQ", "NEWGROUP"):
-            prefix = "^NQ"
-        else:
-            prefix = "^"
-        parts.append(prefix + term)
-    return "".join(parts)
 
 
 def _flow_instance_label(node: Dict[str, Any]) -> str:
@@ -3372,9 +3325,9 @@ def _fetch_flow_structure(
             )
             entry: Dict[str, Any] = {
                 "order": comp.get("order"),
-                # The handle the WRITE path matches on (flow_edit_tools._find_node
-                # takes `id` or `uiUniqueIdentifier`). Reading a flow and then
-                # being asked to change one of its steps is the normal case, and
+                # The handle a step is addressed by (`id` / `uiUniqueIdentifier`),
+                # which is what get_detail's node_id drill-down takes. Reading a
+                # flow and then wanting one step in full is the normal case, and
                 # without this the answer was "Table = incident" with no way to
                 # say which node that was — the read and the edit could not be
                 # joined up. This module's own truncation note even said "read a
@@ -3708,47 +3661,6 @@ def _attach_trigger_inputs(
         if inputs:
             trigger["inputs"] = inputs
     return triggers
-
-
-# ---------------------------------------------------------------------------
-# CRUD Tools
-# ---------------------------------------------------------------------------
-
-
-def update_flow_designer(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: UpdateFlowDesignerParams,
-) -> Dict[str, Any]:
-    """Update a Flow Designer flow by sys_id."""
-    flow_id = params.flow_id
-
-    data: Dict[str, Any] = {}
-    if params.name is not None:
-        data["name"] = params.name
-    if params.description is not None:
-        data["description"] = params.description
-    if params.active is not None:
-        data["active"] = str(params.active).lower()
-
-    if not data:
-        return {"success": False, "error": "No update parameters provided"}
-
-    try:
-        url = f"{config.instance_url}/api/now/table/{FLOW_TABLE}/{flow_id}"
-        response = auth_manager.make_request("PATCH", url, json=data)
-        response.raise_for_status()
-
-        result = response.json()
-        invalidate_query_cache(table=FLOW_TABLE)
-        return {
-            "success": True,
-            "flow": result.get("result", {}),
-            "message": "Flow updated successfully",
-        }
-    except Exception as e:
-        logger.error(f"Error updating flow designer: {e}")
-        return {"success": False, "error": str(e)}
 
 
 # ---------------------------------------------------------------------------

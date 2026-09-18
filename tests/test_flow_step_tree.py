@@ -5,8 +5,8 @@ labels — so a human can point at "that step under the If" even when editing is
 blocked. It reuses the canonical flow_designer detail→summary→text pipeline.
 """
 
+from servicenow_mcp.tools.flow_action_read import _render_inputs
 from servicenow_mcp.tools.flow_designer_tools import _readable_pill, render_flow_compact
-from servicenow_mcp.tools.flow_edit_tools import _render_inputs
 
 # Two top-level steps; an If (uid=if1) at order 2 nests an action at order 3 and
 # a nested If (uid=if2) at order 4, which itself nests End at order 5. The nested

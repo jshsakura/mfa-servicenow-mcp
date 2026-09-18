@@ -19,7 +19,6 @@ from servicenow_mcp.tools.flow_designer_tools import (
     get_flow_details,
     render_flow_compact,
 )
-from servicenow_mcp.tools.flow_edit_tools import ManageFlowEditParams, manage_flow_edit
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig, ServerConfig
 
 
@@ -88,34 +87,6 @@ def test_non_script_inputs_are_never_stubbed():
     out = render_flow_compact(flow)
     assert "incident" in out["tree"]
     assert "«script:" not in out["tree"]
-
-
-def test_checkout_path_stubs_scripts(tmp_path, monkeypatch):
-    # manage_flow_edit action=checkout returns render_flow_compact — the common
-    # read path — and must stub the script body, never inline it.
-    import servicenow_mcp.tools.flow_edit_tools as fet
-
-    monkeypatch.setattr(fet, "_CHECKOUT_DIR", tmp_path)
-    flow = _flow_with_script()
-    flow["security"] = {"can_write": True}
-
-    def _mr(method, url, **kwargs):
-        resp = MagicMock()
-        resp.raise_for_status = MagicMock()
-        if "/api/now/table/" in url:
-            resp.json.return_value = {"result": [{"sys_id": "f" * 32}]}
-        else:
-            resp.json.return_value = {"result": flow}
-        return resp
-
-    auth = MagicMock(spec=AuthManager)
-    auth.make_request = MagicMock(side_effect=_mr)
-    result = manage_flow_edit(
-        _browser_cfg(), auth, ManageFlowEditParams(action="checkout", flow_id="f" * 32)
-    )
-    assert result["success"] is True
-    assert _BIG_SCRIPT not in result["summary"]["tree"]
-    assert "«script:" in result["summary"]["tree"]
 
 
 # ---------------------------------------------------------------------------
@@ -196,77 +167,6 @@ def _config():
         instance_url="https://dev.service-now.com",
         auth=AuthConfig(type=AuthType.BROWSER, browser=BrowserAuthConfig()),
     )
-
-
-def test_save_verify_still_correct_with_parallel_version_row():
-    calls = []
-
-    def _mr(method, url, **kwargs):
-        calls.append((method, url))
-        resp = MagicMock()
-        resp.raise_for_status = MagicMock()
-        if method == "GET" and "/processflow/flow/" in url:
-            # verify re-read shows our value persisted
-            resp.json.return_value = {
-                "result": {
-                    "actionInstances": [
-                        {"id": "a1", "inputs": [{"name": "table", "value": "incident"}]}
-                    ]
-                }
-            }
-        else:
-            resp.json.return_value = {"result": {}}
-        return resp
-
-    auth = MagicMock(spec=AuthManager)
-    auth.make_request = MagicMock(side_effect=_mr)
-    checkout = {
-        "id": "f1",
-        "scope": "sc",
-        "actionInstances": [{"id": "a1", "inputs": [{"name": "table", "value": "incident"}]}],
-    }
-    with (
-        patch("servicenow_mcp.tools.flow_edit_tools._load_checkout", return_value=checkout),
-        patch("servicenow_mcp.tools.flow_edit_tools._checkout_path"),
-    ):
-        result = manage_flow_edit(
-            _browser_cfg(),
-            auth,
-            ManageFlowEditParams(action="save", flow_id="f" * 32, verify=True),
-        )
-    assert result["success"] is True
-    assert result["verified"] is True
-    # Both the version-row POST and the verify GET were issued.
-    assert any(m == "POST" and "/versioning/" in u for m, u in calls)
-    assert any(m == "GET" and "/processflow/flow/" in u for m, u in calls)
-
-
-def test_save_without_verify_still_creates_version_row():
-    calls = []
-
-    def _mr(method, url, **kwargs):
-        calls.append((method, url))
-        resp = MagicMock()
-        resp.raise_for_status = MagicMock()
-        resp.json.return_value = {"result": {}}
-        return resp
-
-    auth = MagicMock(spec=AuthManager)
-    auth.make_request = MagicMock(side_effect=_mr)
-    checkout = {"id": "f1", "scope": "sc"}
-    with (
-        patch("servicenow_mcp.tools.flow_edit_tools._load_checkout", return_value=checkout),
-        patch("servicenow_mcp.tools.flow_edit_tools._checkout_path"),
-    ):
-        result = manage_flow_edit(
-            _browser_cfg(),
-            auth,
-            ManageFlowEditParams(action="save", flow_id="f" * 32, verify=False),
-        )
-    assert result["success"] is True
-    assert any(m == "POST" and "/versioning/" in u for m, u in calls)
-    # No verify re-read when verify=False.
-    assert not any(m == "GET" and "/processflow/flow/" in u for m, u in calls)
 
 
 # ---------------------------------------------------------------------------
