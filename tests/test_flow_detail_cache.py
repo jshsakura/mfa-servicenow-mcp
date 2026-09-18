@@ -97,20 +97,29 @@ def test_get_detail_cache_keys_on_options():
     assert gfd.call_count == 2
 
 
-def test_write_action_invalidates_cached_detail():
+def test_disabled_write_action_is_refused_and_leaves_the_cache_alone():
+    """Flow Designer writes are withdrawn: the Literal refuses one at parse time,
+    so build the params directly to reach the dispatcher. It must answer with the
+    reason, never call the edit handler, and not disturb a primed read cache."""
     read_p = ManageFlowDesignerParams(action="get_detail", flow_id="F1")
     ok = {"success": True, "name": "Flow"}
     with (
         patch("servicenow_mcp.tools.flow_tools.get_flow_details", return_value=ok) as gfd,
-        patch("servicenow_mcp.tools.flow_tools._do_edit", return_value={"success": True}),
+        patch("servicenow_mcp.tools.flow_tools._do_edit") as edit,
     ):
         _do_get_detail(_cfg(), MagicMock(), read_p)  # prime cache (call 1)
-        # A write action clears the flow_detail namespace...
-        manage_flow_designer(
-            _cfg(), MagicMock(), ManageFlowDesignerParams(action="publish", flow_id="F1")
+        result = manage_flow_designer(
+            _cfg(),
+            MagicMock(),
+            ManageFlowDesignerParams.model_construct(action="publish", flow_id="F1"),
         )
-        _do_get_detail(_cfg(), MagicMock(), read_p)  # must re-fetch (call 2)
-    assert gfd.call_count == 2
+        _do_get_detail(_cfg(), MagicMock(), read_p)  # still cached → no 2nd fetch
+
+    assert result["success"] is False
+    assert "disabled" in result["error"]
+    assert result["instead"]
+    edit.assert_not_called()
+    assert gfd.call_count == 1
 
 
 def test_read_action_does_not_invalidate():

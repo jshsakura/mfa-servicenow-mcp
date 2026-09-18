@@ -3,7 +3,7 @@
 Este documento cubre dos motores de workflow expuestos por el servidor MCP:
 
 1. **Workflow heredado** (`wf_workflow`) — controlado por el enrutador de acciones `manage_workflow` que se describe a continuación.
-2. **Flow Designer** (`sys_hub_flow`) — herramienta unificada `manage_flow_designer` con despacho de acciones. El paquete estándar expone acciones de lectura (`list` / `get_detail` / `get_executions` / `compare`); los paquetes superiores desbloquean escrituras (`update` / `checkout` / `set_*` / `save` / `discard`). Las tablas de Action/SubFlow/Playbook están documentadas en el [mapa de tablas de Flow Designer](#mapa-de-tablas-de-flow-designer).
+2. **Flow Designer** (`sys_hub_flow`) — herramienta unificada `manage_flow_designer` con despacho de acciones. Solo lectura en todos los paquetes (`list` / `get_detail` / `get_executions` / `compare`, más las lecturas de origen de acción); las acciones de escritura se retiraron. Las tablas de Action/SubFlow/Playbook están documentadas en el [mapa de tablas de Flow Designer](#mapa-de-tablas-de-flow-designer).
 
 Si no estás seguro de qué motor usa un proceso, comienza con `manage_flow_designer(action="list")` (instancias modernas) y recurre a `manage_workflow(action="list")` para los registros heredados `wf_workflow`.
 
@@ -226,16 +226,7 @@ Acciones de lectura (disponibles en `standard`):
 - `action="get_executions"` — historial de ejecución (filtros) o detalle de una única ejecución. Parámetros clave: `context_id` (modo único), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
 - `action="compare"` — compara dos flujos por `flow_id_a`/`flow_id_b` o `name_a`/`name_b`. Informa de la diferencia estructural, los enlaces de subflows y las diferencias de triggers. Preferible a llamar a `get_detail` dos veces.
 
-Acciones de escritura (solo en `portal_developer` / `platform_developer` / `full`). Todas las ediciones se **verifican en vivo** (relectura tras guardar) y admiten `dry_run`:
-- `action="update"` — solo metadatos (`new_name` / `description` / `active`).
-- `action="checkout"` — inicia una sesión de edición local (requiere autenticación de navegador, usa la API processflow). `action="status"` la inspecciona; `action="discard"` la descarta.
-- `action="set_action_input"` — modifica el valor de entrada de una acción. Requiere `node_id`, `input_name`, `value`.
-- `action="set_branch_condition"` / `action="set_trigger_condition"` — modifica la condición de una rama lógica o de un trigger. Pasa filas estructuradas `[{field, operator, value}]` **o** una consulta codificada en bruto; la respuesta devuelve `condition_readable` para que puedas confirmar que el codificador produjo lo que pretendías (los operadores incluyen la familia CHANGES, AND/OR/NQ).
-- `action="set_property"` / `action="save_properties"` — propiedades del flujo: Run As, Protection, Priority, `active`.
-- `action="copy"` — clonación nativa de flujo/subflow (la misma llamada que hace "Copy flow" de Workflow Studio).
-- `action="activate"` / `action="deactivate"` — alterna el estado activo del flujo.
-- `action="save"` — persiste las ediciones a través de la API processflow (un PUT con el scope correcto que también escribe una nueva versión del flujo — la corrección para la reversión silenciosa de triggers).
-- `action="publish"` — **restringido al editor.** La recompilación de snapshots solo es alcanzable desde el editor interactivo de Workflow Studio; cada ruta de API falla rápidamente. La herramienta no finge éxito — devuelve `manual_publish_required` más la URL exacta de la interfaz para finalizar la publicación a mano.
+Las acciones de escritura se han retirado. `manage_flow_designer` lee y analiza flujos; no los modifica — edítelos en la interfaz de Flow Designer. Una edición de flujo hace PUT de toda la carga de processflow, y esta herramienta modela ese formato interno solo parcialmente: un pill ausente de `label_cache` produjo una condición que se leía bien por la API y aparecía **vacía en pantalla**, y cada guardado se convierte en una entrada del update set que se despliega. Los manejadores se conservan en `flow_tools.py` bajo `_DISABLED_WRITE_ACTIONS`.
 
 ### Mapa de Tablas de Flow Designer
 

@@ -7,7 +7,7 @@ slug: ja/workflow_management
 このドキュメントは、MCP サーバーが公開する 2 つのワークフローエンジンを取り上げます:
 
 1. **レガシーワークフロー**（`wf_workflow`）— 下記の `manage_workflow` アクションルーターで駆動されます。
-2. **Flow Designer**（`sys_hub_flow`）— アクションディスパッチを備えた統合 `manage_flow_designer` ツール。standard パッケージは読み取りアクション（`list` / `get_detail` / `get_executions` / `compare`）を公開し、上位パッケージは書き込み（`update` / `checkout` / `set_*` / `save` / `discard`）をアンロックします。Action/SubFlow/Playbook のテーブルは [Flow Designer テーブルマップ](#flow-designer-テーブルマップ) に記載されています。
+2. **Flow Designer**（`sys_hub_flow`）— アクションディスパッチを備えた統合 `manage_flow_designer` ツール。すべてのパッケージで読み取り専用です（`list` / `get_detail` / `get_executions` / `compare` とアクションソースの読み取り）。書き込みアクションは取り下げられました。Action/SubFlow/Playbook のテーブルは [Flow Designer テーブルマップ](#flow-designer-テーブルマップ) に記載されています。
 
 プロセスがどちらのエンジンを使うか分からない場合は、まず `manage_flow_designer(action="list")`（モダンなインスタンス）から始め、レガシーの `wf_workflow` レコードには `manage_workflow(action="list")` にフォールバックしてください。
 
@@ -230,16 +230,7 @@ Flow Designer（`sys_hub_flow`）は、レガシーワークフローのモダ�
 - `action="get_executions"` — 実行履歴（フィルタ）または単一実行の詳細。主なパラメータ: `context_id`（単一モード）、`flow_id`、`flow_name`、`exec_state`、`source_record`、`errors_only`、`limit`/`offset`。
 - `action="compare"` — `flow_id_a`/`flow_id_b` または `name_a`/`name_b` で 2 つのフローを差分する。構造差分、サブフローバインディング、トリガーの差異を報告する。`get_detail` を 2 回呼び出すより優先される。
 
-書き込みアクション（`portal_developer` / `platform_developer` / `full` のみ）。すべての編集は **ライブで検証** され（保存後に再読み取り）、`dry_run` をサポートします:
-- `action="update"` — メタデータのみ（`new_name` / `description` / `active`）。
-- `action="checkout"` — ローカル編集セッションを開始する（browser 認証が必要、processflow API を使用）。`action="status"` でそれを検査し、`action="discard"` で破棄する。
-- `action="set_action_input"` — アクション入力値をパッチする。`node_id`、`input_name`、`value` が必要。
-- `action="set_branch_condition"` / `action="set_trigger_condition"` — ロジックブランチまたはトリガー条件をパッチする。構造化された行 `[{field, operator, value}]` **または** 生のエンコード済みクエリを渡す。レスポンスは `condition_readable` をエコーするため、エンコーダが意図したものを生成したか確認できる（演算子には CHANGES ファミリー、AND/OR/NQ が含まれる）。
-- `action="set_property"` / `action="save_properties"` — フロープロパティ: Run As、Protection、Priority、`active`。
-- `action="copy"` — ネイティブのフロー/サブフロークローン（Workflow Studio の "Copy flow" が行うのと同じ呼び出し）。
-- `action="activate"` / `action="deactivate"` — フローのアクティブ状態を切り替える。
-- `action="save"` — processflow API を介して編集を永続化する（スコープ正しい PUT で、新しいフローバージョンも書き込む — サイレントなトリガーリバートの修正）。
-- `action="publish"` — **エディタでゲート。** スナップショットの再コンパイルは対話的な Workflow Studio エディタからのみ到達可能で、すべての API パスは即座に失敗する。ツールは成功を装わず — `manual_publish_required` と、手動で公開を完了するための正確な UI URL を返す。
+書き込みアクションは取り下げられました。`manage_flow_designer` はフローの読み取りと解析のみを行い、変更はしません — 編集は Flow Designer の UI で行ってください。フロー編集は processflow ペイロード全体を PUT しますが、本ツールはその内部フォーマットを部分的にしかモデル化していません。`label_cache` から漏れたピルにより、API では正しく読めて**画面では空**になる条件が生まれ、保存は毎回そのまま配布される更新セット項目になります。ハンドラは `flow_tools.py` の `_DISABLED_WRITE_ACTIONS` に残してあります。
 
 ### Flow Designer テーブルマップ
 

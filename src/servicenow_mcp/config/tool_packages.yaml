@@ -51,7 +51,7 @@ standard:
   # Workflow (Read) — narrow to actually-used actions
   - manage_workflow:
       actions: [list, get_activities]
-  # Flow Designer (Read) — unified tool, write actions blocked here
+  # Flow Designer (Read) — unified tool; it has no write actions any more
   - manage_flow_designer:
       actions: [list, get_detail, get_executions, get_action_source]
   # Portal (Read)

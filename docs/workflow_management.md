@@ -3,7 +3,7 @@
 This document covers two workflow engines exposed by the MCP server:
 
 1. **Legacy Workflow** (`wf_workflow`) — driven by the `manage_workflow` action router below.
-2. **Flow Designer** (`sys_hub_flow`) — unified `manage_flow_designer` tool with action dispatch. Standard package exposes read actions (`list` / `get_detail` / `get_executions` / `compare`); higher packages unlock writes (`update` / `checkout` / `set_*` / `save` / `discard`). Action/SubFlow/Playbook tables are documented in the [Flow Designer table map](#flow-designer-table-map).
+2. **Flow Designer** (`sys_hub_flow`) — unified `manage_flow_designer` tool with action dispatch. Read-only in every package (`list` / `get_detail` / `get_executions` / `compare`, plus the action-source reads); the write actions were withdrawn. Action/SubFlow/Playbook tables are documented in the [Flow Designer table map](#flow-designer-table-map).
 
 If you are not sure which engine a process uses, start with `manage_flow_designer(action="list")` (modern instances) and fall back to `manage_workflow(action="list")` for legacy `wf_workflow` records.
 
@@ -226,16 +226,7 @@ Read actions (available in `standard`):
 - `action="get_executions"` — runtime history (filters) or single execution detail. Key params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
 - `action="compare"` — diff two flows by `flow_id_a`/`flow_id_b` or `name_a`/`name_b`. Reports structural diff, subflow bindings, trigger differences. Preferred over calling `get_detail` twice.
 
-Write actions (only in `portal_developer` / `platform_developer` / `full`). All edits are **verified live** (re-read after save) and support `dry_run`:
-- `action="update"` — metadata only (`new_name` / `description` / `active`).
-- `action="checkout"` — start a local edit session (browser auth required, uses processflow API). `action="status"` inspects it; `action="discard"` drops it.
-- `action="set_action_input"` — patch action input value. Requires `node_id`, `input_name`, `value`.
-- `action="set_branch_condition"` / `action="set_trigger_condition"` — patch a logic-branch or trigger condition. Pass structured rows `[{field, operator, value}]` **or** a raw encoded query; the response echoes `condition_readable` so you can confirm the encoder produced what you meant (operators include the CHANGES family, AND/OR/NQ).
-- `action="set_property"` / `action="save_properties"` — flow properties: Run As, Protection, Priority, `active`.
-- `action="copy"` — native flow/subflow clone (the same call Workflow Studio's "Copy flow" makes).
-- `action="activate"` / `action="deactivate"` — toggle the flow's active state.
-- `action="save"` — persist edits via the processflow API (a scope-correct PUT that also writes a fresh flow version — the fix for the silent trigger-revert).
-- `action="publish"` — **editor-gated.** Snapshot recompile is only reachable from the interactive Workflow Studio editor; every API path fast-fails. The tool does not pretend success — it returns `manual_publish_required` plus the exact UI URL to finish the publish by hand.
+Write actions are withdrawn. `manage_flow_designer` reads and analyses flows; it does not change them — edit in the Flow Designer UI. A flow edit PUTs the whole processflow payload back, and this tool models that internal format only partially: a pill missing from `label_cache` gave a condition that read correctly over the API and was **empty on screen**, and every save becomes an update-set entry that ships. The handlers are kept in `flow_tools.py` under `_DISABLED_WRITE_ACTIONS`.
 
 ### Flow Designer Table Map
 

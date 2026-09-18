@@ -3,7 +3,7 @@
 यह दस्तावेज़ MCP सर्वर द्वारा उजागर किए गए दो workflow इंजनों को कवर करता है:
 
 1. **Legacy Workflow** (`wf_workflow`) — नीचे दिए गए `manage_workflow` action राउटर द्वारा संचालित।
-2. **Flow Designer** (`sys_hub_flow`) — action डिस्पैच के साथ एकीकृत `manage_flow_designer` टूल। Standard पैकेज read actions (`list` / `get_detail` / `get_executions` / `compare`) उजागर करता है; उच्चतर पैकेज writes (`update` / `checkout` / `set_*` / `save` / `discard`) अनलॉक करते हैं। Action/SubFlow/Playbook तालिकाएँ [Flow Designer table map](#flow-designer-table-map) में प्रलेखित हैं।
+2. **Flow Designer** (`sys_hub_flow`) — action डिस्पैच के साथ एकीकृत `manage_flow_designer` टूल। सभी पैकेजों में केवल-पठन (`list` / `get_detail` / `get_executions` / `compare`, और ऐक्शन-सोर्स रीड); राइट ऐक्शन वापस ले लिए गए। Action/SubFlow/Playbook तालिकाएँ [Flow Designer table map](#flow-designer-table-map) में प्रलेखित हैं।
 
 यदि आप निश्चित नहीं हैं कि कोई प्रक्रिया किस इंजन का उपयोग करती है, तो `manage_flow_designer(action="list")` (आधुनिक इंस्टेंस) से शुरू करें और legacy `wf_workflow` रिकॉर्ड के लिए `manage_workflow(action="list")` पर वापस जाएँ।
 
@@ -226,16 +226,7 @@ Read actions (`standard` में उपलब्ध):
 - `action="get_executions"` — रनटाइम इतिहास (फ़िल्टर) या एकल execution विवरण। मुख्य params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`।
 - `action="compare"` — दो flows की तुलना `flow_id_a`/`flow_id_b` या `name_a`/`name_b` द्वारा करें। संरचनात्मक diff, subflow bindings, trigger अंतर रिपोर्ट करता है। `get_detail` को दो बार कॉल करने की तुलना में प्राथमिकता दी जाती है।
 
-Write actions (केवल `portal_developer` / `platform_developer` / `full` में)। सभी edits **लाइव सत्यापित** होते हैं (save के बाद पुनः पढ़े जाते हैं) और `dry_run` का समर्थन करते हैं:
-- `action="update"` — केवल मेटाडेटा (`new_name` / `description` / `active`)।
-- `action="checkout"` — एक स्थानीय edit सत्र शुरू करें (browser auth आवश्यक, processflow API का उपयोग करता है)। `action="status"` इसका निरीक्षण करता है; `action="discard"` इसे छोड़ देता है।
-- `action="set_action_input"` — action input मान पैच करें। इसके लिए `node_id`, `input_name`, `value` आवश्यक हैं।
-- `action="set_branch_condition"` / `action="set_trigger_condition"` — किसी logic-branch या trigger condition को पैच करें। संरचित पंक्तियाँ `[{field, operator, value}]` **या** एक raw encoded query पास करें; प्रतिक्रिया `condition_readable` को इको करती है ताकि आप पुष्टि कर सकें कि encoder ने वही उत्पन्न किया जो आपका अभिप्राय था (operators में CHANGES परिवार, AND/OR/NQ शामिल हैं)।
-- `action="set_property"` / `action="save_properties"` — flow properties: Run As, Protection, Priority, `active`।
-- `action="copy"` — नेटिव flow/subflow क्लोन (वही कॉल जो Workflow Studio का "Copy flow" करता है)।
-- `action="activate"` / `action="deactivate"` — flow की सक्रिय स्थिति टॉगल करें।
-- `action="save"` — processflow API के माध्यम से edits को persist करें (एक scope-correct PUT जो एक नया flow संस्करण भी लिखता है — silent trigger-revert का समाधान)।
-- `action="publish"` — **editor-गेटेड।** Snapshot recompile केवल इंटरैक्टिव Workflow Studio editor से पहुँच योग्य है; हर API पथ तेज़ी से विफल हो जाता है। टूल सफलता का दिखावा नहीं करता — यह `manual_publish_required` के साथ-साथ publish को हाथ से पूरा करने के लिए सटीक UI URL लौटाता है।
+राइट ऐक्शन वापस ले लिए गए हैं। `manage_flow_designer` फ़्लो को पढ़ता और विश्लेषित करता है, बदलता नहीं — संपादन Flow Designer UI में करें। फ़्लो संपादन पूरा processflow पेलोड वापस PUT करता है, और यह टूल उस आंतरिक फ़ॉर्मैट को केवल आंशिक रूप से मॉडल करता है: `label_cache` से छूटे एक pill ने ऐसी कंडीशन बनाई जो API से सही पढ़ी जाती थी और **स्क्रीन पर खाली** थी, और हर सेव एक अपडेट-सेट प्रविष्टि बन जाता है जो आगे भेजी जाती है। हैंडलर `flow_tools.py` में `_DISABLED_WRITE_ACTIONS` के नीचे रखे गए हैं।
 
 ### Flow Designer Table Map
 

@@ -3,7 +3,7 @@
 本文档涵盖 MCP 服务器暴露的两个工作流引擎：
 
 1. **旧版 Workflow**（`wf_workflow`）—— 由下方的 `manage_workflow` 操作路由器驱动。
-2. **Flow Designer**（`sys_hub_flow`）—— 带操作分派的统一 `manage_flow_designer` 工具。standard 包暴露读取操作（`list` / `get_detail` / `get_executions` / `compare`）；更高的包解锁写入（`update` / `checkout` / `set_*` / `save` / `discard`）。Action/SubFlow/Playbook 表记录在 [Flow Designer 表对照](#flow-designer-表对照)中。
+2. **Flow Designer**（`sys_hub_flow`）—— 带操作分派的统一 `manage_flow_designer` 工具。在所有包中均为只读（`list` / `get_detail` / `get_executions` / `compare` 以及操作源读取）；写入操作已撤销。Action/SubFlow/Playbook 表记录在 [Flow Designer 表对照](#flow-designer-表对照)中。
 
 如果你不确定某个流程使用哪个引擎，从 `manage_flow_designer(action="list")`（现代实例）开始，并回退到 `manage_workflow(action="list")` 以查找旧版 `wf_workflow` 记录。
 
@@ -226,16 +226,7 @@ Flow Designer（`sys_hub_flow`）是旧版工作流的现代继任者。MCP 服�
 - `action="get_executions"` —— 运行时历史（过滤器）或单次执行详情。关键参数：`context_id`（单次模式）、`flow_id`、`flow_name`、`exec_state`、`source_record`、`errors_only`、`limit`/`offset`。
 - `action="compare"` —— 按 `flow_id_a`/`flow_id_b` 或 `name_a`/`name_b` 比对两个 flow。报告结构差异、subflow 绑定、触发器差异。优于两次调用 `get_detail`。
 
-写入操作（仅在 `portal_developer` / `platform_developer` / `full` 中）。所有编辑都**经实时验证**（保存后重新读取）并支持 `dry_run`：
-- `action="update"` —— 仅元数据（`new_name` / `description` / `active`）。
-- `action="checkout"` —— 启动本地编辑会话（需要浏览器认证，使用 processflow API）。`action="status"` 检查它；`action="discard"` 丢弃它。
-- `action="set_action_input"` —— 修补 action 输入值。需要 `node_id`、`input_name`、`value`。
-- `action="set_branch_condition"` / `action="set_trigger_condition"` —— 修补逻辑分支或触发器条件。传入结构化行 `[{field, operator, value}]` **或**原始编码查询；响应会回显 `condition_readable`，以便你确认编码器产生的正是你想要的结果（运算符包括 CHANGES 家族、AND/OR/NQ）。
-- `action="set_property"` / `action="save_properties"` —— flow 属性：Run As、Protection、Priority、`active`。
-- `action="copy"` —— 原生 flow/subflow 克隆（与 Workflow Studio 的 "Copy flow" 所做的调用相同）。
-- `action="activate"` / `action="deactivate"` —— 切换 flow 的活动状态。
-- `action="save"` —— 通过 processflow API 持久化编辑（一个 scope 正确的 PUT，同时写入一个新的 flow 版本 —— 修复了静默的触发器回退问题）。
-- `action="publish"` —— **受编辑器门控。** 快照重编译只能从交互式的 Workflow Studio 编辑器中触达；所有 API 路径都会快速失败。该工具不假装成功 —— 它返回 `manual_publish_required` 以及用于手动完成发布的确切 UI URL。
+写入操作已撤销。`manage_flow_designer` 只读取和分析流程，不会修改它们 — 请在 Flow Designer 界面中编辑。流程编辑会将整个 processflow 负载 PUT 回去，而本工具只是部分建模了该内部格式：`label_cache` 中缺失的一个 pill 会产生通过 API 读取正常、**在界面上为空**的条件，并且每次保存都会成为随之发布的更新集条目。处理函数保留在 `flow_tools.py` 的 `_DISABLED_WRITE_ACTIONS` 下。
 
 ### Flow Designer 表对照
 

@@ -3,7 +3,7 @@
 이 문서는 두 종류의 워크플로우 엔진을 다룹니다.
 
 1. **레거시 워크플로우** (`wf_workflow`) — 아래의 `manage_workflow` 액션 라우터로 조작합니다.
-2. **Flow Designer** (`sys_hub_flow`) — 단일 통합 도구 `manage_flow_designer`(action 디스패치). `standard` 패키지는 읽기 액션(`list` / `get_detail` / `get_executions` / `compare`)만 노출하고, 상위 패키지(`portal_developer` / `platform_developer` / `full`)에서 쓰기 액션(`update` / `checkout` / `set_*` / `save` / `discard`)이 풀립니다. Action / SubFlow / Playbook 테이블은 [Flow Designer 테이블 맵](#flow-designer-테이블-맵) 참고.
+2. **Flow Designer** (`sys_hub_flow`) — 단일 통합 도구 `manage_flow_designer`(action 디스패치). 모든 패키지에서 읽기 전용입니다(`list` / `get_detail` / `get_executions` / `compare` 및 액션 소스 읽기). 쓰기 액션은 철회되었습니다. Action / SubFlow / Playbook 테이블은 [Flow Designer 테이블 맵](#flow-designer-테이블-맵) 참고.
 
 어느 엔진을 쓰는지 모르겠으면 최신 인스턴스에서는 `manage_flow_designer(action="list")`로 시작하고, 레거시 `wf_workflow` 레코드는 `manage_workflow(action="list")`로 폴백하세요.
 
@@ -226,16 +226,7 @@ Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입�
 - `action="get_executions"` — 실행 이력(필터) 또는 단일 실행 상세. 주요 파라미터: `context_id`(단일 모드), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
 - `action="compare"` — 두 플로우 diff. `flow_id_a`/`flow_id_b` 또는 `name_a`/`name_b`. 구조/서브플로우/트리거 차이 리포트. `get_detail` 두 번 호출보다 권장.
 
-쓰기 액션 (`portal_developer` / `platform_developer` / `full`). 모든 편집은 저장 후 **재읽기로 검증(verify)**되고 `dry_run`을 지원합니다:
-- `action="update"` — 메타데이터만(`new_name` / `description` / `active`).
-- `action="checkout"` — 로컬 편집 세션 시작 (브라우저 auth, processflow API). `action="status"`로 상태 확인, `action="discard"`로 폐기.
-- `action="set_action_input"` — 액션 입력값 패치. `node_id`, `input_name`, `value` 필수.
-- `action="set_branch_condition"` / `action="set_trigger_condition"` — 로직 분기/트리거 조건 패치. 구조화 행 `[{field, operator, value}]` **또는** 원시 인코드 쿼리 전달; 응답이 `condition_readable`를 echo해 인코더 결과를 확인 가능(CHANGES 계열·AND/OR/NQ 연산자 포함).
-- `action="set_property"` / `action="save_properties"` — 플로우 속성: Run As, Protection, Priority, `active`.
-- `action="copy"` — 네이티브 플로우/서브플로우 복제(Workflow Studio "Copy flow"와 동일 호출).
-- `action="activate"` / `action="deactivate"` — 활성 상태 토글.
-- `action="save"` — processflow API로 저장(스코프 정확한 PUT + 새 플로우 버전 기록 — 조용한 트리거 되돌림 버그 수정).
-- `action="publish"` — **에디터 게이팅.** 스냅샷 재컴파일은 대화형 Workflow Studio 에디터에서만 가능하고 모든 API 경로가 즉시 실패합니다. 도구는 성공을 위조하지 않고 `manual_publish_required` + 수동 퍼블리시 UI URL을 반환합니다.
+쓰기 액션은 철회되었습니다. `manage_flow_designer`는 플로우를 읽고 분석할 뿐 변경하지 않습니다 — 편집은 Flow Designer UI에서 하세요. 플로우 편집은 processflow 페이로드를 통째로 PUT하는데 이 툴은 그 내부 포맷을 부분적으로만 모델링합니다. `label_cache`에서 빠진 pill 하나 때문에 API로는 정상으로 읽히고 **화면에서는 빈 칸**인 조건이 만들어졌고, 저장은 매번 배포되는 업데이트셋 항목이 됩니다. 핸들러는 `flow_tools.py`의 `_DISABLED_WRITE_ACTIONS` 아래에 남겨두었습니다.
 
 ### Flow Designer 테이블 맵
 

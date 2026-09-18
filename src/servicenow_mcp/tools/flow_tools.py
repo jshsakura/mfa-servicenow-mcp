@@ -42,7 +42,15 @@ logger = logging.getLogger(__name__)
 
 # Action groups — used by validator and by docs.
 _READ_ACTIONS = frozenset(
-    {"list", "get_detail", "get_executions", "compare", "edit_status", "get_action_source"}
+    {
+        "list",
+        "get_detail",
+        "get_executions",
+        "compare",
+        "edit_status",
+        "get_action_source",
+        "read_action",
+    }
 )
 _EDIT_ACTIONS = frozenset(
     {
@@ -63,6 +71,34 @@ _EDIT_ACTIONS = frozenset(
         "edit_status",
     }
 )
+# Flow Designer writes are disabled — this tool reads flows, it does not change
+# them. A flow edit PUTs the whole processflow payload back, and we model that
+# internal format only partially: a pill missing from `label_cache` gave a
+# condition that read correctly here and was EMPTY on screen, and it reached a
+# published subflow and an update set before anyone noticed. Edit in the UI.
+# The handlers below are kept, not deleted — re-exposing one means adding it
+# back to ManageFlowDesignerParams.action.
+_DISABLED_WRITE_ACTIONS = frozenset(
+    {
+        "update",
+        "checkout",
+        "discard",
+        "edit_status",
+        "set_action_input",
+        "set_trigger_condition",
+        "set_branch_condition",
+        "add_branch",
+        "set_property",
+        "save",
+        "save_properties",
+        "publish",
+        "activate",
+        "deactivate",
+        "copy",
+    }
+)
+
+
 _NEEDS_FLOW_ID = frozenset(
     {
         # get_detail is intentionally NOT here — it accepts flow_id OR flow_name
@@ -89,59 +125,30 @@ _NEEDS_FLOW_ID = frozenset(
 
 
 class ManageFlowDesignerParams(BaseModel):
-    """Unified Flow Designer tool — primarily read/inspect, with LIMITED edits.
-
-    Edit scope: EXISTING nodes' leaf values — action inputs (set_action_input),
-    trigger/branch conditions (set_trigger_condition / set_branch_condition) —
-    AND one structural add, add_branch, which clones an existing branch subtree
-    as a new sibling with a fresh condition. Then save (publish via UI). NOT
-    supported: changing the trigger TABLE, retyping/deleting nodes, or building a
-    node from scratch — use the Flow Designer UI for those.
+    """Unified Flow Designer tool — read and analyse. Editing is not supported
+    here; use the Flow Designer UI (see _DISABLED_WRITE_ACTIONS).
 
     Required per action:
-      list:                  (none — all optional; flow_type=action|playbook|decision lists those tabs)
-      get_detail:            flow_id OR flow_name
-      get_executions:        flow_id (or context_id for single execution)
-      compare:               flow_id_a|name_a AND flow_id_b|name_b
-      update:                flow_id + at least one of new_name/description/active
-      checkout:              flow_id (browser auth required)
-      set_action_input:      flow_id, node_id, input_name, value
-      set_trigger_condition: flow_id, value (node_id optional — first trigger if omitted)
-      set_branch_condition:  flow_id, node_id, value
-      add_branch:            flow_id, node_id (branch to clone), value (new condition)
-      save:                  flow_id
-      discard:               flow_id
-      edit_status:           flow_id (reads local checkout file)
+      list:              (none — all optional; flow_type=action|playbook|decision lists those tabs)
+      get_detail:        flow_id OR flow_name
+      get_executions:    flow_id (or context_id for single execution)
+      compare:           flow_id_a|name_a AND flow_id_b|name_b
+      get_action_source: action_ref
+      read_action:       flow_id (the action's sys_id)
     """
 
     action: Literal[
-        # Read
+        # Read / analyse only. The write actions are listed in
+        # _DISABLED_WRITE_ACTIONS above, with the reason they were withdrawn.
         "list",
         "get_detail",
         "get_executions",
         "compare",
         "get_action_source",
-        # Write — metadata
-        "update",
-        # Write — edit workflow (browser auth)
-        "checkout",
-        "set_action_input",
-        "set_trigger_condition",
-        "set_branch_condition",
-        "add_branch",
-        "set_property",
-        "save",
-        "save_properties",
-        "publish",
-        "activate",
-        "deactivate",
-        "copy",
         "read_action",
-        "discard",
-        "edit_status",
     ] = Field(
         ...,
-        description="Writes (checkout/set_*/add_branch/save/publish/activate/deactivate/copy/update) need browser auth; rest are reads.",
+        description="Read-only: list/get_detail/get_executions/compare/get_action_source/read_action. Edit flows in the Flow Designer UI.",
     )
 
     # ---- Common ----
@@ -623,9 +630,9 @@ _DISPATCH = {
     name="manage_flow_designer",
     params=ManageFlowDesignerParams,
     description=(
-        "Flow Designer read/edit: action inputs, trigger/branch conditions, "
-        "add_branch (clone a branch). Publish via action='publish' (needs "
-        "confirm + confirm_publish)."
+        "Flow Designer read/analyse: structure, conditions, executions, "
+        "cross-instance compare, action source. Read-only - edit flows in the "
+        "Flow Designer UI."
     ),
     serialization="json",
     return_type=dict,
@@ -636,6 +643,19 @@ def manage_flow_designer(
     params: ManageFlowDesignerParams,
 ) -> Dict[str, Any]:
     """Dispatch to the underlying implementation by action."""
+    # The Literal already refuses a withdrawn action at parse time; this catches a
+    # direct Python caller and, more usefully, answers WHY rather than "unknown
+    # action" — the handler is still right there in the file.
+    if params.action in _DISABLED_WRITE_ACTIONS:
+        return {
+            "success": False,
+            "action": params.action,
+            "error": f"Flow Designer writes are disabled - '{params.action}' is not available.",
+            "why": "We model the processflow payload only partially; see _DISABLED_WRITE_ACTIONS.",
+            "instead": "Edit in the Flow Designer UI. Reads still work: get_detail, compare, "
+            "get_executions, get_action_source, read_action.",
+        }
+
     # A write may change any flow's structure; clear cached get_detail trees so
     # the next read reflects the edit rather than a stale pre-write snapshot.
     if params.action not in _READ_ACTIONS:
