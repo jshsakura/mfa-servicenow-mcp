@@ -14,7 +14,8 @@ import gzip
 import hashlib
 import json
 import logging
-from typing import Any, Dict, List, Literal, Optional, Tuple
+import re
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -632,7 +633,14 @@ def _build_action_row(
 def _build_logic_row(
     node: Dict[str, Any], ui: str, depth: int, label_map: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
-    """Logic row — branching context, full condition verbatim."""
+    """Logic row — branching context, condition in readable form.
+
+    The raw form is `{{<uuid>.is_pm_revision}}=true`: the uuid is the producing
+    step, which the reader has to look up to know what the branch tests. The
+    readable form names the step and is SHORTER than the uuid it replaces, so it
+    also survives truncation better. `condition_encoded` keeps the exact query
+    for anything that needs to compare or re-encode it."""
+    raw_condition = node.get("condition") or ""
     row: Dict[str, Any] = {
         "order": node.get("order", ""),
         "depth": depth,
@@ -640,8 +648,10 @@ def _build_logic_row(
         "ui_id": ui,
         "type": node.get("logic_type") or node.get("logic_name") or "",
         "label": node.get("condition_label") or "",
-        "condition": node.get("condition") or "",
+        "condition": _condition_to_text(raw_condition, label_map) or raw_condition,
     }
+    if raw_condition and row["condition"] != raw_condition:
+        row["condition_encoded"] = raw_condition
     extra_inputs = {
         k: v
         for k, v in _summarize_node_inputs(node, label_map).items()
@@ -881,6 +891,16 @@ def _display_text(value: Any) -> str:
     if isinstance(value, dict):
         return str(value.get("display_value") or value.get("value") or "")
     return str(value or "")
+
+
+def _label_cache_names(flow_data: Dict[str, Any]) -> Set[str]:
+    """Names registered in the flow's label cache — what Flow Designer can draw."""
+    names: Set[str] = set()
+    for entry in flow_data.get("label_cache") or []:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if isinstance(name, str) and name:
+            names.add(name)
+    return names
 
 
 def _build_label_map(flow_data: Dict[str, Any]) -> Dict[str, str]:
@@ -1177,7 +1197,9 @@ def render_flow_compact(flow_data: Dict[str, Any], include_scripts: bool = False
     }
     try:
         detail = _build_processflow_detail(flow_data)
-        summary = _build_flow_summary(detail, label_map=label_map)
+        summary = _build_flow_summary(
+            detail, label_map=label_map, known_pills=_label_cache_names(flow_data)
+        )
         tree = _render_tree_text(
             summary["tree"],
             summary.get("orphans", []),
@@ -1224,12 +1246,34 @@ def render_flow_compact(flow_data: Dict[str, Any], include_scripts: bool = False
     return result
 
 
+_PILL_IN_CONDITION = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
+
+
+def _condition_pill_names(encoded: str) -> List[str]:
+    """Data pills an encoded condition names, de-duplicated, in order."""
+    seen = set()
+    out: List[str] = []
+    for name in _PILL_IN_CONDITION.findall(encoded or ""):
+        if name and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
 def _detect_flow_warnings(
     tree: List[Dict[str, Any]],
     orphans: List[Dict[str, Any]],
     deleted_logic: List[Dict[str, Any]],
+    known_pills: Optional[Set[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Mechanical config-error detection — surfaces obvious misconfigurations."""
+    """Mechanical config-error detection — surfaces obvious misconfigurations.
+
+    `known_pills` is the flow's label-cache entry names. Given it, a condition
+    naming a pill outside it is reported: Flow Designer resolves a condition row
+    through that cache, so an unregistered pill draws an EMPTY row on screen
+    while the encoded query still reads correctly over the API. Omitted, that
+    check is skipped and `integrity.pill_registration_checked` says so — no
+    warning here must ever be read as "the pills are fine"."""
     warnings: List[Dict[str, Any]] = []
     all_rows = tree + orphans
 
@@ -1281,6 +1325,42 @@ def _detect_flow_warnings(
                         ),
                     }
                 )
+            encoded = row.get("condition_encoded") or ""
+            for term in _decode_condition(encoded):
+                if term.get("operator") in _NO_VALUE_OPS or term.get("operator") == "":
+                    continue
+                if term.get("value", "") != "":
+                    continue
+                warnings.append(
+                    {
+                        "code": "EMPTY_CONDITION_VALUE",
+                        "severity": "high",
+                        "order": order,
+                        "ui_id": ui_id,
+                        "message": (
+                            f"'{term.get('field_pill') or term.get('field')}' is compared "
+                            f"with '{term.get('op_label')}' against an EMPTY value — the "
+                            "term cannot match. Usually a field picked without its value."
+                        ),
+                    }
+                )
+            if known_pills is not None:
+                for pill in _condition_pill_names(encoded):
+                    if pill in known_pills:
+                        continue
+                    warnings.append(
+                        {
+                            "code": "UNREGISTERED_CONDITION_PILL",
+                            "severity": "high",
+                            "order": order,
+                            "ui_id": ui_id,
+                            "message": (
+                                f"'{pill}' is not in this flow's label cache — Flow Designer "
+                                "draws this condition row EMPTY even though the query reads "
+                                "correctly here. Re-pick the field in the UI."
+                            ),
+                        }
+                    )
         elif kind == "ACTION":
             type_name = (row.get("type") or "").lower()
             inputs = row.get("inputs") or {}
@@ -1614,6 +1694,7 @@ def _build_flow_summary(
     structure: Dict[str, Any],
     include_scripts: bool = False,
     label_map: Optional[Dict[str, str]] = None,
+    known_pills: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
     """Flat tree summary (depth + full conditions) for analysis use cases.
 
@@ -1719,7 +1800,7 @@ def _build_flow_summary(
             f"{len(unreachable)} node(s) unreachable from any root: {unreachable[:5]}"
         )
 
-    warnings = _detect_flow_warnings(tree, orphans, deleted_logic)
+    warnings = _detect_flow_warnings(tree, orphans, deleted_logic, known_pills)
     index = _build_summary_index(tree, orphans)
 
     # A tombstoned node still appears in the tree (tagged [DELETED], see
@@ -1749,6 +1830,10 @@ def _build_flow_summary(
             "branch_conditions": len(index["branch_conditions"]),
         },
         "integrity": {
+            # False = the label cache was not available here, so no
+            # UNREGISTERED_CONDITION_PILL warning could be raised. Absence of
+            # that warning then means "not checked", not "none found".
+            "pill_registration_checked": known_pills is not None,
             "input_total_with_ui_id": len(nodes_by_ui),
             "tree_nodes": len(tree),
             "orphan_nodes": len(orphans),
@@ -2396,7 +2481,11 @@ def get_flow_details(
                 }
                 if params.include_structure:
                     result["structure"] = _bound_structure(
-                        _build_flow_summary(detail, label_map=_build_label_map(pf_data))
+                        _build_flow_summary(
+                            detail,
+                            label_map=_build_label_map(pf_data),
+                            known_pills=_label_cache_names(pf_data),
+                        )
                         if params.summary_format
                         else detail
                     )

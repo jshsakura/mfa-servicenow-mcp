@@ -435,10 +435,14 @@ class TestFlowSummaryBuilder(unittest.TestCase):
         self.assertEqual(depth_by_ui["a6"], 1)
         self.assertEqual(depth_by_ui["S7"], 0)
 
-    def test_full_condition_verbatim(self):
+    def test_condition_is_readable_and_the_encoded_form_is_kept(self):
+        """The row reads in human form — a raw uuid pill tells nobody what the
+        branch tests. Nothing is truncated, and `condition_encoded` still carries
+        the exact query for anything that compares or re-encodes it."""
         out = _build_flow_summary(self._make_structure())
         logic_row = next(r for r in out["tree"] if r["ui_id"] == "L2")
-        self.assertEqual(logic_row["condition"], "requestor!=approver")
+        self.assertEqual(logic_row["condition"], "requestor is not approver")
+        self.assertEqual(logic_row["condition_encoded"], "requestor!=approver")
 
     def test_value_and_displayvalue_both_kept_when_different(self):
         out = _build_flow_summary(self._make_structure())
@@ -549,8 +553,8 @@ class TestFlowSummaryBuilder(unittest.TestCase):
         # index section listed
         self.assertIn("=== INDEX ===", text)
         self.assertIn("Approvals (1)", text)
-        # full condition (not truncated)
-        self.assertIn("requestor!=approver", text)
+        # full condition, readable and not truncated
+        self.assertIn("requestor is not approver", text)
         # full pill expression
         self.assertIn("{{Updated_1.current.dept_head}}", text)
         # subflow sys_id surfaced
