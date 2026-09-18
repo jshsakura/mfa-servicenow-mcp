@@ -2282,6 +2282,25 @@ _TABLE_NODE_FAMILIES = (
 )
 
 
+def _annotate_condition_inputs(
+    inputs: List[Dict[str, Any]], label_map: Optional[Dict[str, str]]
+) -> List[Dict[str, Any]]:
+    """Put the readable form beside an encoded condition. `value` stays exact —
+    this read exists to be precise — but `{{<uuid>.field}}=true` on its own does
+    not say what the branch tests. Without a label_map the step uuids cannot be
+    named, so only the operators decode; nothing is invented either way."""
+    for entry in inputs:
+        if not isinstance(entry, dict) or entry.get("name") not in ("condition", "conditions"):
+            continue
+        raw = entry.get("value")
+        if not isinstance(raw, str) or not raw:
+            continue
+        readable = _condition_to_text(raw, label_map)
+        if readable and readable != raw:
+            entry["value_readable"] = readable
+    return inputs
+
+
 def _get_node_detail(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2323,6 +2342,7 @@ def _get_node_detail(
                     label_map,
                     full_scripts=True,
                 )
+                _annotate_condition_inputs(inputs, label_map)
                 out: Dict[str, Any] = {
                     "success": True,
                     "source": "processflow_api",
@@ -2372,6 +2392,7 @@ def _get_node_detail(
                     None,
                     full_scripts=True,
                 )
+                _annotate_condition_inputs(inputs, None)
                 out = {
                     "success": True,
                     "source": "table_api",

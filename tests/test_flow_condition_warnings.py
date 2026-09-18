@@ -11,7 +11,7 @@ at hand: without it the pill check cannot run, and a missing warning must not re
 as "the pills are fine".
 """
 
-from servicenow_mcp.tools.flow_designer_tools import _build_flow_summary
+from servicenow_mcp.tools.flow_designer_tools import _annotate_condition_inputs, _build_flow_summary
 
 STEP_UID = "aaaa1111-bbbb-2222-cccc-333344445555"
 REGISTERED = f"{STEP_UID}.result_flag"
@@ -85,3 +85,31 @@ def test_without_the_label_cache_the_check_is_declared_unrun():
 def test_with_the_label_cache_the_check_is_declared_run():
     out, _ = _warnings(f"{{{{{REGISTERED}}}}}=true", {REGISTERED})
     assert out["integrity"]["pill_registration_checked"] is True
+
+
+# --- the single-node drill-down ------------------------------------------------
+# The tree truncates a long condition and points at node_id for the full one. That
+# read is the precise one, so its `value` stays the exact encoded query — but a
+# raw uuid pill names nothing, so the readable form rides beside it.
+
+
+def test_drilldown_keeps_the_exact_value_and_adds_the_readable_one():
+    inputs = [{"name": "condition", "value": f"{{{{{REGISTERED}}}}}=true"}]
+    _annotate_condition_inputs(inputs, {STEP_UID: "Do Thing"})
+    assert inputs[0]["value"] == f"{{{{{REGISTERED}}}}}=true"
+    assert inputs[0]["value_readable"] == "Do Thing ▸ result_flag is true"
+
+
+def test_drilldown_without_a_label_map_still_decodes_the_operator():
+    """No map means the step uuid cannot be named. The operator still decodes,
+    and nothing is invented to fill the gap."""
+    inputs = [{"name": "condition", "value": f"{{{{{REGISTERED}}}}}ISNOTEMPTY"}]
+    _annotate_condition_inputs(inputs, None)
+    assert "is not empty" in inputs[0]["value_readable"]
+    assert STEP_UID in inputs[0]["value_readable"]
+
+
+def test_drilldown_leaves_non_condition_inputs_alone():
+    inputs = [{"name": "record", "value": "{{trigger.current}}"}]
+    _annotate_condition_inputs(inputs, None)
+    assert "value_readable" not in inputs[0]
