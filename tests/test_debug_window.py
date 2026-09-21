@@ -15,7 +15,11 @@ from unittest.mock import MagicMock
 import pytest
 
 import servicenow_mcp.server as server_module
-from servicenow_mcp.browser import _launch_lock, actions, badge
+from servicenow_mcp.browser import (
+    _launch_lock,
+    actions,
+    badge,
+)
 from servicenow_mcp.browser import capture as capture_module
 from servicenow_mcp.browser import (
     cursor,
