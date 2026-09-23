@@ -97,6 +97,7 @@ from urllib.parse import urlparse
 from .capture import _dirty_fields
 from .evaluate import run_in_page
 from .session import read_effective_user
+from .tab_owner import OWNER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,12 @@ def read_marker(path: str, started_at: float) -> Optional[Dict[str, Any]]:
     return recorded if recorded.get("as") else None
 
 
-def write_marker(path: str, *, started_at: float, original: str, impersonated: str) -> None:
+def write_marker(
+    path: str, *, started_at: float, original: str, impersonated: str, owner: str = ""
+) -> None:
+    """``owner`` is the tab_owner.OWNER_ID of the session that switched, so an
+    end from a DIFFERENT session can be told apart from cleaning up after
+    yourself. A marker without one (older, or hand-made) is nobody's."""
     if not path:
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -149,6 +155,7 @@ def write_marker(path: str, *, started_at: float, original: str, impersonated: s
         "original": original,
         "as": impersonated,
         "at": time.time(),
+        "owner": owner,
     }
     try:
         with open(tmp_path, "w", encoding="utf-8") as handle:
@@ -740,6 +747,7 @@ def become(
             started_at=started_at,
             original=original,
             impersonated=str(result.get("now") or target),
+            owner=OWNER_ID,
         )
     result["original"] = original
     return result

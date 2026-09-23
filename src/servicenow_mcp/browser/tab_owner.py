@@ -47,7 +47,7 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from ..auth._process import _is_pid_alive
 
@@ -112,10 +112,14 @@ def write_pin(path: str, instance_host: str, tab_id: str) -> None:
     # front — the same shape (and the same past bug) as cursor.py: ranking by
     # anything other than write order evicts the entry that was just made.
     pins.pop(_key(instance_host), None)
-    pins[_key(instance_host)] = {"tab_id": tab_id, "pid": os.getpid(), "at": time.time()}
+    now = time.time()
+    pins[_key(instance_host)] = {"tab_id": tab_id, "pid": os.getpid(), "at": now, "used_at": now}
     while len(pins) > MAX_TRACKED_PINS:
         pins.pop(next(iter(pins)))
+    _write(path, pins)
 
+
+def _write(path: str, pins: Dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp_path = f"{path}.tmp"
     try:
@@ -124,6 +128,98 @@ def write_pin(path: str, instance_host: str, tab_id: str) -> None:
         os.replace(tmp_path, path)
     except OSError as exc:  # pragma: no cover - a pin is an optimization
         logger.debug("Could not persist a debug-window tab pin: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Presence — who else is using this instance in the window, and how recently
+# ---------------------------------------------------------------------------
+
+
+def touch(path: str, instance_host: str) -> None:
+    """Record that this session just used ``instance_host`` in the window.
+
+    Written on every tool call, pinned or not: a session that only ever read
+    the one tab someone else opened has no pin, and without this it would be
+    invisible to the check below — the one session a switch would surprise.
+    Presence names no tab, so it never claims one (``claimed_by_others``
+    skips entries without a ``tab_id``).
+    """
+    if not path or not instance_host:
+        return
+    pins = _read(path)
+    entry = pins.get(_key(instance_host))
+    entry = dict(entry) if isinstance(entry, dict) else {"tab_id": ""}
+    entry.update({"pid": os.getpid(), "used_at": time.time()})
+    pins[_key(instance_host)] = entry
+    while len(pins) > MAX_TRACKED_PINS:
+        pins.pop(next(iter(pins)))
+    _write(path, pins)
+
+
+def others_on(path: str, instance_host: str) -> List[Dict[str, Any]]:
+    """Other MCP sessions whose process is still running and that have used
+    ``instance_host`` in this window.
+
+    What this PROVES is the process is alive, not that it is busy — an idle
+    terminal keeps its entry. So each one carries how long ago it last called,
+    and the caller (a model, then a person) judges "busy" from that. An entry
+    whose pid cannot be read counts as running, for the reason
+    ``claimed_by_others`` gives.
+    """
+    now = time.time()
+    found: List[Dict[str, Any]] = []
+    for key, entry in _read(path).items():
+        if key == _key(instance_host) or not isinstance(entry, dict):
+            continue
+        if not key.endswith(f"|{instance_host}") or not _owner_alive(entry):
+            continue
+        last: Any = entry.get("used_at") or entry.get("at")
+        last_used_s: Optional[int] = None
+        if last is not None:
+            try:
+                last_used_s = max(0, int(now - float(last)))
+            except (TypeError, ValueError):
+                pass
+        found.append({"pid": entry.get("pid"), "last_used_s": last_used_s})
+    return found
+
+
+def shared_window_refusal(
+    path: str, instance_host: str, what: str, *, acknowledged: bool
+) -> Optional[Dict[str, Any]]:
+    """Stop a session-wide change while another session is on the same instance.
+
+    The limit, stated rather than engineered around: one window has ONE cookie
+    jar per instance, so it holds one identity per instance at a time. Two
+    sessions on the same instance share whoever the window is; different
+    instances (dev and test) never touch each other. This does not pretend to
+    isolate anything — it makes the collision a decision instead of a surprise,
+    and hands the model what it needs to make it: who, and how recently.
+    """
+    if acknowledged or not path or not instance_host:
+        return None
+    others = others_on(path, instance_host)
+    if not others:
+        return None
+    seen = ", ".join(
+        f"pid {o['pid']}, last call "
+        + (f"{o['last_used_s']}s ago" if o["last_used_s"] is not None else "time unknown")
+        for o in others
+    )
+    return {
+        "success": False,
+        "limit": "one_identity_per_instance",
+        "other_sessions": others,
+        "error": (
+            f"LIMIT, not a fault: the debug window holds one identity per instance at a "
+            f"time, and {len(others)} other running MCP session(s) have used {instance_host} "
+            f"in it ({seen}). {what} applies to every tab on {instance_host}, theirs "
+            "included. A running process is not proof it is busy — judge from the last "
+            "call. Either wait for that session to finish, or ask the user whether "
+            "disrupting it is fine and retry with shared_window_ack=true. Other "
+            "instances in the window are not affected."
+        ),
+    }
 
 
 def claimed_by_others(path: str, instance_host: str) -> set:
@@ -164,13 +260,7 @@ def drop_pin(path: str, instance_host: str) -> None:
     pins = _read(path)
     if pins.pop(_key(instance_host), None) is None:
         return
-    tmp_path = f"{path}.tmp"
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-            json.dump({"pins": pins}, handle)
-        os.replace(tmp_path, path)
-    except OSError as exc:  # pragma: no cover - best effort
-        logger.debug("Could not drop a debug-window tab pin: %s", exc)
+    _write(path, pins)
 
 
 def _owner_alive(entry: Any) -> bool:
@@ -193,6 +283,9 @@ __all__ = [
     "OWNER_ID",
     "claimed_by_others",
     "drop_pin",
+    "others_on",
     "read_pin",
+    "shared_window_refusal",
+    "touch",
     "write_pin",
 ]

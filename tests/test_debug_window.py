@@ -3353,6 +3353,8 @@ def test_the_switch_records_who_to_go_back_to(tmp_path):
         "original": "alice",
         "as": "bob",
         "at": pytest.approx(time.time(), abs=30),
+        # Which session switched, so an end from a different one is told apart.
+        "owner": tab_owner.OWNER_ID,
     }
 
 
@@ -5113,3 +5115,177 @@ class TestWindowClosedMidCall:
         assert result["steps_outcome"] == "unknown"
         assert "unknown" in result["error"]
         assert "nothing was read or changed" not in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# The limit: one identity per instance per window, and saying so
+# ---------------------------------------------------------------------------
+
+
+def _other_session_on(path, host, *, used_ago_s=40.0, pid=4242):
+    import json as _json
+
+    pins = {
+        "other-session|" + host: {"tab_id": "", "pid": pid, "used_at": time.time() - used_ago_s}
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        _json.dump({"pins": pins}, handle)
+
+
+def _alive(monkeypatch, alive=True):
+    monkeypatch.setattr(tab_owner, "_is_pid_alive", lambda pid: alive)
+
+
+def test_others_on_reports_a_live_session_with_how_long_ago_it_called(monkeypatch, tmp_path):
+    path = str(tmp_path / "owners.json")
+    _other_session_on(path, "dev.example.com", used_ago_s=40.0)
+    _alive(monkeypatch)
+
+    others = tab_owner.others_on(path, "dev.example.com")
+
+    assert len(others) == 1
+    assert others[0]["pid"] == 4242
+    assert 39 <= others[0]["last_used_s"] <= 45
+    # Different instance: dev and test never share an identity.
+    assert tab_owner.others_on(path, "test.example.com") == []
+
+
+def test_a_session_whose_process_is_gone_is_not_on_the_instance(monkeypatch, tmp_path):
+    path = str(tmp_path / "owners.json")
+    _other_session_on(path, "dev.example.com")
+    _alive(monkeypatch, alive=False)
+
+    assert tab_owner.others_on(path, "dev.example.com") == []
+
+
+def test_presence_is_recorded_without_claiming_a_tab(tmp_path):
+    path = str(tmp_path / "owners.json")
+
+    tab_owner.touch(path, "dev.example.com")
+
+    assert tab_owner.claimed_by_others(path, "dev.example.com") == set()
+    # Our own presence is never "another session".
+    assert tab_owner.others_on(path, "dev.example.com") == []
+
+
+def _shared_state(tmp_path):
+    import dataclasses
+
+    return dataclasses.replace(_state(), owners_path=str(tmp_path / "owners.json"))
+
+
+def _act_on(monkeypatch, tmp_path, state):
+    ran = []
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
+    monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
+    monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
+    monkeypatch.setattr(tools, "window_impersonation_path", lambda a: _marker(tmp_path))
+
+    def _act(state, **kw):
+        ran.append(kw)
+        return {
+            "url": "u",
+            "seq": 1,
+            "events": [],
+            "steps": [],
+            "dialogs": [],
+            "failed_step": None,
+            "skipped": 0,
+            "effective_user": {"user": "bob"},
+        }
+
+    monkeypatch.setattr(tools, "act", _act)
+    return ran
+
+
+def test_impersonating_with_another_live_session_on_the_instance_states_the_limit(
+    monkeypatch, tmp_path
+):
+    state = _shared_state(tmp_path)
+    _other_session_on(state.owners_path, "dev.example.com")
+    _alive(monkeypatch)
+    ran = _act_on(monkeypatch, tmp_path, state)
+
+    result = _act_call([{"action": "impersonate", "value": "bob"}], confirm_impersonate="bob")
+
+    assert result["success"] is False
+    assert result["limit"] == "one_identity_per_instance"
+    assert result["other_sessions"][0]["pid"] == 4242
+    assert "shared_window_ack=true" in result["error"]
+    assert ran == []
+
+    result = _act_call(
+        [{"action": "impersonate", "value": "bob"}],
+        confirm_impersonate="bob",
+        shared_window_ack=True,
+    )
+    assert result["success"] is True
+    assert len(ran) == 1
+
+
+def test_alone_on_the_instance_there_is_no_limit_to_state(monkeypatch, tmp_path):
+    state = _shared_state(tmp_path)
+    _other_session_on(state.owners_path, "test.example.com")  # another instance
+    _alive(monkeypatch)
+    ran = _act_on(monkeypatch, tmp_path, state)
+
+    result = _act_call([{"action": "impersonate", "value": "bob"}], confirm_impersonate="bob")
+
+    assert result["success"] is True
+    assert len(ran) == 1
+
+
+def test_ending_your_own_impersonation_is_free_even_when_shared(monkeypatch, tmp_path):
+    state = _shared_state(tmp_path)
+    _other_session_on(state.owners_path, "dev.example.com")
+    _alive(monkeypatch)
+    impersonate.write_marker(
+        _marker(tmp_path),
+        started_at=state.started_at,
+        original="alice",
+        impersonated="bob",
+        owner=tab_owner.OWNER_ID,
+    )
+    ran = _act_on(monkeypatch, tmp_path, state)
+
+    result = _act_call([{"action": "end_impersonation"}])
+
+    assert result["success"] is True
+    assert len(ran) == 1
+
+
+def test_ending_another_sessions_impersonation_states_the_limit(monkeypatch, tmp_path):
+    state = _shared_state(tmp_path)
+    _other_session_on(state.owners_path, "dev.example.com")
+    _alive(monkeypatch)
+    impersonate.write_marker(
+        _marker(tmp_path),
+        started_at=state.started_at,
+        original="alice",
+        impersonated="bob",
+        owner="other-session",
+    )
+    ran = _act_on(monkeypatch, tmp_path, state)
+
+    result = _act_call([{"action": "end_impersonation"}])
+
+    assert result["success"] is False
+    assert "did not start" in result["error"]
+    assert ran == []
+
+
+def test_a_reset_with_another_live_session_on_the_instance_states_the_limit(monkeypatch, tmp_path):
+    owners = str(tmp_path / "owners.json")
+    _other_session_on(owners, "dev.example.com")
+    _alive(monkeypatch)
+    monkeypatch.setattr(tools, "window_owners_path", lambda a: owners)
+    called = []
+    monkeypatch.setattr(tools, "ensure_window", lambda *a, **k: called.append("opened"))
+
+    result = tools.open_debug_window(
+        _open_config(), MagicMock(), _open_params(reset=True, confirm_reset="approve")
+    )
+
+    assert result["success"] is False
+    assert result["limit"] == "one_identity_per_instance"
+    assert called == [], "the window is not touched"

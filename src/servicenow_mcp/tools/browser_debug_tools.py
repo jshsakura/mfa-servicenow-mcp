@@ -69,7 +69,7 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..browser import impersonate as impersonate_gate
-from ..browser import server_scripts
+from ..browser import server_scripts, tab_owner
 from ..browser._launch_lock import LaunchBusy
 from ..browser._offload import PlaywrightUnavailable
 from ..browser.actions import EVAL_ACTION, MAX_ACTIONS, act, normalize
@@ -89,6 +89,7 @@ from ..browser.report import compact
 from ..browser.reset import reset_session
 from ..browser.server_scripts import ServerScriptBlocked, navigation_rejection, surface_for_url
 from ..browser.session import api_username, describe_window_user
+from ..browser.session import instance_host as _host_of
 from ..browser.window import (
     clear_window_state,
     ensure_window,
@@ -99,6 +100,7 @@ from ..browser.window import (
     window_impersonation_path,
     window_is_gone,
     window_login_path,
+    window_owners_path,
 )
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
@@ -172,6 +174,10 @@ class OpenDebugWindowParams(BaseModel):
     )
     confirm_reset: Optional[str] = Field(
         default=None, description="Required ('approve') when reset=true."
+    )
+    shared_window_ack: bool = Field(
+        default=False,
+        description="True only after the user OKs disrupting another live session here.",
     )
 
 
@@ -251,6 +257,10 @@ class ActInDebugWindowParams(BaseModel):
     discard_unsaved_input: bool = Field(
         default=False,
         description="Allow impersonate/end_impersonation to reload a form holding input.",
+    )
+    shared_window_ack: bool = Field(
+        default=False,
+        description="True only after the user OKs disrupting another live session here.",
     )
 
 
@@ -402,6 +412,15 @@ def open_debug_window(
                 "the only reset available would clear every session in the window."
             ),
         }
+    if params.reset:
+        shared = tab_owner.shared_window_refusal(
+            window_owners_path(auth_manager),
+            _host_of(str(config.instance_url)),
+            "reset=true signs the instance out and closes its tabs, which",
+            acknowledged=params.shared_window_ack,
+        )
+        if shared:
+            return shared
 
     # Before the population grows, retire whatever is provably unused. Never
     # fatal: an unusable reaper must not stand between the user and a window.
@@ -430,6 +449,7 @@ def open_debug_window(
         logger.warning("Could not open the debug window: %s", exc)
         return {"success": False, "error": str(exc), **housekeeping}
 
+    tab_owner.touch(state.owners_path, state.instance_host)
     result: Dict[str, Any] = {
         "success": True,
         "opened": opened,
@@ -730,6 +750,7 @@ def inspect_debug_window(
             "window_open": False,
             "error": "No debug window is open. Call open_debug_window first.",
         }
+    tab_owner.touch(state.owners_path, state.instance_host)
 
     cursor_path = window_cursor_path(auth_manager)
     marks = resolve_marks(cursor_path, since_last=params.since_last, explicit=params.after_seq)
@@ -817,6 +838,24 @@ def inspect_debug_window(
     return result
 
 
+def _identity_change_refusal(
+    auth_manager: AuthManager, state: Any, steps: List[Dict[str, Any]], acknowledged: bool
+) -> Optional[Dict[str, Any]]:
+    what = ""
+    if any(step["action"] == IMPERSONATE_ACTION for step in steps):
+        what = "Impersonating switches the user of the whole window session, which"
+    elif any(step["action"] == END_IMPERSONATION_ACTION for step in steps):
+        marker = read_marker(window_impersonation_path(auth_manager), state.started_at) or {}
+        if marker.get("owner") == tab_owner.OWNER_ID:
+            return None
+        what = "Ending an impersonation this session did not start switches the user back, which"
+    if not what:
+        return None
+    return tab_owner.shared_window_refusal(
+        state.owners_path, state.instance_host, what, acknowledged=acknowledged
+    )
+
+
 @register_tool(
     name="act_in_debug_window",
     params=ActInDebugWindowParams,
@@ -901,6 +940,14 @@ def act_in_debug_window(
             "window_open": False,
             "error": "No debug window is open. Call open_debug_window first.",
         }
+
+    # Who the window IS on this instance is shared by every session on it, so a
+    # switch reaches their tabs too. Ending an impersonation THIS session started
+    # is cleaning up after itself and stays free.
+    shared = _identity_change_refusal(auth_manager, state, steps, params.shared_window_ack)
+    if shared:
+        return shared
+    tab_owner.touch(state.owners_path, state.instance_host)
 
     cursor_path = window_cursor_path(auth_manager)
     marks = resolve_marks(cursor_path, since_last=params.since_last)
