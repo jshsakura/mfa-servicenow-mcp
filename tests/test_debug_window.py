@@ -3447,7 +3447,9 @@ def test_a_session_step_makes_the_batch_report_who_the_window_now_is(monkeypatch
     result = tools.act_in_debug_window(
         SimpleNamespace(instance_url="https://dev.example.com", auth=SimpleNamespace()),
         MagicMock(),
-        tools.ActInDebugWindowParams(actions=[{"action": "impersonate", "value": "bob"}]),
+        tools.ActInDebugWindowParams(
+            actions=[{"action": "impersonate", "value": "bob"}], confirm_impersonate="bob"
+        ),
     )
 
     assert result["window_user"] == "bob"
@@ -3458,18 +3460,17 @@ def test_a_session_step_makes_the_batch_report_who_the_window_now_is(monkeypatch
     assert seen["session"]["started_at"] == state.started_at
 
 
-def test_impersonation_needs_no_second_approval_the_way_eval_does(monkeypatch, tmp_path):
-    # Deliberate: it cannot run code, cannot exceed the account's roles, cannot
-    # touch the API session, and one step undoes it.
+def _act_that_impersonates(monkeypatch, tmp_path):
     state = _state()
+    ran = []
     monkeypatch.setattr(tools, "find_window", lambda auth_manager: state)
     monkeypatch.setattr(tools, "window_cursor_path", lambda a: str(tmp_path / "c.json"))
     monkeypatch.setattr(tools, "window_artifacts_dir", lambda a: str(tmp_path / "artifacts"))
     monkeypatch.setattr(tools, "window_impersonation_path", lambda a: _marker(tmp_path))
-    monkeypatch.setattr(
-        tools,
-        "act",
-        lambda state, **kw: {
+
+    def _act(state, **kw):
+        ran.append(kw)
+        return {
             "url": "u",
             "seq": 1,
             "events": [],
@@ -3478,16 +3479,100 @@ def test_impersonation_needs_no_second_approval_the_way_eval_does(monkeypatch, t
             "failed_step": None,
             "skipped": 0,
             "effective_user": {"user": "bob"},
-        },
-    )
+        }
 
-    result = tools.act_in_debug_window(
+    monkeypatch.setattr(tools, "act", _act)
+    return ran
+
+
+def _act_call(actions, **extra):
+    return tools.act_in_debug_window(
         SimpleNamespace(instance_url="https://dev.example.com", auth=SimpleNamespace()),
         MagicMock(),
-        tools.ActInDebugWindowParams(actions=[{"action": "impersonate", "value": "bob"}]),
+        tools.ActInDebugWindowParams(actions=actions, **extra),
     )
 
+
+def test_impersonation_needs_an_approval_that_names_the_user(monkeypatch, tmp_path):
+    # Everything done while impersonating is recorded as that person, and the
+    # tool confirm is a flag the model sets for itself — so nobody was asked.
+    ran = _act_that_impersonates(monkeypatch, tmp_path)
+
+    result = _act_call([{"action": "impersonate", "value": "bob"}])
+
+    assert result["success"] is False
+    assert result["needs"] == "confirm_impersonate"
+    assert "sys_created_by" in result["error"]
+    assert "Ask the user first" in result["error"]
+    assert ran == []  # the window was never touched
+
+
+def test_a_bare_approve_is_not_a_named_approval(monkeypatch, tmp_path):
+    ran = _act_that_impersonates(monkeypatch, tmp_path)
+
+    result = _act_call([{"action": "impersonate", "value": "bob"}], confirm_impersonate="approve")
+
+    assert result["success"] is False
+    assert ran == []
+
+
+def test_an_approval_for_one_user_does_not_cover_another(monkeypatch, tmp_path):
+    ran = _act_that_impersonates(monkeypatch, tmp_path)
+
+    result = _act_call([{"action": "impersonate", "value": "bob"}], confirm_impersonate="alice")
+
+    assert result["success"] is False
+    assert "does not name 'bob'" in result["error"]
+    assert ran == []
+
+
+def test_the_named_approval_lets_the_switch_run(monkeypatch, tmp_path):
+    ran = _act_that_impersonates(monkeypatch, tmp_path)
+
+    result = _act_call([{"action": "impersonate", "value": "bob"}], confirm_impersonate="Bob")
+
     assert result["success"] is True
+    assert len(ran) == 1
+
+
+def test_ending_an_impersonation_needs_no_approval(monkeypatch, tmp_path):
+    ran = _act_that_impersonates(monkeypatch, tmp_path)
+
+    result = _act_call([{"action": "end_impersonation"}])
+
+    assert result["success"] is True
+    assert len(ran) == 1
+
+
+def test_a_hand_written_impersonate_post_in_an_eval_meets_the_same_gate(monkeypatch, tmp_path):
+    ran = _act_that_impersonates(monkeypatch, tmp_path)
+    source = "fetch('/api/now/ui/impersonate/bob', {method: 'POST'})"
+
+    result = _act_call([{"action": "eval", "value": source}], confirm_eval="approve")
+
+    assert result["success"] is False
+    assert result["needs"] == "confirm_impersonate"
+    assert ran == []
+
+    result = _act_call(
+        [{"action": "eval", "value": source}], confirm_eval="approve", confirm_impersonate="bob"
+    )
+    assert result["success"] is True
+
+
+def test_the_read_tool_sends_an_impersonate_expression_to_act(monkeypatch, tmp_path):
+    monkeypatch.setattr(tools, "find_window", lambda auth_manager: pytest.fail("touched"))
+
+    result = tools.inspect_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com", auth=SimpleNamespace()),
+        MagicMock(),
+        tools.InspectDebugWindowParams(
+            evaluate="fetch('/api/now/ui/impersonate/bob', {method: 'POST'})"
+        ),
+    )
+
+    assert result["success"] is False
+    assert "confirm_impersonate" in result["error"]
 
 
 def test_a_read_reports_an_impersonation_another_session_started(monkeypatch, tmp_path):

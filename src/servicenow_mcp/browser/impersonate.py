@@ -64,12 +64,18 @@ the caller to notice.
 What guards it
 --------------
 - ``act_in_debug_window`` is already write-classified (write_guards), so the
-  confirm gate and ``allow_writes=false`` cover this like any other write. There
-  is deliberately no second approval on top: unlike ``eval``, this cannot run
-  arbitrary code, cannot exceed what the instance already grants the account
-  (the endpoint refuses without the impersonator/admin role), cannot touch the
-  API session, and is undone by one step. Making it loud and reversible beats
-  making it ceremonial.
+  confirm gate and ``allow_writes=false`` cover this like any other write.
+- On top of that, becoming someone takes its own approval that NAMES them
+  (``confirm_impersonate='<the same user>'``, :func:`approval_problem`). It was
+  once left at the tool confirm on the grounds that it runs no code and one step
+  undoes it. That weighed the wrong cost: everything done while impersonating is
+  recorded as THAT person — ``sys_created_by`` on records they never made — and
+  the tool confirm is a flag the model sets for itself, so in practice nobody was
+  asked. The named approval is the record that the person at the keyboard was
+  told who, before it happened. The same gate covers a hand-written
+  ``fetch('/api/now/ui/impersonate/...')`` in an eval, which would otherwise be a
+  way around it. Ending an impersonation is ungated: going back to yourself is
+  the safe direction.
 - The switch RELOADS the page, so it refuses when the user has unsaved input,
   exactly as navigation does (capture.navigate). Losing someone's half-typed
   form to a background session change is the one damaging thing here.
@@ -85,7 +91,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from .capture import _dirty_fields
@@ -281,6 +287,56 @@ def _url(page: Any) -> str:
 
 def _same(left: str, right: str) -> bool:
     return left.strip().lower() == right.strip().lower()
+
+
+# ---------------------------------------------------------------------------
+# The approval — named, because the damage is done in someone else's name
+# ---------------------------------------------------------------------------
+
+CONFIRM_FIELD = "confirm_impersonate"
+_ENDPOINT = "ui/impersonate"
+
+
+def calls_endpoint(source: Any) -> bool:
+    """True when JavaScript posts to the impersonate endpoint by hand.
+
+    Substring match, same reasoning as server_scripts.surface_in_source: the
+    caller is a model taking the short path, and the short path is literal.
+    """
+    return _ENDPOINT in str(source or "").lower()
+
+
+def approval_problem(targets: List[str], sources: List[str], confirm: Any) -> Optional[str]:
+    """Why this batch may not switch users yet, or None when it may.
+
+    ``targets`` are the values of the impersonate steps; ``sources`` are eval /
+    evaluate bodies that call the endpoint by hand. The approval must name the
+    user: a bare 'approve' is the thing a model types without asking anyone,
+    and a name it has to copy from the user's answer is not.
+    """
+    hand_made = [src for src in sources if calls_endpoint(src)]
+    if not targets and not hand_made:
+        return None
+    approved = str(confirm or "").strip()
+    wanted = ", ".join(repr(t) for t in targets) or "the user in that script"
+    ask = (
+        "Everything done while impersonating is recorded as THAT person "
+        "(sys_created_by / sys_updated_by), in every MCP session sharing this window. "
+        "Ask the user first: say who and why, and wait for a yes — if it is a real "
+        f"colleague, their consent too. Then retry with {CONFIRM_FIELD}='<that user>'."
+    )
+    if not approved or approved.lower() in ("approve", "yes", "true"):
+        return f"Switching this window to {wanted} needs a named approval. " + ask
+    mismatched = [repr(t) for t in targets if not _same(t, approved)]
+    mismatched += [
+        "the user in an eval" for src in hand_made if approved.lower() not in src.lower()
+    ]
+    if mismatched:
+        return (
+            f"{CONFIRM_FIELD}={approved!r} does not name {', '.join(mismatched)}. "
+            "One approval covers one user. " + ask
+        )
+    return None
 
 
 def _explain(outcome: Dict[str, Any], target: str) -> str:
@@ -781,9 +837,12 @@ def describe(marker: Optional[Dict[str, Any]], window_user: str) -> Optional[Dic
 
 
 __all__ = [
+    "CONFIRM_FIELD",
     "END_IMPERSONATION_ACTION",
     "IMPERSONATE_ACTION",
+    "approval_problem",
     "become",
+    "calls_endpoint",
     "current_identity",
     "describe_detected",
     "home_user",

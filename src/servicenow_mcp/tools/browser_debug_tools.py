@@ -68,6 +68,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
+from ..browser import impersonate as impersonate_gate
 from ..browser import server_scripts
 from ..browser._launch_lock import LaunchBusy
 from ..browser._offload import PlaywrightUnavailable
@@ -242,6 +243,10 @@ class ActInDebugWindowParams(BaseModel):
     confirm_script_exec: Optional[str] = Field(
         default=None,
         description="Required ('approve') to run a server-side script (Background/Fix/ATF).",
+    )
+    confirm_impersonate: Optional[str] = Field(
+        default=None,
+        description="Required for impersonate: the user the user approved becoming, by name.",
     )
     discard_unsaved_input: bool = Field(
         default=False,
@@ -705,6 +710,18 @@ def inspect_debug_window(
                 "script_exec_surface": surface,
             }
 
+    # A read tool has no approval to give, so a switch from here is sent to the
+    # door that has one rather than refused outright.
+    if params.evaluate and impersonate_gate.calls_endpoint(params.evaluate):
+        return {
+            "success": False,
+            "error": (
+                "This expression switches the window's user. Use act_in_debug_window "
+                f"with an impersonate step and {impersonate_gate.CONFIRM_FIELD}='<user>' — "
+                "after asking the user."
+            ),
+        }
+
     state = find_window(auth_manager)
     if state is None:
         # Deliberately does NOT open one. See the module docstring.
@@ -841,6 +858,17 @@ def act_in_debug_window(
             ),
             "eval_steps": eval_steps,
         }
+
+    # Becoming someone else is done in THEIR name, so it takes an approval that
+    # names them — see browser/impersonate.py. A hand-written POST in an eval is
+    # the same act and meets the same gate.
+    blocked = impersonate_gate.approval_problem(
+        [step["value"] for step in steps if step["action"] == IMPERSONATE_ACTION],
+        [step["value"] for step in steps if step["action"] == EVAL_ACTION],
+        params.confirm_impersonate,
+    )
+    if blocked:
+        return {"success": False, "error": blocked, "needs": impersonate_gate.CONFIRM_FIELD}
 
     # A click on Run in Background Scripts is not the same request as a click on
     # Save, and until now it cost the same. Caught here by the verb the step
