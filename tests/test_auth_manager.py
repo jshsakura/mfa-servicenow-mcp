@@ -3266,6 +3266,53 @@ class TestComputeLoginWaitBudgetMs:
 
 
 # ===========================================================================
+# LOGIN_CANCELLED_BY_USER text: says who closed the window, ends in one step
+# ===========================================================================
+
+
+def _cancel_message_from_get_headers(raw_error: str) -> str:
+    mgr = _make_browser_manager()
+    mgr._browser_cookie_header = None
+    mgr._browser_cookie_expires_at = None
+    mgr._browser_login_in_progress = False
+    with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+        with patch.object(mgr, "_reload_session_from_disk", return_value=False):
+            with patch.object(mgr, "_acquire_login_lock", return_value=True):
+                with patch.object(mgr, "_can_attempt_browser_reauth", return_value=True):
+                    with patch.object(
+                        mgr, "_login_with_browser", side_effect=ValueError(raw_error)
+                    ):
+                        with patch.object(mgr, "_release_login_lock"):
+                            with pytest.raises(ValueError) as info:
+                                mgr.get_headers()
+    return str(info.value)
+
+
+class TestLoginCancelledMessage:
+    """A walk-away timeout is the MCP closing the window, not the user. The old
+    shared text ("the user closed it on purpose, do NOT auto-retry") was false
+    there, and weaker models obeyed it literally and never reopened a window."""
+
+    def test_walk_away_timeout_does_not_blame_the_user(self):
+        msg = _cancel_message_from_get_headers(
+            "Timed out waiting for manual browser login/MFA completion."
+        )
+        assert msg.startswith("LOGIN_CANCELLED_BY_USER")
+        assert "NOT authenticated" in msg
+        assert "did NOT close it" in msg
+        assert "on purpose" not in msg
+        assert "retry this same tool call after 15s" in msg
+
+    def test_real_close_asks_the_user_then_names_the_retry(self):
+        msg = _cancel_message_from_get_headers("Target page, context or browser has been closed")
+        assert msg.startswith("LOGIN_CANCELLED_BY_USER")
+        assert "NOT authenticated" in msg
+        assert "ask the user whether to log in" in msg
+        assert "retry this same tool call after 15s" in msg
+        assert "Do NOT auto-retry" not in msg
+
+
+# ===========================================================================
 # _looks_like_user_close: classify exception text as a user-close
 # ===========================================================================
 

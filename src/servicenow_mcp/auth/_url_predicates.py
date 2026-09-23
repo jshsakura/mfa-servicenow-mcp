@@ -33,6 +33,34 @@ def _looks_like_user_close(error_text: str) -> bool:
     return any(marker in error_text for marker in USER_CLOSE_ERROR_MARKERS)
 
 
+_WALK_AWAY_TIMEOUT_MARKER = "timed out waiting for manual browser login/mfa completion"
+
+
+def _login_cancelled_message(profile_label: str, cooldown_s: int, error_text: str) -> str:
+    """LLM-facing text for the LOGIN_CANCELLED_BY_USER raise.
+
+    The two shapes that share the cancellation path are different facts and
+    must not share one sentence. A walk-away timeout is the MCP closing the
+    window itself; telling the model "the user closed it on purpose, do NOT
+    auto-retry" was false there, and weaker models obeyed it literally and
+    never offered a new window. Each variant ends in ONE next step.
+    """
+    head = f"LOGIN_CANCELLED_BY_USER ({profile_label}): "
+    retry = f"retry this same tool call after {cooldown_s}s — that retry opens a new login window."
+    if _WALK_AWAY_TIMEOUT_MARKER in error_text:
+        return (
+            head + "the login window waited on the MFA/SSO page until its time limit and was "
+            "closed automatically — the user did NOT close it. This profile is NOT "
+            "authenticated. Tell the user the login timed out; when they are ready to "
+            "complete MFA, " + retry
+        )
+    return (
+        head + "the login window was closed before authentication completed — this profile "
+        "is NOT authenticated. Do not reopen it unasked: ask the user whether to log in "
+        "now, and if yes, " + retry
+    )
+
+
 def _login_poll_should_keep_waiting(
     *,
     elapsed_ms: float,

@@ -75,6 +75,7 @@ from ._url_predicates import (  # noqa: F401
     USER_CLOSE_ERROR_MARKERS,
     _is_login_page_url,
     _is_mfa_challenge_url,
+    _login_cancelled_message,
     _login_poll_should_keep_waiting,
     _looks_like_user_close,
     _visible_window_mid_auth,
@@ -1750,12 +1751,11 @@ class AuthManager:
                             # Replace the raw Playwright "target closed" exception with a
                             # clear cancellation signal so the LLM stops retrying.
                             raise ValueError(
-                                f"LOGIN_CANCELLED_BY_USER ({self._instance_profile_label()}): "
-                                "the browser login window was closed before authentication "
-                                "completed — this profile is NOT authenticated. Wait "
-                                f"{user_close_cooldown}s then explicitly retry to open a "
-                                "new login window. Do NOT auto-retry — the user closed "
-                                "the previous window on purpose."
+                                _login_cancelled_message(
+                                    self._instance_profile_label(),
+                                    user_close_cooldown,
+                                    error_text,
+                                )
                             ) from exc
                         else:
                             self._browser_reauth_failure_count += 1
@@ -1852,12 +1852,11 @@ class AuthManager:
                                 user_close_cooldown,
                             )
                             raise ValueError(
-                                f"LOGIN_CANCELLED_BY_USER ({self._instance_profile_label()}): "
-                                "the browser login window was closed before authentication "
-                                "completed — this profile is NOT authenticated. Wait "
-                                f"{user_close_cooldown}s then explicitly retry to open a "
-                                "new login window. Do NOT auto-retry — the user closed "
-                                "the previous window on purpose."
+                                _login_cancelled_message(
+                                    self._instance_profile_label(),
+                                    user_close_cooldown,
+                                    error_text,
+                                )
                             ) from exc
                         self._browser_reauth_failure_count += 1
                         self._browser_reauth_cooldown_seconds = min(
