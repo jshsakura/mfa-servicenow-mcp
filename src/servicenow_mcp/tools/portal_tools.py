@@ -29,6 +29,7 @@ from ..utils.sync_anchor import field_sha as _field_sha
 from ..utils.sync_anchor import reconcile_field, sweep_legacy_baseline
 from ..utils.workspace_roots import known_download_roots, record_download_root
 from .sn_api import (
+    SYS_ID_IN_CHUNK,
     GenericQueryParams,
     _get_page_executor,
     apply_scope_namespace,
@@ -854,8 +855,9 @@ def _chunked(values: List[str], size: int) -> List[List[str]]:
 
 
 # sys_ids per body query when a remote-first incremental narrowed the fetch set.
-# Bounded so the encoded sys_idIN clause stays well inside URL length limits.
-_INCREMENTAL_ID_CHUNK = 50
+# The shared measured limit: 50 here was refused outright by a live instance
+# (see sn_api.SYS_ID_IN_CHUNK), on the path whose whole job is not to miss one.
+_INCREMENTAL_ID_CHUNK = SYS_ID_IN_CHUNK
 # Rows the angular-provider change ledger will read before it is declared
 # truncated (and said so out loud — see the INCOMPLETE CHANGE LIST warning).
 _PROVIDER_LEDGER_CAP = 1000
@@ -2467,10 +2469,8 @@ def search_portal_regex_matches(
 
         # M2M lookup from widgets (only when no direct provider_ids and widgets exist)
         if not params.provider_ids and params.include_linked_angular_providers and widget_ids:
-            # Chunk size 30 — large `IN` clauses with 32-char sys_ids
-            # blow past URL length limits and 400 on real instances.
             escaped_chunks = [
-                [_escape_query(v) for v in chunk] for chunk in _chunked(widget_ids, 30)
+                [_escape_query(v) for v in chunk] for chunk in _chunked(widget_ids, SYS_ID_IN_CHUNK)
             ]
             relation_rows = (
                 _parallel_chunked_query(
@@ -2762,7 +2762,7 @@ def trace_portal_route_targets(
     widget_provider_map: Dict[str, List[str]] = {}
     if params.include_linked_angular_providers and widget_sys_ids:
         escaped_chunks = [
-            [_escape_query(v) for v in chunk] for chunk in _chunked(widget_sys_ids, 100)
+            [_escape_query(v) for v in chunk] for chunk in _chunked(widget_sys_ids, SYS_ID_IN_CHUNK)
         ]
         relation_rows = (
             _parallel_chunked_query(
@@ -2793,7 +2793,7 @@ def trace_portal_route_targets(
             config,
             auth_manager,
             table=ANGULAR_PROVIDER_TABLE,
-            chunks=_chunked(all_provider_ids, 100),
+            chunks=_chunked(all_provider_ids, SYS_ID_IN_CHUNK),
             query_template="sys_idIN{ids}",
             fields="sys_id,name,script",
             page_size=page_size,
@@ -3253,7 +3253,7 @@ def _capture_widget_dependency_graph(
         dep_widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
         widget_dep_edges: Dict[str, List[str]] = {}
         dep_ids: List[str] = []
-        for sys_id_chunk in _chunked(dep_widget_sys_ids, 100):
+        for sys_id_chunk in _chunked(dep_widget_sys_ids, SYS_ID_IN_CHUNK):
             try:
                 dep_rows = _sn_query_all(
                     config,
@@ -3293,7 +3293,7 @@ def _capture_widget_dependency_graph(
                     if dep_id not in edge:
                         edge.append(dep_id)
         dep_name_by_sys_id: Dict[str, str] = {}
-        for id_chunk in _chunked(dep_ids, 100):
+        for id_chunk in _chunked(dep_ids, SYS_ID_IN_CHUNK):
             for row in _sn_query_all(
                 config,
                 auth_manager,
@@ -3785,7 +3785,7 @@ def download_portal_sources(
         widget_sys_ids = [str(w.get("sys_id")) for w in widgets if w.get("sys_id")]
         m2m_ids: List[str] = []
         m2m_available = not _table_known_absent(config, _angular_provider_m2m(config, auth_manager))
-        for sys_id_chunk in _chunked(widget_sys_ids, 100) if m2m_available else []:
+        for sys_id_chunk in _chunked(widget_sys_ids, SYS_ID_IN_CHUNK) if m2m_available else []:
             m2m_rows = _sn_query_all(
                 config,
                 auth_manager,
@@ -4168,26 +4168,33 @@ def resolve_widget_chain(
 
     if provider_ids:
         provider_ids = provider_ids[:MAX_CHAIN_PROVIDERS]
+        prov_rows: List[Dict[str, Any]] = []
         try:
-            prov_resp = sn_query(
-                config,
-                auth_manager,
-                GenericQueryParams(
-                    table=ANGULAR_PROVIDER_TABLE,
-                    query=f"sys_idIN{','.join(provider_ids)}",
-                    fields="sys_id,name,type,script",
-                    limit=MAX_CHAIN_PROVIDERS,
-                    offset=0,
-                    display_value=False,
-                ),
-            )
-            result["api_calls"] += 1
+            for id_chunk in _chunked(provider_ids, SYS_ID_IN_CHUNK):
+                prov_resp = sn_query(
+                    config,
+                    auth_manager,
+                    GenericQueryParams(
+                        table=ANGULAR_PROVIDER_TABLE,
+                        query=f"sys_idIN{','.join(id_chunk)}",
+                        fields="sys_id,name,type,script",
+                        limit=MAX_CHAIN_PROVIDERS,
+                        offset=0,
+                        display_value=False,
+                    ),
+                )
+                result["api_calls"] += 1
+                if prov_resp.get("success") is False:
+                    # sn_query reports a refused read in-band; an unread chunk
+                    # must not pass for "these providers have no source".
+                    raise RuntimeError(prov_resp.get("message") or "provider read failed")
+                prov_rows.extend(rows_of(prov_resp))
         except Exception as exc:
             result["warnings"] = [f"Failed to fetch providers: {exc}"]
             result["success"] = True
             return result
 
-        for prov in rows_of(prov_resp):
+        for prov in prov_rows:
             if "script" in prov and isinstance(prov["script"], str):
                 prov["script"] = _truncate_source(prov["script"], max_src)
             if "client_script" in prov and isinstance(prov["client_script"], str):
@@ -4465,28 +4472,33 @@ def resolve_page_dependencies(
                 widget_to_providers.setdefault(w_id, []).append(p_id)
                 all_provider_ids.add(p_id)
 
-        # Fetch unique providers in one batch
+        # Fetch unique providers, one read per IN chunk
         if all_provider_ids:
             provider_id_list = sorted(all_provider_ids)[:MAX_CHAIN_PROVIDERS]
-            try:
-                prov_resp = sn_query(
-                    config,
-                    auth_manager,
-                    GenericQueryParams(
-                        table=ANGULAR_PROVIDER_TABLE,
-                        query=f"sys_idIN{','.join(provider_id_list)}",
-                        fields="sys_id,name,type,script",
-                        limit=MAX_CHAIN_PROVIDERS,
-                        offset=0,
-                        display_value=False,
-                    ),
-                )
-                api_calls += 1
-            except Exception as exc:
-                warnings.append(f"Failed to fetch providers: {exc}")
-                prov_resp = {"results": []}
+            prov_rows: List[Dict[str, Any]] = []
+            for id_chunk in _chunked(provider_id_list, SYS_ID_IN_CHUNK):
+                try:
+                    prov_resp = sn_query(
+                        config,
+                        auth_manager,
+                        GenericQueryParams(
+                            table=ANGULAR_PROVIDER_TABLE,
+                            query=f"sys_idIN{','.join(id_chunk)}",
+                            fields="sys_id,name,type,script",
+                            limit=MAX_CHAIN_PROVIDERS,
+                            offset=0,
+                            display_value=False,
+                        ),
+                    )
+                    api_calls += 1
+                    if prov_resp.get("success") is False:
+                        # In-band refusal — say so, never an empty provider list.
+                        raise RuntimeError(prov_resp.get("message") or "provider read failed")
+                    prov_rows.extend(rows_of(prov_resp))
+                except Exception as exc:
+                    warnings.append(f"Failed to fetch providers: {exc}")
 
-            for prov in rows_of(prov_resp):
+            for prov in prov_rows:
                 if "script" in prov and isinstance(prov["script"], str):
                     prov["script"] = _truncate_source(prov["script"], max_src)
                 if "client_script" in prov and isinstance(prov["client_script"], str):

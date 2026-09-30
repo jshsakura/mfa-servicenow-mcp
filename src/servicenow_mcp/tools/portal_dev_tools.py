@@ -21,6 +21,7 @@ from servicenow_mcp.utils.encoded_query import encoded_value
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
+from .sn_api import SYS_ID_IN_CHUNK
 from .sn_api import sn_count as _sn_count_shared
 from .sn_api import sn_query_page as _sn_query_page_shared
 
@@ -30,13 +31,9 @@ logger = logging.getLogger(__name__)
 # Constants & Shared Config
 # ---------------------------------------------------------------------------
 
-# Maximum number of sys_ids per `IN` clause when fetching M2M / reference
-# rows. ServiceNow + intermediate proxies start returning 400 when the
-# `sysparm_query` portion of the URL grows past a few KB; a 32-char sys_id
-# plus comma is ~33 chars, so 30 IDs ≈ 1 KB query string — well under
-# typical limits even after URL escaping. Empirically 100 was failing on
-# real instances; 30 is the safe floor.
-M2M_IN_CHUNK_SIZE = 30
+# sys_ids per `IN` clause when fetching M2M / reference rows — the shared,
+# measured limit (see sn_api.SYS_ID_IN_CHUNK).
+M2M_IN_CHUNK_SIZE = SYS_ID_IN_CHUNK
 
 
 def _chunk(seq: List[str], size: int) -> List[List[str]]:

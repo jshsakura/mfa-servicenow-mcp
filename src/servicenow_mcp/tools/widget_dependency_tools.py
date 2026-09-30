@@ -19,6 +19,7 @@ from servicenow_mcp.utils.encoded_query import encoded_value
 from ..auth.auth_manager import AuthManager
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
+from .sn_api import SYS_ID_IN_CHUNK
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ def _m2m_table_for(config: ServerConfig, auth_manager: AuthManager, target: str)
 
 
 MAX_DEP_WIDGETS = 30
-M2M_IN_CHUNK = 50
+# 50 was above what a live instance accepts — see sn_api.SYS_ID_IN_CHUNK.
+M2M_IN_CHUNK = SYS_ID_IN_CHUNK
 
 
 class ManageWidgetDependencyParams(BaseModel):

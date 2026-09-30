@@ -569,3 +569,47 @@ def test_a_count_only_tool_reports_a_failure_instead_of_zero(monkeypatch):
     assert result["success"] is False
     assert "timed out" in result["message"]
     assert "count" not in result, "a count that was never taken must not be in the answer"
+
+
+# --- SYS_ID_IN_CHUNK -------------------------------------------------------
+
+
+def test_every_in_chunk_constant_is_the_shared_measured_limit():
+    """30/40 ids were answered by a live instance, 50/60/100 were HTTP 400.
+
+    Each module used to restate its own number (30, 50, a bare 100), and the
+    ones above the limit only failed on an instance with enough rows to fill
+    a chunk — so nothing in a mocked suite could see it.
+    """
+    from servicenow_mcp.tools import (
+        portal_dev_tools,
+        portal_tools,
+        sn_api,
+        source_tools,
+        widget_dependency_tools,
+    )
+
+    assert sn_api.SYS_ID_IN_CHUNK <= 40
+    assert portal_dev_tools.M2M_IN_CHUNK_SIZE == sn_api.SYS_ID_IN_CHUNK
+    assert widget_dependency_tools.M2M_IN_CHUNK == sn_api.SYS_ID_IN_CHUNK
+    assert source_tools._INCREMENTAL_ID_CHUNK == sn_api.SYS_ID_IN_CHUNK
+    assert portal_tools._INCREMENTAL_ID_CHUNK == sn_api.SYS_ID_IN_CHUNK
+
+
+def test_no_tool_module_chunks_by_a_bare_number_above_the_limit():
+    """A literal chunk size is how 100 got past the 30 defined two files away."""
+    import re
+    from pathlib import Path
+
+    from servicenow_mcp.tools import sn_api
+
+    tools_dir = Path(sn_api.__file__).parent
+    offenders = []
+    for path in sorted(tools_dir.glob("*.py")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for match in re.finditer(r"_chunk(?:ed)?\([^()]*,\s*(\d+)\)", line):
+                # Names (script includes, tables) are chunked by literal too and
+                # are short; only a size that cannot hold sys_ids is flagged.
+                if int(match.group(1)) > 50:
+                    offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+    assert not offenders, offenders

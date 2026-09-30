@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import (
     _RETRY_MAX_ATTEMPTS,
+    SYS_ID_IN_CHUNK,
     _retry_delay,
     apply_scope_namespace,
     sn_query_all,
@@ -2128,10 +2129,11 @@ _DOWNLOAD_MAX_WORKERS = 4
 _DEP_MAX_WORKERS = _DOWNLOAD_MAX_WORKERS  # max concurrent API calls during dep resolution
 _DEP_CHUNK_SIZE = 30  # names per API query chunk (smaller = safer under rate limits)
 # sys_ids per body query when a remote-first incremental narrowed the fetch set.
-# Bounded so the encoded sys_idIN clause stays well inside URL length limits.
-_INCREMENTAL_ID_CHUNK = 50
+# The shared measured limit: 50 here was refused outright by a live instance
+# (see sn_api.SYS_ID_IN_CHUNK), on the path whose whole job is not to miss one.
+_INCREMENTAL_ID_CHUNK = SYS_ID_IN_CHUNK
 
-# Row cap for ONE related-table (m2m) chunk read. Generous: a chunk covers 50
+# Row cap for ONE related-table (m2m) chunk read. Generous: a chunk covers 30
 # parents, and a parent with more than 40 related rows does not exist in
 # practice. Hitting it means the read was truncated, which is reported as
 # not-complete rather than absorbed — see _resolve_related_values.

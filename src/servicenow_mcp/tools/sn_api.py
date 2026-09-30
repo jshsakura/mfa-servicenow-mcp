@@ -461,6 +461,19 @@ def invalidate_read_cache(namespace: Optional[str] = None) -> int:
 
 # Enough of a query to identify its SHAPE — which field, which operator, how
 # many ids — without pasting a kilobyte of sys_ids into every log line.
+# sys_ids per `IN` clause, for every chunked read in the package.
+#
+# Measured against a live instance, same session, two unrelated tables:
+# 30 and 40 ids were answered, 50 / 60 / 100 came back HTTP 400 with no
+# ServiceNow error body. Whether the limit is request-line length or element
+# count was NOT determined (a ~1.7 KB OR-chain was accepted the same day), so
+# the number is the measured pass with margin, not a derived one.
+#
+# It lives here because it used to be restated per call site — 30 in one
+# module, 50 in two, a bare 100 in five — and the ones above the limit failed
+# only on instances with enough rows to fill a chunk.
+SYS_ID_IN_CHUNK = 30
+
 _LOG_QUERY_CHARS = 300
 
 
@@ -589,11 +602,11 @@ def sn_query_page(
         # and not one of them could be diagnosed afterwards: the request line
         # records the URL without `sysparm_query`/`sysparm_fields`, and a 400
         # with no parseable ServiceNow error body leaves the exception saying
-        # only "Bad Request". Table name, field names, query length and an empty
-        # IN list were each tested against a live instance and each cleared — so
-        # what was actually sent is the one thing that would have answered it,
-        # and it was the one thing nobody wrote down. Truncated because an IN
-        # list of ids is routinely kilobytes and the shape is what identifies it.
+        # only "Bad Request". What was actually sent is the one thing that would
+        # have answered it, and it was the one thing nobody wrote down. Once it
+        # was, the answer took one read: every silenced 400 carried an IN list
+        # of 100 sys_ids (see SYS_ID_IN_CHUNK). Truncated because an IN list of
+        # ids is routinely kilobytes and the shape is what identifies it.
         logger.warning(
             "sn_query_page silenced a failure (table=%s offset=%s limit=%s "
             "query=%s fields=%s): %s — returning an EMPTY page, which callers "
