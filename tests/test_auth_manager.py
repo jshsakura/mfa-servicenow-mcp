@@ -1774,6 +1774,42 @@ class TestBrowserLoginErrorHandling:
         assert headers["X-UserToken"] == "fresh_g_ck"
         assert mgr._browser_reauth_failure_count == 0
 
+    def test_user_close_with_only_the_stale_cookie_is_a_cancellation(self):
+        """The cookie that was there BEFORE the login is not a captured session.
+
+        An expired session keeps its cookie header in memory while the login
+        runs. Closing the window on the MFA page then satisfied "cookie + key
+        are set" with the very cookie the server had just rejected: the close
+        was reported as a successful login, the next request got a 401, and the
+        re-login it triggered ran into the minimum login interval — so the
+        caller saw LOGIN_COOLDOWN instead of being told the login was cancelled.
+        """
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = "stale=cookie"
+        mgr._browser_cookie_expires_at = time.time() - 60
+        mgr._browser_session_key = "example.service-now.com"
+        mgr._browser_login_in_progress = False
+        mgr._browser_reauth_failure_count = 0
+
+        with patch.object(mgr, "_maybe_adopt_sibling_session_update"):
+            with patch.object(mgr, "_reload_session_from_disk", return_value=False):
+                with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+                    with patch.object(mgr, "_acquire_login_lock", return_value=True):
+                        with patch.object(mgr, "_can_attempt_browser_reauth", return_value=True):
+                            with patch.object(
+                                mgr,
+                                "_login_with_browser",
+                                side_effect=ValueError("target closed"),
+                            ):
+                                with patch.object(mgr, "_release_login_lock"):
+                                    with patch.object(mgr, "_mark_browser_reauth_attempt"):
+                                        with pytest.raises(
+                                            ValueError, match="LOGIN_CANCELLED_BY_USER"
+                                        ):
+                                            mgr.get_headers()
+
+        assert mgr._browser_reauth_cooldown_seconds == 15
+
     def test_other_error_increases_cooldown(self):
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None

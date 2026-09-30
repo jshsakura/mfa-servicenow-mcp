@@ -1694,6 +1694,10 @@ class AuthManager:
                     )
                     self._mark_browser_reauth_attempt()
                     self._browser_login_in_progress = True
+                    # An expired session keeps its cookie header through the
+                    # login, so "a cookie is set" cannot mean "this login
+                    # captured one" — only a header that CHANGED can.
+                    cookie_before_login = self._browser_cookie_header
                     try:
                         # force_interactive=False — try headless first (cookie-gated).
                         # _login_with_browser auto-falls back to interactive on
@@ -1723,7 +1727,11 @@ class AuthManager:
                             # by the success path before this exception), the
                             # close is benign — user just dismissed an already-
                             # successful window. Treat as success, no cooldown.
-                            if self._browser_cookie_header and self._browser_session_key:
+                            if (
+                                self._browser_cookie_header
+                                and self._browser_session_key
+                                and self._browser_cookie_header != cookie_before_login
+                            ):
                                 logger.info(
                                     "Browser closed after session was captured — "
                                     "ignoring (treating as successful login)."
