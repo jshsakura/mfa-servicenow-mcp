@@ -41,6 +41,20 @@ class TestValidation:
         with pytest.raises(ValidationError, match="script_include_id"):
             ManageScriptIncludeParams(action="delete")
 
+    def test_delete_takes_the_name_from_the_name_slot(self):
+        params = ManageScriptIncludeParams(action="delete", name="MyUtils")
+        assert params.script_include_id == "MyUtils"
+
+    def test_execute_takes_a_name_from_the_id_slot(self):
+        params = ManageScriptIncludeParams(action="execute", script_include_id="MyUtils")
+        assert params.name == "MyUtils"
+
+    def test_execute_does_not_run_a_sys_id_as_a_class_name(self):
+        with pytest.raises(ValidationError, match="not its sys_id"):
+            ManageScriptIncludeParams(
+                action="execute", script_include_id="aaaa1111bbbb2222cccc3333dddd4444"
+            )
+
     def test_execute_requires_name(self):
         with pytest.raises(ValidationError, match="name"):
             ManageScriptIncludeParams(action="execute", method="run")

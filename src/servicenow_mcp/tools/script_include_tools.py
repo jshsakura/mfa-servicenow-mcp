@@ -5,6 +5,7 @@ This module provides tools for managing script includes in ServiceNow.
 """
 
 import logging
+import re
 from typing import Any, ClassVar, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -329,11 +330,27 @@ class ManageScriptIncludeParams(BaseModel):
             if not any(getattr(self, f) is not None for f in _SI_UPDATE_FIELDS):
                 raise ValueError("at least one field must be provided for action='update'")
         elif self.action == "delete":
+            # script_include_id already accepts a name; a caller that put the
+            # name in `name` said the same thing in the other slot. Seen in real
+            # sessions: rejecting it cost a round-trip and changed nothing.
+            if not self.script_include_id and self.name:
+                self.script_include_id = self.name
             if not self.script_include_id:
                 raise ValueError("script_include_id is required for action='delete'")
         elif self.action == "execute":
+            # The mirror case — but only a NAME can stand in for `name`; a
+            # sys_id there would be executed as a class called by its id.
+            if (
+                not self.name
+                and self.script_include_id
+                and not re.fullmatch(r"[0-9a-f]{32}", self.script_include_id)
+            ):
+                self.name = self.script_include_id
             if not self.name:
-                raise ValueError("name is required for action='execute'")
+                raise ValueError(
+                    "name is required for action='execute' (the script include's "
+                    "name, not its sys_id)"
+                )
         return self
 
 
