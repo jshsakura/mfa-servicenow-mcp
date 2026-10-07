@@ -194,7 +194,7 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **75 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **77 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **4 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
@@ -502,9 +502,9 @@ Read-only (safe defaults):
 | Package | Tools | ~Tokens | Description |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 50 | ~10.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
-| `platform_developer` | 44 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 61 | ~13.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
+| `portal_developer` | 52 | ~10.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 46 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 63 | ~13.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
 
 > **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down.
 

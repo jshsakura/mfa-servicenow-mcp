@@ -6,8 +6,8 @@ slug: hi/TOOL_INVENTORY
 
 पंक्ति-दर-पंक्ति अनुवादित इन्वेंटरी बनाए रखने की लागत से बचने के लिए यह फ़ाइल वर्तमान सार्वजनिक टूल सतह का **सारांश** है। इसके आँकड़े `scripts/regenerate_doc_counts.py` स्वतः अपडेट करता है।
 
-लाइव रजिस्ट्री में पंजीकृत टूल: **75**
-`full` में पैकेज किए गए टूल की संख्या: **61**
+लाइव रजिस्ट्री में पंजीकृत टूल: **77**
+`full` में पैकेज किए गए टूल की संख्या: **63**
 पंजीकृत परंतु वर्तमान में अनपैकेज्ड टूल: **11**
 
 - टूल-दर-टूल पूरी सूची: [अंग्रेज़ी TOOL_INVENTORY.md](../../TOOL_INVENTORY/)
@@ -23,9 +23,9 @@ slug: hi/TOOL_INVENTORY
 | `core` | 12 | त्वरित health/schema/table कार्य के लिए न्यूनतम read-only आवश्यक टूल। |
 | `standard` | 31 | incidents, changes, portal, logs, और source analysis में डिफ़ॉल्ट read-only पैकेज। |
 | `service_desk` | 33 | परिचालन समर्थन के लिए standard के साथ incident और change write workflows। |
-| `portal_developer` | 50 | standard के साथ portal, changeset, script include, और local-sync delivery workflows। |
-| `platform_developer` | 44 | standard के साथ workflow, Flow Designer, UI policy, incident/change, और script writes। |
-| `full` | 61 | सबसे व्यापक पैकेज सतह: सभी manage_* workflows के साथ उन्नत संचालन। |
+| `portal_developer` | 52 | standard के साथ portal, changeset, script include, और local-sync delivery workflows। |
+| `platform_developer` | 46 | standard के साथ workflow, Flow Designer, UI policy, incident/change, और script writes। |
+| `full` | 63 | सबसे व्यापक पैकेज सतह: सभी manage_* workflows के साथ उन्नत संचालन। |
 
 ## रनटाइम-इंजेक्टेड सहायक (Helpers)
 

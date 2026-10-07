@@ -2205,11 +2205,12 @@ def sn_schema(
         if editable:
             result["editable_via"] = {
                 "tool": "manage_portal_component",
-                "action": "update",
+                "action": "update_code",
                 "fields": sorted(editable),
                 "by": "sys_id",
                 "note": (
-                    "Edit these fields by sys_id via manage_portal_component(action='update'). "
+                    f"Edit these fields by sys_id via manage_portal_component(action='update_code', "
+                    f"table='{params.table}', sys_id=<id>, update_data={{<field>: <value>}}). "
                     "Names aren't globally unique — target by sys_id, not name."
                 ),
             }

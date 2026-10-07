@@ -6,8 +6,8 @@ slug: zh/TOOL_INVENTORY
 
 为避免逐行翻译清单的维护成本，本文件是快速了解当前公开工具面的**摘要版**。其中的数字由 `scripts/regenerate_doc_counts.py` 自动更新。
 
-实时注册表中已注册的工具数：**75**
-`full` 中打包的工具数：**61**
+实时注册表中已注册的工具数：**77**
+`full` 中打包的工具数：**63**
 已注册但当前未打包的工具数：**11**
 
 - 逐个工具的完整清单：[英文版 TOOL_INVENTORY.md](../../TOOL_INVENTORY/)
@@ -23,9 +23,9 @@ slug: zh/TOOL_INVENTORY
 | `core` | 12 | 用于快速健康检查/schema/表操作的极简只读基础工具。 |
 | `standard` | 31 | 覆盖 incident、change、门户、日志和源码分析的默认只读包。 |
 | `service_desk` | 33 | standard 加上用于运营支持的事件与变更写入工作流。 |
-| `portal_developer` | 50 | standard 加上门户、变更集、script include 和本地同步交付工作流。 |
-| `platform_developer` | 44 | standard 加上工作流、Flow Designer、UI policy、incident/change 和脚本写入。 |
-| `full` | 61 | 最广泛的打包功能面：所有 manage_* 工作流加上高级操作。 |
+| `portal_developer` | 52 | standard 加上门户、变更集、script include 和本地同步交付工作流。 |
+| `platform_developer` | 46 | standard 加上工作流、Flow Designer、UI policy、incident/change 和脚本写入。 |
+| `full` | 63 | 最广泛的打包功能面：所有 manage_* 工作流加上高级操作。 |
 
 ## 运行时注入的辅助工具
 

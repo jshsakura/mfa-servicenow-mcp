@@ -1490,6 +1490,9 @@ def get_metadata_source(
                     "field": field,
                     "returned_length": max_field_length,
                     "original_length": original_length,
+                    # The visible prefix cannot be compared; the whole-body hash can
+                    # (same normalization as the sync anchor and sn_query).
+                    "full_sha256": _field_sha(raw),
                 }
             )
         else:

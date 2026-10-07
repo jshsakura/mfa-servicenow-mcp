@@ -194,7 +194,7 @@ TLS インスペクションを行うプロキシ（Zscaler など）や PyPI �
 
 - MFA/SSO 環境向けの **ブラウザ認証**（Okta、Entra ID、SAML、MFA）
 - **4 つの認証モード**: Browser、Basic、OAuth、API Key
-- **75 個の登録済みツール** と **6 つのアクティブなパッケージプロファイル**、加えて無効化用の `none` — 最小限の読み取り専用から幅広いバンドル CRUD まで
+- **77 個の登録済みツール** と **6 つのアクティブなパッケージプロファイル**、加えて無効化用の `none` — 最小限の読み取り専用から幅広いバンドル CRUD まで
 - 安全ゲート、サブエージェント委譲、検証済みパイプラインを備えた **4 個のワークフロースキル**
 - **Streamable HTTP トランスポート** — デフォルトとして stdio を維持しつつ、HTTP 対応クライアントやブリッジ向けに `/mcp` を公開可能
 - HTML レポート、相互参照グラフ、デッドコード検出、自動生成されるドメイン知識を備えた **ローカルソース監査**
@@ -498,9 +498,9 @@ python -m servicenow_mcp \
 | Package | Tools | ~トークン | Description |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ standard + インシデントと変更の運用書き込み |
-| `portal_developer` | 50 | ~10.6K | ⚠️ standard + ポータル、changeset、script include、ローカル同期配信の書き込み |
-| `platform_developer` | 44 | ~10.8K | ⚠️ standard + ワークフロー、Flow Designer、UI policy、インシデント/変更、スクリプトの書き込み |
-| `full` | 61 | ~13.8K | ⚠️ **最も高度** — すべてのドメインにまたがるすべての書き込みツールを一度に |
+| `portal_developer` | 52 | ~10.6K | ⚠️ standard + ポータル、changeset、script include、ローカル同期配信の書き込み |
+| `platform_developer` | 46 | ~10.8K | ⚠️ standard + ワークフロー、Flow Designer、UI policy、インシデント/変更、スクリプトの書き込み |
+| `full` | 63 | ~13.8K | ⚠️ **最も高度** — すべてのドメインにまたがるすべての書き込みツールを一度に |
 
 > **~トークン** = リクエストごとに各パッケージのツールスキーマがモデルのコンテキストに追加する概算トークン数（tiktoken cl100k_base 基準、実際の Claude のトークン数は多少異なる）。狭いパッケージほどコンテキストとコストを節約。
 

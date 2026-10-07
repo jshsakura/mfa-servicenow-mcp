@@ -194,7 +194,7 @@ Los proxies con inspección TLS (Zscaler y compañía) y el acceso bloqueado a P
 
 - **Autenticación por navegador** para entornos MFA/SSO (Okta, Entra ID, SAML, MFA)
 - **4 modos de autenticación**: Browser, Basic, OAuth, API Key
-- **75 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
+- **77 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
 - **4 skills de flujo de trabajo** con compuertas de seguridad, delegación a sub-agentes y pipelines verificados
 - **Transporte Streamable HTTP** — mantén stdio como predeterminado, o expón `/mcp` para clientes y puentes con capacidad HTTP
 - **Auditoría de fuentes locales** con informe HTML, grafo de referencias cruzadas, detección de código muerto y conocimiento de dominio autogenerado
@@ -498,9 +498,9 @@ Solo lectura (valores predeterminados seguros):
 | Paquete | Herramientas | ~Tokens | Descripción |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 50 | ~10.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
-| `platform_developer` | 44 | ~10.8K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 61 | ~13.8K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| `portal_developer` | 52 | ~10.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
+| `platform_developer` | 46 | ~10.8K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
+| `full` | 63 | ~13.8K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
 
 > **~Tokens** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken `cl100k_base`; el conteo real de Claude varía ligeramente); usar el paquete más reducido ahorra contexto y costo.
 

@@ -22,9 +22,9 @@ Read-only — safe for any environment, no write tools:
 | Package | Tools | ~Tokens | When to use |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 50 | ~10.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 44 | ~10.8K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 61 | ~13.8K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
+| `portal_developer` | 52 | ~10.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
+| `platform_developer` | 46 | ~10.8K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
+| `full` | 63 | ~13.8K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 
 > **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Prefer the narrowest package to keep context and cost down.
 
@@ -88,4 +88,4 @@ No silent failures — the LLM knows exactly which package to request.
 
 ## Full tool list
 
-For the complete list of all 75 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).
+For the complete list of all 77 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).

@@ -194,7 +194,7 @@ TLS 检查代理（Zscaler 之类）和被封锁的 PyPI 访问各有对应的�
 
 - 面向 MFA/SSO 环境（Okta、Entra ID、SAML、MFA）的**浏览器认证**
 - **4 种认证模式**：Browser、Basic、OAuth、API Key
-- **75 个已注册工具**，含 **6 个活动工具包配置**外加禁用的 `none`——从最简只读到广泛的捆绑式 CRUD
+- **77 个已注册工具**，含 **6 个活动工具包配置**外加禁用的 `none`——从最简只读到广泛的捆绑式 CRUD
 - **4 个工作流技能**，带安全门、子代理委派和经过验证的流水线
 - **可流式 HTTP 传输**——保留 stdio 作为默认值，或为支持 HTTP 的客户端和桥接器暴露 `/mcp`
 - **本地源代码审计**，带 HTML 报告、交叉引用图、死代码检测和自动生成的领域知识
@@ -498,9 +498,9 @@ python -m servicenow_mcp \
 | 工具包 | 工具数 | ~令牌 | 说明 |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ standard + incident 和 change 运营写入 |
-| `portal_developer` | 50 | ~10.6K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
-| `platform_developer` | 44 | ~10.8K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
-| `full` | 61 | ~13.8K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
+| `portal_developer` | 52 | ~10.6K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
+| `platform_developer` | 46 | ~10.8K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
+| `full` | 63 | ~13.8K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
 
 > **~令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）；使用更窄的包可节省上下文与成本。
 

@@ -190,9 +190,15 @@ def test_get_metadata_source_flags_truncation_and_points_to_download():
     )
 
     assert result["complete"] is False
-    assert result["truncated_fields"] == [
-        {"field": "script", "returned_length": 300, "original_length": 5000}
-    ]
+    clip = result["truncated_fields"][0]
+    assert (clip["field"], clip["returned_length"], clip["original_length"]) == (
+        "script",
+        300,
+        5000,
+    )
+    assert len(result["truncated_fields"]) == 1
+    # The prefix cannot be compared; the whole-body hash can.
+    assert len(clip["full_sha256"]) == 64
     assert "download_app_sources" in result["safety_notice"]
     assert "PREVIEW ONLY" in result["safety_notice"]
 

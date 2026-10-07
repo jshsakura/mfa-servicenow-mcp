@@ -50,6 +50,8 @@ TOOL_MODULE_INDEX = {
     "manage_portal_component": "portal_crud_tools",
     "manage_portal_layout": "portal_crud_tools",
     "manage_project": "project_tools",
+    "manage_rest_message": "rest_message_tools",
+    "manage_scheduled_job": "scheduled_job_tools",
     "manage_script_include": "script_include_tools",
     "manage_scripted_rest": "scripted_rest_tools",
     "manage_scrum_task": "scrum_task_tools",

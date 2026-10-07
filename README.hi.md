@@ -194,7 +194,7 @@ TLS-निरीक्षण करने वाले proxies (Zscaler और �
 
 - MFA/SSO वातावरणों (Okta, Entra ID, SAML, MFA) के लिए **ब्राउज़र प्रमाणीकरण**
 - **4 auth मोड**: Browser, Basic, OAuth, API Key
-- **75 पंजीकृत टूल** के साथ **6 सक्रिय पैकेज प्रोफ़ाइल** और साथ ही disabled `none` — न्यूनतम read-only से लेकर व्यापक bundled CRUD तक
+- **77 पंजीकृत टूल** के साथ **6 सक्रिय पैकेज प्रोफ़ाइल** और साथ ही disabled `none` — न्यूनतम read-only से लेकर व्यापक bundled CRUD तक
 - **4 वर्कफ़्लो skills** सुरक्षा गेट, sub-agent डेलिगेशन, और सत्यापित पाइपलाइनों के साथ
 - **Streamable HTTP transport** — डिफ़ॉल्ट के रूप में stdio रखें, या HTTP-सक्षम क्लाइंट और ब्रिज के लिए `/mcp` एक्सपोज़ करें
 - HTML रिपोर्ट, क्रॉस-रेफ़रेंस ग्राफ़, dead code पहचान, और स्वतः-जनित डोमेन ज्ञान के साथ **लोकल सोर्स ऑडिट**
@@ -498,9 +498,9 @@ Read-only (सुरक्षित डिफ़ॉल्ट):
 | Package | Tools | ~टोकन | Description |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ standard + incident और change ऑपरेशनल writes |
-| `portal_developer` | 50 | ~10.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
-| `platform_developer` | 44 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
-| `full` | 61 | ~13.8K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
+| `portal_developer` | 52 | ~10.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
+| `platform_developer` | 46 | ~10.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
+| `full` | 63 | ~13.8K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
 
 > **~टोकन** हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens हैं (tiktoken `cl100k_base` आधार; वास्तविक Claude token संख्या थोड़ी भिन्न हो सकती है)। संकरे package पर बने रहने से context और लागत दोनों बचती हैं।
 

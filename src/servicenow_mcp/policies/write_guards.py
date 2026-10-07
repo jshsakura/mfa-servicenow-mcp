@@ -323,6 +323,8 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_widget_dependency": frozenset({"list", "get"}),
     "manage_ux_list": frozenset({"list", "get"}),
     "manage_notification": frozenset({"list", "get", "list_templates", "get_template"}),
+    "manage_rest_message": frozenset({"list", "get", "get_method"}),
+    "manage_scheduled_job": frozenset({"list", "get"}),
     "manage_catalog": frozenset(
         {"list_items", "get_item", "list_categories", "list_item_variables"}
     ),

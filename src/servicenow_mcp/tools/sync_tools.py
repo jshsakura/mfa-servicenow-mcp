@@ -405,6 +405,24 @@ def _local_scope(scope_root: Path) -> str:
     return str(_find_manifest_json(scope_root).get("scope") or "").strip()
 
 
+def _redownload_call(resolved: "_ResolvedComponent") -> str:
+    """The narrowest download that anchors this component, as a call to run.
+
+    "Re-download this component" alone left the caller to pick the scope of the
+    download, and it picked the widest one — then reported the anchor as too
+    slow to get and reached for force. The table already says which family.
+    """
+    from servicenow_mcp.tools.source_tools import _SOURCE_FAMILIES, SOURCE_CONFIG
+
+    scope = _local_scope(resolved.scope_root) or "<app scope>"
+    if resolved.table.startswith("sp_"):
+        return f"download_portal_sources(scope='{scope}')"
+    for family, types in _SOURCE_FAMILIES.items():
+        if any(SOURCE_CONFIG.get(t, {}).get("table") == resolved.table for t in types):
+            return f"download_server_sources(scope='{scope}', families=['{family}'])"
+    return f"download_app_sources(scope='{scope}')"
+
+
 def _alias_for_instance_url(url: str) -> str:
     """Reverse-resolve a recorded origin URL to its configured instance alias.
 
@@ -2586,9 +2604,9 @@ def diff_local_component(
             f"No sync anchor recorded for this local copy (no _sync_meta entry), so there is "
             f"no evidence of which server version it came from — the diff below cannot tell "
             f"your edits from the server's (live: {remote_updated_on}"
-            f"{f' by {remote_updated_by}' if remote_updated_by else ''}). Re-download to anchor "
-            f"it; your local edits are preserved (a real divergence lands as a '.remote' "
-            f"sidecar to merge). A push is blocked until then unless forced."
+            f"{f' by {remote_updated_by}' if remote_updated_by else ''}). Anchor it with "
+            f"{_redownload_call(resolved)} — your local edits are preserved (a real divergence "
+            f"lands as a '.remote' sidecar to merge). A push is blocked until then unless forced."
         )
     elif drift["drifted"]:
         if attribution["self_edit"]:
@@ -3313,8 +3331,8 @@ def update_remote_from_local(
                     f"No sync anchor recorded for this local copy (no _sync_meta entry), so "
                     f"there is NO evidence of which server version it was taken from — it "
                     f"could be older than what is live (server: {remote_updated_on}"
-                    f"{f' by {remote_updated_by}' if remote_updated_by else ''}). Re-download "
-                    f"this component first: that anchors it and preserves your local edits "
+                    f"{f' by {remote_updated_by}' if remote_updated_by else ''}). Anchor it "
+                    f"first with {_redownload_call(resolved)}: that preserves your local edits "
                     f"(a real divergence is written next to it as a '.remote' sidecar to merge)."
                 )
             else:

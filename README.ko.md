@@ -193,7 +193,7 @@ TLS 검사 프록시(Zscaler 등)나 PyPI 차단 환경은 별도 안내가 있�
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **등록 도구 75개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
+- **등록 도구 77개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **4개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **Streamable HTTP transport** — 기본 stdio는 그대로 두고, HTTP 지원 클라이언트/브리지에는 `/mcp` 엔드포인트 제공
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
@@ -499,9 +499,9 @@ python -m servicenow_mcp \
 | 패키지명 | 도구 수 | ~토큰 | 설명 |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.2K | ⚠️ standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 50 | ~10.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
-| `platform_developer` | 44 | ~10.8K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 61 | ~13.8K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
+| `portal_developer` | 52 | ~10.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
+| `platform_developer` | 46 | ~10.8K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 63 | ~13.8K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 
 > **~토큰**은 요청마다 해당 패키지의 툴 스키마가 모델 컨텍스트에 더하는 대략적 토큰량입니다(서버의 컴팩트된 스키마를 tiktoken `cl100k_base`로 측정한 값 — 실제 Claude 토큰수는 약간 다릅니다). 가장 좁은 패키지에 머물수록 컨텍스트 예산과 비용을 아낄 수 있습니다.
 

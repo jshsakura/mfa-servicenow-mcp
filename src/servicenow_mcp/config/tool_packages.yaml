@@ -118,6 +118,9 @@ portal_developer:
     - manage_notification
     # Scripted REST API CRUD (sys_ws_definition/sys_ws_operation)
     - manage_scripted_rest
+    # Outbound REST message + scheduled job schedule (no other write path)
+    - manage_rest_message
+    - manage_scheduled_job
     # Portal debugging (specialized read — used by portal analysis/audit skills)
     - detect_angular_implicit_globals
     # Shared debug window — a visible browser the user and the LLM look at
@@ -156,6 +159,8 @@ platform_developer:
     - manage_workflow
     - manage_script_include
     - manage_business_rule
+    - manage_rest_message
+    - manage_scheduled_job
     - manage_changeset
     - manage_session_context
     - manage_ui_policy
@@ -205,6 +210,8 @@ full:
     - manage_scripted_rest
     - manage_ux_list
     - manage_notification
+    - manage_rest_message
+    - manage_scheduled_job
     # Excel legwork (read trackers, write styled sheets, fill forms). Not a
     # ServiceNow surface at all, but `full` is defined as every manage_*
     # workflow, and it was the one missing from that claim.

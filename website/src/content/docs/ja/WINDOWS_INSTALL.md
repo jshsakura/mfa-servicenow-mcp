@@ -365,9 +365,9 @@ TTL を変更するには、`--browser-session-ttl` オプション（分単位�
 | `core` | 12 | ヘルス、スキーマ、検出、キー検索のための最小限の読み取り専用エッセンシャル |
 | `standard` | 31 | **（デフォルト）** インシデント、変更、ポータル、ログ、ソース分析にわたる読み取り専用パッケージ |
 | `service_desk` | 33 | standard + インシデントと変更の運用書き込み |
-| `portal_developer` | 50 | standard + ポータル、チェンジセット、スクリプトインクルード、ローカル同期デリバリーワークフロー |
-| `platform_developer` | 44 | standard + ワークフロー、Flow Designer、UI ポリシー、インシデント/変更、スクリプト書き込み |
-| `full` | 61 | 最も広いパッケージ化サーフェス: すべての `manage_*` ワークフローに加えて高度な操作 |
+| `portal_developer` | 52 | standard + ポータル、チェンジセット、スクリプトインクルード、ローカル同期デリバリーワークフロー |
+| `platform_developer` | 46 | standard + ワークフロー、Flow Designer、UI ポリシー、インシデント/変更、スクリプト書き込み |
+| `full` | 63 | 最も広いパッケージ化サーフェス: すべての `manage_*` ワークフローに加えて高度な操作 |
 
 変更するには、`MCP_TOOL_PACKAGE` の値を更新します:
 

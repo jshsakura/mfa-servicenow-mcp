@@ -4198,8 +4198,8 @@ class TestContentFirstDriftGate:
 
         assert result["error"] == "CONFLICT_NO_ANCHOR"
         mock_update.assert_not_called()
-        # The message must name the cheap fix, not just refuse.
-        assert "re-download" in result["message"].lower()
+        # The message must name the cheap fix as a call, not just refuse.
+        assert "download_portal_sources(scope=" in result["message"]
         assert "force=true" in result["message"]
 
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
@@ -4227,7 +4227,7 @@ class TestContentFirstDriftGate:
         )
 
         assert "no sync anchor" in result["conflict_warning"].lower()
-        assert "re-download" in result["conflict_warning"].lower()
+        assert "download_portal_sources(scope=" in result["conflict_warning"]
 
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
@@ -5004,3 +5004,30 @@ class TestHistorySurvivesRedownload:
         merged = self._merge(path, {"sys_id": "s1", "field_shas": {"script": "edited"}})
 
         assert "pre-edit" in merged["my-widget"]["field_sha_history"]["script"]
+
+
+class TestRedownloadCall:
+    """The no-anchor fix is named as the narrowest call, so it is not guessed wide."""
+
+    @pytest.mark.parametrize(
+        "table,expected",
+        [
+            ("sysauto_script", "download_server_sources(scope='x_myapp', families=['admin'])"),
+            ("sys_script_include", "families=['script_includes']"),
+            ("sp_widget", "download_portal_sources(scope='x_myapp')"),
+            ("x_myapp_unknown", "download_app_sources(scope='x_myapp')"),
+        ],
+    )
+    def test_table_picks_its_family(self, tmp_path, table, expected):
+        from servicenow_mcp.tools.sync_tools import _redownload_call, _ResolvedComponent
+
+        (tmp_path / "_manifest.json").write_text('{"scope": "x_myapp"}', encoding="utf-8")
+        resolved = _ResolvedComponent(
+            table=table,
+            sys_id="aaaa1111bbbb2222cccc3333dddd4444",
+            name="n",
+            fields={},
+            scope_root=tmp_path,
+            instance_url="https://test.service-now.com",
+        )
+        assert expected in _redownload_call(resolved)

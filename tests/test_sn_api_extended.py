@@ -580,6 +580,9 @@ class TestSnSchema:
         result = sn_schema(config, auth, SchemaParams(table="sys_script_include"))
         assert result["success"] is True
         assert result["editable_via"]["tool"] == "manage_portal_component"
+        # The action a caller is told to use must be one the tool has.
+        assert result["editable_via"]["action"] == "update_code"
+        assert "update_data=" in result["editable_via"]["note"]
         assert result["editable_via"]["by"] == "sys_id"
         assert "script" in result["editable_via"]["fields"]
 
