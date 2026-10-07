@@ -810,3 +810,66 @@ def test_compare_instances_full_shows_a_difference_deep_in_a_long_body(
     diff = result["changed"][0]["diffs"]["script"]
     assert "-test tail" in diff["diff"] and "+dev tail" in diff["diff"]
     assert (diff["lines_added"], diff["lines_removed"], diff["hunks_total"]) == (1, 1, 1)
+
+
+class _PathParams(BaseModel):
+    path: str = ""
+
+
+def _register_path_recorder(server, tool_name: str):
+    seen = {}
+
+    def _impl(config, auth_manager, params):
+        seen["instance_url"] = config.instance_url
+        return {"ok": True}
+
+    server.tool_definitions[tool_name] = (_impl, _PathParams, dict, "desc", "raw_dict")
+    if tool_name not in server.enabled_tool_names:
+        server.enabled_tool_names.append(tool_name)
+    return seen
+
+
+def _tree_from(tmp_path, origin_url):
+    root = tmp_path / "temp" / "x_myapp"
+    (root / "sp_widget" / "w").mkdir(parents=True)
+    (root / "_manifest.json").write_text(json.dumps({"instance": origin_url, "scope": "x_myapp"}))
+    return root / "sp_widget" / "w"
+
+
+def test_diff_of_another_instances_copy_reads_from_its_origin(monkeypatch, tmp_path):
+    """No more "retry with instance='test'": the tree says where it came from."""
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_path_recorder(server, "diff_local_component")
+    path = _tree_from(tmp_path, "https://test.service-now.com")
+
+    result = asyncio.run(server._call_tool_impl("diff_local_component", {"path": str(path)}))
+
+    assert seen["instance_url"] == "https://test.service-now.com"
+    assert "auto_routed" in result[0].text
+
+
+def test_diff_honours_an_explicit_instance_and_cross_instance(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_path_recorder(server, "diff_local_component")
+    path = _tree_from(tmp_path, "https://test.service-now.com")
+
+    asyncio.run(
+        server._call_tool_impl("diff_local_component", {"path": str(path), "instance": "dev"})
+    )
+    assert seen["instance_url"] == "https://dev.service-now.com"
+
+
+def test_diff_of_an_active_instance_copy_is_not_rerouted(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = _register_path_recorder(server, "diff_local_component")
+    path = _tree_from(tmp_path, "https://dev.service-now.com")
+
+    result = asyncio.run(server._call_tool_impl("diff_local_component", {"path": str(path)}))
+    assert seen["instance_url"] == "https://dev.service-now.com"
+    assert "auto_routed" not in result[0].text
+
+
+def test_a_push_is_never_auto_routed(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    path = _tree_from(tmp_path, "https://test.service-now.com")
+    assert server._auto_route_diff_to_origin("update_remote_from_local", {"path": str(path)}) == ""

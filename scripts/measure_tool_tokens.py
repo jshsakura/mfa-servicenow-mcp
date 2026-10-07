@@ -4,7 +4,8 @@ Usage:
     uv run python scripts/measure_tool_tokens.py [package_name]
 
 Default package = "standard" (the user's everyday surface).
-Tries tiktoken (cl100k_base) for the token count; falls back to chars/4.
+Uses tiktoken (cl100k_base) when installed; otherwise prints a chars/4 ESTIMATE
+and says so. Published figures must come from a tiktoken run.
 """
 
 from __future__ import annotations
@@ -35,15 +36,26 @@ def build_dummy_config() -> ServerConfig:
     )
 
 
-def count_tokens(text: str) -> int:
+def _encoder() -> Any:
     try:
         import tiktoken
 
-        enc = tiktoken.get_encoding("cl100k_base")
-        return len(enc.encode(text))
+        return tiktoken.get_encoding("cl100k_base")
     except Exception:
-        # Rough fallback: ~4 chars per token for English/JSON.
-        return len(text) // 4
+        return None
+
+
+_ENC = _encoder()
+# Say which counter produced the number. The fallback used to print under a
+# "cl100k_base" label, so a chars/4 estimate was published as a measurement.
+COUNTER = "cl100k_base" if _ENC is not None else "ESTIMATE chars/4 (tiktoken not installed)"
+
+
+def count_tokens(text: str) -> int:
+    if _ENC is not None:
+        return len(_ENC.encode(text))
+    # Rough fallback: ~4 chars per token for English/JSON.
+    return len(text) // 4
 
 
 def tools_payload(server: ServiceNowMCP) -> List[Dict[str, Any]]:
@@ -85,16 +97,14 @@ def main() -> int:
     print(f"Package: {pkg}")
     print(f"Tools enabled: {len(payload)}")
     print(f"Total payload bytes: {len(full_json):,}")
-    print(f"Total tokens (cl100k_base): {total_tokens:,}")
+    print(f"Total tokens ({COUNTER}): {total_tokens:,}")
+    if _ENC is None:
+        print("  -> not a measurement; for published figures run with tiktoken:")
+        print("     uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <pkg>")
     print()
-    print("Top 15 tools by token cost:")
+    print("All tools by token cost:")
     print(f"  {'tool':<40} {'tokens':>8} {'chars':>8}")
-    for name, tokens, chars in rows[:15]:
-        print(f"  {name:<40} {tokens:>8} {chars:>8}")
-
-    print()
-    print("Bottom 5 (smallest):")
-    for name, tokens, chars in rows[-5:]:
+    for name, tokens, chars in rows:
         print(f"  {name:<40} {tokens:>8} {chars:>8}")
 
     return 0

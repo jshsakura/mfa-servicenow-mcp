@@ -1071,6 +1071,35 @@ class ServiceNowMCP:
     def _tool_requires_confirmation(tool_name: str) -> bool:
         return ServiceNowMCP._is_blocked_mutating_tool(tool_name)
 
+    def _auto_route_diff_to_origin(self, name: str, arguments: Dict[str, Any]) -> str:
+        """Set instance=<origin alias> on a plain diff of another instance's copy.
+
+        Only diff_local_component, only when the caller named no instance and
+        asked for no cross-instance/compare_to view, and only when the tree's
+        recorded origin resolves to a configured alias. Returns that alias, or "".
+        """
+        if name != "diff_local_component" or not self.instance_contexts:
+            return ""
+        if arguments.get(INSTANCE_FIELD) or arguments.get("cross_instance"):
+            return ""
+        if arguments.get("compare_to"):
+            return ""
+        path = str(arguments.get("path") or "").strip()
+        if not path:
+            return ""
+        from pathlib import Path
+
+        from servicenow_mcp.tools.sync_tools import _alias_for_instance_url, _resolve_origin_url
+
+        local = Path(path).expanduser()
+        if not local.exists():
+            return ""
+        alias = _alias_for_instance_url(_resolve_origin_url(local))
+        if not alias or alias == self.active_instance_alias or alias not in self.instance_contexts:
+            return ""
+        arguments[INSTANCE_FIELD] = alias
+        return alias
+
     def _exposes_writes(self, tool_name: str) -> bool:
         """True if this package lets *tool_name* write (not only its read actions)."""
         if not self._tool_requires_confirmation(tool_name):
@@ -1543,6 +1572,12 @@ class ServiceNowMCP:
         # Set when an authorized single-call cross-instance write routes to a
         # named non-active instance; used to scope the guards + echo to it.
         cross_instance_ctx: Optional[Dict[str, Any]] = None
+        # A read-only diff of a local copy has exactly one meaningful server: the
+        # one it was downloaded from, which the tree records. Refusing with
+        # "retry with instance='dev'" made the caller spend a round trip to tell
+        # us what we already knew (8 of them in a week of logs). Writes are not
+        # routed here — a push to another instance keeps its explicit approval.
+        auto_routed_to = self._auto_route_diff_to_origin(name, arguments)
         target_alias = arguments.pop(INSTANCE_FIELD, None)
         if target_alias is not None:
             target_alias = str(target_alias).strip()
@@ -1774,6 +1809,15 @@ class ServiceNowMCP:
         echo = self._instance_echo(name, arguments, target_alias)
         if echo and isinstance(result, dict):
             result = {**result, **echo}
+
+        if auto_routed_to and isinstance(result, dict):
+            result = {
+                **result,
+                "auto_routed": (
+                    f"Read from '{auto_routed_to}', the instance this local copy was "
+                    f"downloaded from (active is '{self.active_instance_alias}')."
+                ),
+            }
 
         # Awareness (non-blocking): stamp which update set + scope this write
         # landed in, so a write captured into the wrong set — e.g. one another

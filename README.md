@@ -491,22 +491,22 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 
 Read-only (safe defaults):
 
-| Package | Tools | Max tokens | Description |
-| :--- | :---: | :---: | :--- |
-| `none` | 0 | 0 | Disabled profile for intentionally turning tools off |
-| `core` | 12 | ~1.9K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 31 | ~6.8K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| Package | Tools | Max tokens | Max (3 instances) | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| `none` | 0 | 0 | 0 | Disabled profile for intentionally turning tools off |
+| `core` | 12 | ~2.0K | ~2.6K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
+| `standard` | 31 | ~7.0K | ~7.9K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 
 ⚠️ Write-capable (advanced — grants create/update/delete):
 
-| Package | Tools | Max tokens | Description |
-| :--- | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.4K | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 52 | ~14.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
-| `platform_developer` | 46 | ~12.2K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 63 | ~16.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
+| Package | Tools | Max tokens | Max (3 instances) | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| `service_desk` | 33 | ~7.7K | ~8.7K | ⚠️ standard + incident and change operational writes |
+| `portal_developer` | 52 | ~15.2K | ~17.0K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 46 | ~12.8K | ~14.4K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 63 | ~17.6K | ~19.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
 
-> **Max tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down. **This is the maximum**, not a typical cost: it is paid in full only by clients that load every tool schema up front. Clients with deferred tool loading (e.g. Claude Code's tool search) load a schema only when that tool is used, so their real per-request cost is far lower.
+> **Max tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down. **This is the maximum**, not a typical cost: it is paid in full only by clients that load every tool schema up front. Clients with deferred tool loading (e.g. Claude Code's tool search) load a schema only when that tool is used, so their real per-request cost is far lower. Tool counts are package members; every package also carries `list_tool_packages`, and a multi-instance setup adds `list_instances`, `compare_instances` and an `instance` parameter on every tool — the second token column measures that with three instances. Figures are measured with tiktoken, not estimated (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` lists every tool's share).
 
 Each server process binds to one active ServiceNow instance for ordinary tools. A write to a *different* configured instance is possible per call, but only through an explicit, guarded acknowledgement (below) — never a silent switch.
 

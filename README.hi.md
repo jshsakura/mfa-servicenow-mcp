@@ -487,22 +487,22 @@ python -m servicenow_mcp \
 
 Read-only (सुरक्षित डिफ़ॉल्ट):
 
-| Package | Tools | अधिकतम टोकन | Description |
-| :--- | :---: | :---: | :--- |
-| `none` | 0 | 0 | जानबूझकर टूल बंद करने के लिए Disabled प्रोफ़ाइल |
-| `core` | 12 | ~1.9K | health, schema, discovery, और प्रमुख artifact lookups के लिए न्यूनतम read-only आवश्यक चीज़ें |
-| `standard` | 31 | ~6.8K | **(Default)** incidents, changes, portal, logs, और source विश्लेषण के पार read-only |
+| Package | Tools | अधिकतम टोकन | अधिकतम (3 instances) | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| `none` | 0 | 0 | 0 | जानबूझकर टूल बंद करने के लिए Disabled प्रोफ़ाइल |
+| `core` | 12 | ~2.0K | ~2.6K | health, schema, discovery, और प्रमुख artifact lookups के लिए न्यूनतम read-only आवश्यक चीज़ें |
+| `standard` | 31 | ~7.0K | ~7.9K | **(Default)** incidents, changes, portal, logs, और source विश्लेषण के पार read-only |
 
 ⚠️ Write-capable (उन्नत — create/update/delete देता है):
 
-| Package | Tools | अधिकतम टोकन | Description |
-| :--- | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.4K | ⚠️ standard + incident और change ऑपरेशनल writes |
-| `portal_developer` | 52 | ~14.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
-| `platform_developer` | 46 | ~12.2K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
-| `full` | 63 | ~16.8K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
+| Package | Tools | अधिकतम टोकन | अधिकतम (3 instances) | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| `service_desk` | 33 | ~7.7K | ~8.7K | ⚠️ standard + incident और change ऑपरेशनल writes |
+| `portal_developer` | 52 | ~15.2K | ~17.0K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
+| `platform_developer` | 46 | ~12.8K | ~14.4K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
+| `full` | 63 | ~17.6K | ~19.8K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
 
-> **अधिकतम टोकन** हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens हैं (tiktoken `cl100k_base` आधार; वास्तविक Claude token संख्या थोड़ी भिन्न हो सकती है)। संकरे package पर बने रहने से context और लागत दोनों बचती हैं। **यह अधिकतम है**, सामान्य लागत नहीं: पूरा खर्च केवल वे clients उठाते हैं जो सारी tool schemas शुरुआत में load करते हैं। Deferred tool loading वाले clients (जैसे Claude Code का tool search) किसी tool का schema तभी load करते हैं जब वह उपयोग हो, इसलिए उनकी वास्तविक per-request लागत काफी कम होती है।
+> **अधिकतम टोकन** हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens हैं (tiktoken `cl100k_base` आधार; वास्तविक Claude token संख्या थोड़ी भिन्न हो सकती है)। संकरे package पर बने रहने से context और लागत दोनों बचती हैं। **यह अधिकतम है**, सामान्य लागत नहीं: पूरा खर्च केवल वे clients उठाते हैं जो सारी tool schemas शुरुआत में load करते हैं। Deferred tool loading वाले clients (जैसे Claude Code का tool search) किसी tool का schema तभी load करते हैं जब वह उपयोग हो, इसलिए उनकी वास्तविक per-request लागत काफी कम होती है। Tools की संख्या package के सदस्य गिनती है; हर package में `list_tool_packages` भी होता है, और multi-instance setup में `list_instances`, `compare_instances` और हर tool पर एक `instance` parameter जुड़ता है — दूसरा token column इसे तीन instances के साथ मापता है। आंकड़े tiktoken से मापे गए हैं, अनुमानित नहीं (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` हर tool का हिस्सा दिखाता है)।
 
 प्रत्येक सर्वर प्रक्रिया सामान्य टूल के लिए एक सक्रिय ServiceNow instance से बंधती है। किसी *भिन्न* कॉन्फ़िगर किए गए instance पर write प्रति-कॉल संभव है, लेकिन केवल एक स्पष्ट, गार्डेड स्वीकृति (नीचे) के माध्यम से — कभी कोई चुपचाप स्विच नहीं।
 
