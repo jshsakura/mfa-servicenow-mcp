@@ -42,7 +42,7 @@ dependencies = [
     "PyYAML>=6.0,<7",
     "orjson>=3.9.0,<4",
     # zoneinfo reads the OS zone database, and Windows has none: without tzdata
-    # ZoneInfo('Asia/Tokyo') raises there, so manage_scheduled_job could not
+    # ZoneInfo('America/Phoenix') raises there, so manage_scheduled_job could not
     # convert a job's local time to the UTC run_time the scheduler uses.
     "tzdata>=2024.1; sys_platform == 'win32'",
     # v1.24.55: pillow promoted from the `browser` extra to a regular

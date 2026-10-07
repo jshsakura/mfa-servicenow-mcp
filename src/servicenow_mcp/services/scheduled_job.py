@@ -8,8 +8,8 @@ time, day, interval, run-as. This owns those and never writes ``script``.
 Two facts measured on a live instance shape the time handling:
 
 * the form's "Time" is stored twice — ``entered_time`` as typed, in the job's
-  ``time_zone``, and ``run_time`` in UTC (15:30 Asia/Tokyo is
-  ``entered_time 1970-01-01 15:30:00`` / ``run_time 1970-01-01 06:30:00``).
+  ``time_zone``, and ``run_time`` in UTC (09:00 America/Phoenix is
+  ``entered_time 1970-01-01 09:00:00`` / ``run_time 1970-01-01 16:00:00``).
   Writing one without the other leaves the form and the scheduler disagreeing,
   so a time is taken in the job's zone and both are written.
 * durations are stored as an offset from the epoch: one day is
@@ -97,7 +97,7 @@ def _read(
 
 
 def _clock(raw: str) -> str:
-    """'1970-01-01 15:30:00' -> '15:30:00'."""
+    """'1970-01-01 09:00:00' -> '09:00:00'."""
     return raw.split(" ", 1)[1] if " " in raw else raw
 
 
@@ -358,7 +358,7 @@ def update_job(
                 "error": "time_zone_required",
                 "message": (
                     "This job's time zone is 'floating', so a time cannot be converted to the "
-                    "UTC value the scheduler runs on. Pass time_zone too (e.g. 'Asia/Tokyo')."
+                    "UTC value the scheduler runs on. Pass time_zone too (e.g. 'Europe/Berlin')."
                 ),
             }
         try:

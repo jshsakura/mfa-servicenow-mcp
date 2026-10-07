@@ -77,7 +77,7 @@ class ManageScheduledJobParams(BaseModel):
     run_time: Optional[str] = Field(
         default=None, description="HH:MM[:SS] in the job's time zone (as shown on the form)"
     )
-    time_zone: Optional[str] = Field(default=None, description="IANA zone, e.g. Asia/Tokyo")
+    time_zone: Optional[str] = Field(default=None, description="IANA zone, e.g. Europe/Berlin")
     run_dayofweek: Optional[int] = Field(
         default=None, ge=1, le=7, description="1=Monday … 7=Sunday (weekly)"
     )

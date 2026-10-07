@@ -26,15 +26,15 @@ def _f(value, display=None):
 
 class FakeTables:
     def __init__(self, *, keep=True, trigger=True):
-        # As measured live: 15:30 Asia/Tokyo is entered 15:30, stored 06:30 UTC.
+        # The stored shape: a local time is entered as-is, run_time holds it in UTC.
         self.job = {
             "sys_id": _f(JOB),
             "name": _f("Sample Daily Load"),
             "active": _f("false"),
             "run_type": _f("daily"),
-            "run_time": _f("1970-01-01 06:30:00"),
-            "entered_time": _f("1970-01-01 15:30:00"),
-            "time_zone": _f("Asia/Tokyo"),
+            "run_time": _f("1970-01-01 16:00:00"),
+            "entered_time": _f("1970-01-01 09:00:00"),
+            "time_zone": _f("America/Phoenix"),
             "run_dayofweek": _f("1", "Monday"),
             "run_period": _f("1970-01-02 00:00:00"),
             "conditional": _f("false"),
@@ -52,7 +52,7 @@ class FakeTables:
         if table == "sys_trigger":
             if not self.trigger:
                 return [], 0
-            return [{"next_action": _f("2026-10-08 06:30:00", "2026-10-08 15:30:00")}], 1
+            return [{"next_action": _f("2026-10-08 16:00:00", "2026-10-08 09:00:00")}], 1
         if table == "sys_user":
             return ([{"sys_id": _f(USER)}], 1) if "user_name=alice" in query else ([], 0)
         return [], 0
@@ -90,11 +90,11 @@ def make_env(monkeypatch):
 
 
 class TestConversions:
-    def test_tokyo_local_time_becomes_the_stored_utc_value(self):
-        assert utc_clock(timedelta(hours=15, minutes=30), "Asia/Tokyo") == "1970-01-01 06:30:00"
+    def test_local_time_becomes_the_stored_utc_value(self):
+        assert utc_clock(timedelta(hours=9), "America/Phoenix") == "1970-01-01 16:00:00"
 
     def test_wraps_past_midnight(self):
-        assert utc_clock(timedelta(hours=2), "Asia/Tokyo") == "1970-01-01 17:00:00"
+        assert utc_clock(timedelta(hours=20), "America/Phoenix") == "1970-01-01 03:00:00"
 
     def test_dst_zone_uses_the_offset_on_the_given_day(self):
         summer = datetime(2026, 7, 1, tzinfo=timezone.utc)
@@ -127,12 +127,12 @@ class TestGet:
         out = run(action="get", sys_id=JOB)
 
         job = out["job"]
-        assert job["time"] == "15:30:00" and job["run_time_utc"] == "06:30:00"
+        assert job["time"] == "09:00:00" and job["run_time_utc"] == "16:00:00"
         assert job["run_dayofweek"] == "Monday"
         assert job["run_period"] == "1d 00:00:00"
         assert job["script_chars"] == len("gs.info('x');")
         assert "script" not in job
-        assert out["next_run"]["next_action_utc"] == "2026-10-08 06:30:00"
+        assert out["next_run"]["next_action_utc"] == "2026-10-08 16:00:00"
 
     def test_no_trigger_is_reported_as_not_scheduled(self, make_env):
         _, run = make_env(trigger=False)
@@ -147,21 +147,21 @@ class TestGet:
 class TestUpdate:
     def test_time_writes_both_the_entered_and_the_utc_value(self, make_env):
         fake, run = make_env()
-        out = run(action="update", sys_id=JOB, run_time="09:00", active=True)
+        out = run(action="update", sys_id=JOB, run_time="10:00", active=True)
 
         assert out["success"] is True
         _, body = fake.writes[-1]
-        assert body["entered_time"] == "1970-01-01 09:00:00"
-        assert body["run_time"] == "1970-01-01 00:00:00"
+        assert body["entered_time"] == "1970-01-01 10:00:00"
+        assert body["run_time"] == "1970-01-01 17:00:00"
         assert body["active"] == "true"
-        assert out["after"]["time"] == "09:00:00"
+        assert out["after"]["time"] == "10:00:00"
 
     def test_changing_only_the_zone_recomputes_utc_from_the_entered_time(self, make_env):
         fake, run = make_env()
         run(action="update", sys_id=JOB, time_zone="UTC")
         _, body = fake.writes[-1]
         assert body["time_zone"] == "UTC"
-        assert body["run_time"] == "1970-01-01 15:30:00"
+        assert body["run_time"] == "1970-01-01 09:00:00"
 
     def test_floating_zone_refuses_a_time_it_cannot_convert(self, make_env):
         fake, run = make_env()
