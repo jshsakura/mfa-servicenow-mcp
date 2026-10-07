@@ -318,12 +318,23 @@ jobs:
 
             ## Update
 
-            > `uvx` caches the last version — it does **not** auto-update. Upgrade via `uv`:
+            Pick the one matching how you installed.
+
+            **uvx** — it caches the last version and does **not** auto-update, so `--refresh` pulls the new one:
 
             ```bash
-            uvx --refresh --from mfa-servicenow-mcp servicenow-mcp --version
+            uvx --refresh --with playwright --from mfa-servicenow-mcp servicenow-mcp --version
+            uvx --with playwright playwright install chromium
             ```
 
+            **pip**:
+
+            ```bash
+            pip install --upgrade mfa-servicenow-mcp playwright
+            python -m playwright install chromium
+            ```
+
+            Chromium is refreshed in both cases because a newer Playwright wants a different Chromium build.
             After updating, **restart your MCP client** to load the new version.
 
             ## Docker Images
@@ -336,12 +347,7 @@ jobs:
 
             Windows Smart App Control blocks `uvx` — it unpacks an unsigned temporary
             executable on every run. This usually starts right after a Windows update.
-            Install with pip instead:
-
-            ```bash
-            pip install --upgrade mfa-servicenow-mcp playwright
-            python -m playwright install chromium
-            ```
+            Install with the pip commands above instead.
 
             Then set the MCP client `command` to `python` and `args` to `["-m", "servicenow_mcp"]`.
             Do not use the `servicenow-mcp` console script — it is an unsigned pip-generated
