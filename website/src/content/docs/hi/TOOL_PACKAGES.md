@@ -15,7 +15,7 @@ slug: hi/TOOL_PACKAGES
 
 केवल-पठन — किसी भी वातावरण के लिए सुरक्षित, कोई लेखन टूल नहीं:
 
-| Package | Tools | ~टोकन | कब उपयोग करें |
+| Package | Tools | अधिकतम टोकन | कब उपयोग करें |
 | :--- | :---: | :---: | :--- |
 | `core` | 12 | ~1.9K | न्यूनतम केवल-पठन: केवल health, schema, discovery, और मुख्य artifact लुकअप |
 | `standard` | 31 | ~6.8K | **(डिफ़ॉल्ट)** incidents, changes, portal, logs, और source विश्लेषण में केवल-पठन |
@@ -23,14 +23,14 @@ slug: hi/TOOL_PACKAGES
 
 ⚠️ लेखन-सक्षम — **उन्नत विकल्प** जो create/update/delete की अनुमति देते हैं:
 
-| Package | Tools | ~टोकन | कब उपयोग करें |
+| Package | Tools | अधिकतम टोकन | कब उपयोग करें |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~7.4K | ⚠️ सर्विस डेस्क एजेंट जिन्हें incidents और changes को अपडेट/बंद करने की आवश्यकता हो |
 | `portal_developer` | 52 | ~14.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
 | `platform_developer` | 46 | ~12.2K | ⚠️ प्लेटफ़ॉर्म इंजीनियर जो workflows, Flow Designer, और scripts प्रबंधित करते हैं |
 | `full` | 63 | ~16.8K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
 
-> **~टोकन** = हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens (tiktoken cl100k_base आधार; वास्तविक Claude token संख्या थोड़ी भिन्न)। संकरे package से context और लागत बचती है।
+> **अधिकतम टोकन** = हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens (tiktoken cl100k_base आधार; वास्तविक Claude token संख्या थोड़ी भिन्न)। संकरे package से context और लागत बचती है। **यह अधिकतम है**, सामान्य लागत नहीं: पूरा खर्च केवल वे clients उठाते हैं जो सारी tool schemas शुरुआत में load करते हैं। Deferred tool loading वाले clients (जैसे Claude Code का tool search) किसी tool का schema तभी load करते हैं जब वह उपयोग हो, इसलिए उनकी वास्तविक per-request लागत काफी कम होती है।
 
 `core` और `none` को छोड़कर सभी पैकेज `_extends` के माध्यम से `standard` केवल-पठन टूल्स को इनहेरिट करते हैं। पूर्ण इनहेरिटेंस ट्री के लिए `config/tool_packages.yaml` देखें।
 

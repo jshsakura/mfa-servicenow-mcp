@@ -491,7 +491,7 @@ Default header: `X-ServiceNow-API-Key` (customizable with `--api-key-header`).
 
 Read-only (safe defaults):
 
-| Package | Tools | ~Tokens | Description |
+| Package | Tools | Max tokens | Description |
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | Disabled profile for intentionally turning tools off |
 | `core` | 12 | ~1.9K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
@@ -499,14 +499,14 @@ Read-only (safe defaults):
 
 ⚠️ Write-capable (advanced — grants create/update/delete):
 
-| Package | Tools | ~Tokens | Description |
+| Package | Tools | Max tokens | Description |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~7.4K | ⚠️ standard + incident and change operational writes |
 | `portal_developer` | 52 | ~14.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
 | `platform_developer` | 46 | ~12.2K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
 | `full` | 63 | ~16.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
 
-> **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down.
+> **Max tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down. **This is the maximum**, not a typical cost: it is paid in full only by clients that load every tool schema up front. Clients with deferred tool loading (e.g. Claude Code's tool search) load a schema only when that tool is used, so their real per-request cost is far lower.
 
 Each server process binds to one active ServiceNow instance for ordinary tools. A write to a *different* configured instance is possible per call, but only through an explicit, guarded acknowledgement (below) — never a silent switch.
 

@@ -25,7 +25,7 @@ Usage:
     python scripts/regenerate_doc_counts.py          # rewrite in place
     python scripts/regenerate_doc_counts.py --check   # exit 1 if any file is stale
 
-The `~Tokens` column is an approximate footprint and is left untouched (it needs
+The token column (`Max tokens`) is an approximate upper bound and is left untouched (it needs
 tiktoken over compacted schemas; a one-tool delta is within its stated slop).
 """
 

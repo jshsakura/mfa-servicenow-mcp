@@ -15,7 +15,7 @@ slug: zh/TOOL_PACKAGES
 
 只读 —— 对任何环境都安全，无写入工具：
 
-| 包 | 工具数 | ~令牌 | 何时使用 |
+| 包 | 工具数 | 最大令牌 | 何时使用 |
 | :--- | :---: | :---: | :--- |
 | `core` | 12 | ~1.9K | 极简只读：仅健康检查、schema、发现、关键工件查询 |
 | `standard` | 31 | ~6.8K | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读 |
@@ -23,14 +23,14 @@ slug: zh/TOOL_PACKAGES
 
 ⚠️ 具备写入能力 —— 授予创建/更新/删除权限的**高级选项**：
 
-| 包 | 工具数 | ~令牌 | 何时使用 |
+| 包 | 工具数 | 最大令牌 | 何时使用 |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~7.4K | ⚠️ 需要更新/关闭 incident 和 change 的服务台坐席 |
 | `portal_developer` | 52 | ~14.6K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
 | `platform_developer` | 46 | ~12.2K | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
 | `full` | 63 | ~16.8K | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
 
-> **~令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）。使用更窄的包可节省上下文与成本。
+> **最大令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）。使用更窄的包可节省上下文与成本。 **这是最大值**，而非常规开销：只有在启动时加载全部工具 schema 的客户端才会付出全部开销。支持工具延迟加载的客户端（如 Claude Code 的工具搜索）只在使用某个工具时才加载其 schema，因此每次请求的实际开销要低得多。
 
 除 `core` 和 `none` 外的所有包都通过 `_extends` 继承 `standard` 的只读工具。完整的继承树见 `config/tool_packages.yaml`。
 

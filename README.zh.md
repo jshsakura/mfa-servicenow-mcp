@@ -487,7 +487,7 @@ python -m servicenow_mcp \
 
 只读（安全默认值）：
 
-| 工具包 | 工具数 | ~令牌 | 说明 |
+| 工具包 | 工具数 | 最大令牌 | 说明 |
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | 用于有意关闭工具的禁用配置 |
 | `core` | 12 | ~1.9K | 用于健康检查、schema、发现和关键工件查找的最简只读必需项 |
@@ -495,14 +495,14 @@ python -m servicenow_mcp \
 
 ⚠️ 具备写入能力（高级——授予创建/更新/删除）：
 
-| 工具包 | 工具数 | ~令牌 | 说明 |
+| 工具包 | 工具数 | 最大令牌 | 说明 |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~7.4K | ⚠️ standard + incident 和 change 运营写入 |
 | `portal_developer` | 52 | ~14.6K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
 | `platform_developer` | 46 | ~12.2K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
 | `full` | 63 | ~16.8K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
 
-> **~令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）；使用更窄的包可节省上下文与成本。
+> **最大令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）；使用更窄的包可节省上下文与成本。 **这是最大值**，而非常规开销：只有在启动时加载全部工具 schema 的客户端才会付出全部开销。支持工具延迟加载的客户端（如 Claude Code 的工具搜索）只在使用某个工具时才加载其 schema，因此每次请求的实际开销要低得多。
 
 对于普通工具，每个服务器进程都绑定到一个活动的 ServiceNow 实例。向*另一个*已配置实例的写入可以逐调用完成，但只能通过显式、受保护的确认（见下文）——绝不会静默切换。
 

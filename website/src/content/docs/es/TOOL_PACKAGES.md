@@ -15,7 +15,7 @@ Empieza con el paquete más reducido que cubra tu trabajo. Cada nivel superior a
 
 Solo lectura — seguro para cualquier entorno, sin herramientas de escritura:
 
-| Paquete | Herramientas | ~Tokens | Cuándo usarlo |
+| Paquete | Herramientas | Tokens máx. | Cuándo usarlo |
 | :--- | :---: | :---: | :--- |
 | `core` | 12 | ~1.9K | Solo lectura mínima: salud, esquema, descubrimiento y consultas de artefactos clave únicamente |
 | `standard` | 31 | ~6.8K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de código fuente |
@@ -23,14 +23,14 @@ Solo lectura — seguro para cualquier entorno, sin herramientas de escritura:
 
 ⚠️ Con capacidad de escritura — **opciones avanzadas** que conceden crear/actualizar/eliminar:
 
-| Paquete | Herramientas | ~Tokens | Cuándo usarlo |
+| Paquete | Herramientas | Tokens máx. | Cuándo usarlo |
 | :--- | :---: | :---: | :--- |
 | `service_desk` | 33 | ~7.4K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
 | `portal_developer` | 52 | ~14.6K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
 | `platform_developer` | 46 | ~12.2K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
 | `full` | 63 | ~16.8K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
 
-> **~Tokens** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken cl100k_base; el conteo real de Claude varía ligeramente). Usar el paquete más reducido ahorra contexto y costo.
+> **Tokens máx.** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken cl100k_base; el conteo real de Claude varía ligeramente). Usar el paquete más reducido ahorra contexto y costo. **Es el máximo**, no el costo típico: solo lo pagan completo los clientes que cargan todas las tool schemas al inicio. Los clientes con carga diferida de herramientas (p. ej. la búsqueda de herramientas de Claude Code) cargan un schema solo cuando se usa esa herramienta, así que su costo real por solicitud es mucho menor.
 
 Todos los paquetes excepto `core` y `none` heredan las herramientas de solo lectura de `standard` mediante `_extends`. Consulta `config/tool_packages.yaml` para ver el árbol de herencia completo.
 
