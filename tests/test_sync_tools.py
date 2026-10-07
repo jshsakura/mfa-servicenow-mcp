@@ -2284,7 +2284,17 @@ class TestExtendedSyncCoverage:
         diffs = result.get("diffs", [])
         assert len(diffs) == 1
         assert diffs[0]["status"] == "modified"
-        assert "DIFF TRUNCATED" in diffs[0]["diff"]
+        # The budget bounds what is SHOWN, never what is KNOWN: totals cover the
+        # whole diff, and the cut hunk can be requested whole.
+        assert "request hunk=1" in diffs[0]["diff"]
+        assert (diffs[0]["lines_added"], diffs[0]["lines_removed"]) == (200, 1)
+        assert diffs[0]["hunk_index"][0]["added"] == 200
+
+        whole = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=str(script), hunk=1)
+        )["diffs"][0]
+        assert whole["hunk_shown"] == 1
+        assert "+line 199" in whole["diff"]
 
     # --- Lines 637-638: update_remote_from_local resolve error ---
     def test_push_resolve_error(self, mock_config, mock_auth, tmp_path):

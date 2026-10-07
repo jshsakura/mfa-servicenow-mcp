@@ -11,7 +11,7 @@ import time
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
@@ -41,6 +41,7 @@ from ..utils.sync_anchor import (
     reconcile_field,
     refresh_mirror,
 )
+from ..utils.text_diff import paged_diff
 from .portal_tools import (
     UpdatePortalComponentParams,
     _fetch_portal_component_record,
@@ -261,6 +262,18 @@ class DiffLocalComponentParams(BaseModel):
         default=False,
         description="Fast-forward clean local files to the live server body; edits kept.",
     )
+    hunk: Optional[int] = Field(
+        default=None,
+        description="Show only this diff hunk (1-based, from hunk_index), uncut.",
+    )
+    field: Optional[str] = Field(
+        default=None,
+        description="Limit the diff to one field (e.g. script, client_script).",
+    )
+    cross_instance: bool = Field(
+        default=False,
+        description="Diff a copy from another instance against the same-named record here.",
+    )
 
 
 class PushLocalComponentParams(BaseModel):
@@ -462,6 +475,13 @@ def _promotion_verdict(
     added = removed = 0
     fields_removing: List[str] = []
     for entry in field_diffs:
+        if "lines_removed" in entry:
+            # Totals of the WHOLE diff — the rendered text may show only some hunks.
+            added += int(entry.get("lines_added") or 0)
+            removed += int(entry["lines_removed"] or 0)
+            if entry["lines_removed"]:
+                fields_removing.append(str(entry.get("field") or ""))
+            continue
         body = entry.get("diff") or ""
         field_removed = 0
         for line in body.split("\n"):
@@ -1769,21 +1789,16 @@ def _diff_field_files(
             continue
         entry: Dict[str, Any] = {"field": field_name, "status": "modified"}
         if with_bodies:
-            diff_lines = list(
-                difflib.unified_diff(
-                    right.splitlines(),
-                    left.splitlines(),
-                    fromfile=f"right/{field_name}",
-                    tofile=f"left/{field_name}",
-                    lineterm="",
-                    n=context_lines,
+            entry.update(
+                paged_diff(
+                    right,
+                    left,
+                    old_label=f"right/{field_name}",
+                    new_label=f"left/{field_name}",
+                    context_lines=context_lines,
+                    max_lines=MAX_DIFF_LINES,
                 )
             )
-            if len(diff_lines) > MAX_DIFF_LINES:
-                diff_lines = diff_lines[:MAX_DIFF_LINES] + [
-                    "... [DIFF TRUNCATED FOR CONTEXT SAFETY]"
-                ]
-            entry["diff"] = "\n".join(diff_lines)
             entry["left_lines"] = len(left.splitlines())
             entry["right_lines"] = len(right.splitlines())
         diffs.append(entry)
@@ -2510,10 +2525,20 @@ def diff_local_component(
     except ValueError as e:
         return {"error": str(e)}
 
-    try:
-        _validate_instance_url(resolved, config)
-    except ValueError as e:
-        return {"error": str(e)}
+    origin = (resolved.instance_url or "").rstrip("/")
+    active = config.instance_url.rstrip("/")
+    if params.cross_instance and origin and origin != active:
+        # The same comparison the promotion gate makes: this copy against the
+        # same-named record on the active instance, under that record's own sys_id.
+        target = _resolve_cross_instance_target(config, auth_manager, resolved, active)
+        if isinstance(target, dict):
+            return target
+        resolved = target
+    else:
+        try:
+            _validate_instance_url(resolved, config)
+        except ValueError as e:
+            return {"error": str(e)}
 
     remote_fields = list(resolved.fields.keys()) + [
         "sys_updated_on",
@@ -2666,7 +2691,9 @@ def diff_local_component(
             vres["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
         return vres
 
-    diffs = _compute_field_diffs(resolved, remote_record, params.context_lines)
+    diffs = _compute_field_diffs(
+        resolved, remote_record, params.context_lines, hunk=params.hunk, only_field=params.field
+    )
 
     result: Dict[str, Any] = {
         "mode": "diff",
@@ -2702,18 +2729,26 @@ def diff_local_component(
 
 
 def _compute_field_diffs(
-    resolved, remote_record: Dict[str, Any], context_lines: int
+    resolved,
+    remote_record: Dict[str, Any],
+    context_lines: int,
+    hunk: Optional[int] = None,
+    only_field: Optional[str] = None,
+    more_hint: str = "",
 ) -> List[Dict[str, Any]]:
     """Per-field unified line diff (remote -> local), line-ending normalized.
 
     Read-only and network-free: callers pass an already-fetched remote_record.
-    A pure CRLF<->LF delta reads as 'unchanged'; oversized diffs are truncated to
-    MAX_DIFF_LINES for context safety. Shared by diff_local_component (review) and
-    the push CONFLICT response, so a blocked push shows WHAT would change without a
-    second round-trip — never a dead-end.
+    A pure CRLF<->LF delta reads as 'unchanged'. A diff over MAX_DIFF_LINES shows
+    whole hunks plus an index of every hunk; ``hunk=n`` returns one uncut, and the
+    added/removed totals always cover the WHOLE diff. Shared by
+    diff_local_component (review) and the push gate, so a blocked push shows WHAT
+    would change without a second round-trip — never a dead-end.
     """
     diffs: List[Dict[str, Any]] = []
     for field_name, file_path in resolved.fields.items():
+        if only_field and field_name != only_field:
+            continue
         if not file_path.exists():
             continue
         local_content = file_path.read_text(encoding="utf-8")
@@ -2725,28 +2760,22 @@ def _compute_field_diffs(
             diffs.append({"field": field_name, "status": "unchanged"})
             continue
 
-        diff_lines = list(
-            difflib.unified_diff(
-                remote_content.splitlines(),
-                local_content.splitlines(),
-                fromfile=f"remote/{field_name}",
-                tofile=f"local/{field_name}",
-                lineterm="",
-                n=context_lines,
+        entry: Dict[str, Any] = {"field": field_name, "status": "modified"}
+        entry.update(
+            paged_diff(
+                remote_content,
+                local_content,
+                old_label=f"remote/{field_name}",
+                new_label=f"local/{field_name}",
+                context_lines=context_lines,
+                max_lines=MAX_DIFF_LINES,
+                hunk=hunk,
+                more_hint=more_hint or f" on diff_local_component(path, field='{field_name}')",
             )
         )
-        if len(diff_lines) > MAX_DIFF_LINES:
-            diff_lines = diff_lines[:MAX_DIFF_LINES] + ["... [DIFF TRUNCATED FOR CONTEXT SAFETY]"]
-
-        diffs.append(
-            {
-                "field": field_name,
-                "status": "modified",
-                "diff": "\n".join(diff_lines),
-                "local_lines": len(local_content.splitlines()),
-                "remote_lines": len(remote_content.splitlines()),
-            }
-        )
+        entry["local_lines"] = len(local_content.splitlines())
+        entry["remote_lines"] = len(remote_content.splitlines())
+        diffs.append(entry)
     return diffs
 
 
@@ -2782,6 +2811,112 @@ def _build_update_data_and_magnitude(resolved, remote_record):
 # ---------------------------------------------------------------------------
 # Tool 2: update_remote_from_local
 # ---------------------------------------------------------------------------
+def _resolve_cross_instance_target(
+    config: ServerConfig, auth_manager: AuthManager, resolved: "_ResolvedComponent", active: str
+) -> Union["_ResolvedComponent", Dict[str, Any]]:
+    """Re-resolve a component BY NAME on the active instance: its own sys_id, or
+    the refusal (not found / wrong scope / ambiguous) as a dict.
+
+    Shared by the push gate and diff_local_component(cross_instance=True), so the
+    diff a caller pages through is the same comparison the gate decided on.
+    """
+    matches = _resolve_target_by_name(
+        config, auth_manager, resolved.table, resolved.remote_name, resolved.qualifier
+    )
+    # A qualifier that scopes the record to its parent (e.g. web service) —
+    # shown in messages so the operator sees WHICH 'end' this is.
+    qual_hint = f" ({resolved.qualifier[0]}={resolved.qualifier[1]})" if resolved.qualifier else ""
+    if not matches:
+        return {
+            "error": "TARGET_NOT_FOUND",
+            "message": (
+                f"No '{resolved.remote_name}'{qual_hint} record found on '{active}' "
+                f"({resolved.table}). Cross-instance deploy updates an existing record only "
+                f"— it never creates."
+            ),
+            "component": {"table": resolved.table, "name": resolved.remote_name},
+        }
+    # A name is not unique across APPLICATIONS, and that was invisible here:
+    # the lookup selected only sys_id and name, so two records of the same
+    # name in different scopes came back as an unresolvable pair of 32-char
+    # ids. Worse, ONE match in the WRONG scope was pushed to without a word.
+    #
+    # Compared in Python rather than filtered server-side on purpose: an
+    # encoded-query condition ServiceNow does not understand is dropped, not
+    # refused, so a server-side narrow can silently widen. See
+    # _resolve_target_by_name.
+    local_scope = _local_scope(resolved.scope_root)
+    scoped = [m for m in matches if str(m.get("sys_scope.scope") or "").strip()]
+
+    def _candidates(rows):
+        return [
+            {
+                "sys_id": m.get("sys_id"),
+                "name": m.get("name"),
+                # Always shown, even when scope decided nothing. The refusal
+                # this replaces listed two ids and one name and left the
+                # operator to look the records up by hand to learn what this
+                # process already had.
+                "scope": str(m.get("sys_scope.scope") or "") or None,
+            }
+            for m in rows
+        ]
+
+    # Only when the scope is known on BOTH sides. An unrecorded local scope
+    # (no _manifest.json) or a table whose rows report no scope at all is a
+    # question nobody answered — and an unanswered question must not turn a
+    # push that used to work into a refusal.
+    if local_scope and scoped:
+        in_scope = [m for m in matches if m.get("sys_scope.scope") == local_scope]
+        if not in_scope:
+            # Every match lives in a different application. Refusing is the
+            # point: the single-match case used to push here silently, which
+            # is a write into somebody else's app.
+            found_scopes = sorted({str(m.get("sys_scope.scope") or "?") for m in matches})
+            return {
+                "error": "TARGET_WRONG_SCOPE",
+                "message": (
+                    f"'{resolved.remote_name}'{qual_hint} exists on '{active}' "
+                    f"({resolved.table}) only in {', '.join(found_scopes)}, but this source "
+                    f"was downloaded from '{local_scope}'. Deploying would write into an "
+                    f"application this source did not come from. Re-download from "
+                    f"'{active}' if the record really moved."
+                ),
+                "local_scope": local_scope,
+                "candidates": _candidates(matches),
+            }
+        matches = in_scope
+
+    if len(matches) > 1:
+        return {
+            "error": "TARGET_AMBIGUOUS",
+            "message": (
+                f"{len(matches)} records named '{resolved.remote_name}'{qual_hint} on "
+                f"'{active}' ({resolved.table}) — can't pick the deploy target unambiguously."
+                + (
+                    f" All of them are in '{local_scope}', so the application does not "
+                    "separate them either."
+                    if local_scope and scoped
+                    else " Their scopes are listed below; this source records no scope of "
+                    "its own to narrow by (no _manifest.json)."
+                )
+            ),
+            "local_scope": local_scope or None,
+            "candidates": _candidates(matches),
+        }
+    # Rebind to the TARGET's own sys_id (new object — never mutate resolved).
+    return _ResolvedComponent(
+        resolved.table,
+        str(matches[0].get("sys_id") or ""),
+        resolved.name,
+        resolved.fields,
+        resolved.scope_root,
+        active,
+        remote_name=resolved.remote_name,
+        qualifier=resolved.qualifier,
+    )
+
+
 @register_tool(
     "update_remote_from_local",
     params=PushLocalComponentParams,
@@ -2837,103 +2972,10 @@ def update_remote_from_local(
                 "target_instance": active,
                 "component": {"table": resolved.table, "name": resolved.name},
             }
-        matches = _resolve_target_by_name(
-            config, auth_manager, resolved.table, resolved.remote_name, resolved.qualifier
-        )
-        # A qualifier that scopes the record to its parent (e.g. web service) —
-        # shown in messages so the operator sees WHICH 'end' this is.
-        qual_hint = (
-            f" ({resolved.qualifier[0]}={resolved.qualifier[1]})" if resolved.qualifier else ""
-        )
-        if not matches:
-            return {
-                "error": "TARGET_NOT_FOUND",
-                "message": (
-                    f"No '{resolved.remote_name}'{qual_hint} record found on '{active}' "
-                    f"({resolved.table}). Cross-instance deploy updates an existing record only "
-                    f"— it never creates."
-                ),
-                "component": {"table": resolved.table, "name": resolved.remote_name},
-            }
-        # A name is not unique across APPLICATIONS, and that was invisible here:
-        # the lookup selected only sys_id and name, so two records of the same
-        # name in different scopes came back as an unresolvable pair of 32-char
-        # ids. Worse, ONE match in the WRONG scope was pushed to without a word.
-        #
-        # Compared in Python rather than filtered server-side on purpose: an
-        # encoded-query condition ServiceNow does not understand is dropped, not
-        # refused, so a server-side narrow can silently widen. See
-        # _resolve_target_by_name.
-        local_scope = _local_scope(resolved.scope_root)
-        scoped = [m for m in matches if str(m.get("sys_scope.scope") or "").strip()]
-
-        def _candidates(rows):
-            return [
-                {
-                    "sys_id": m.get("sys_id"),
-                    "name": m.get("name"),
-                    # Always shown, even when scope decided nothing. The refusal
-                    # this replaces listed two ids and one name and left the
-                    # operator to look the records up by hand to learn what this
-                    # process already had.
-                    "scope": str(m.get("sys_scope.scope") or "") or None,
-                }
-                for m in rows
-            ]
-
-        # Only when the scope is known on BOTH sides. An unrecorded local scope
-        # (no _manifest.json) or a table whose rows report no scope at all is a
-        # question nobody answered — and an unanswered question must not turn a
-        # push that used to work into a refusal.
-        if local_scope and scoped:
-            in_scope = [m for m in matches if m.get("sys_scope.scope") == local_scope]
-            if not in_scope:
-                # Every match lives in a different application. Refusing is the
-                # point: the single-match case used to push here silently, which
-                # is a write into somebody else's app.
-                found_scopes = sorted({str(m.get("sys_scope.scope") or "?") for m in matches})
-                return {
-                    "error": "TARGET_WRONG_SCOPE",
-                    "message": (
-                        f"'{resolved.remote_name}'{qual_hint} exists on '{active}' "
-                        f"({resolved.table}) only in {', '.join(found_scopes)}, but this source "
-                        f"was downloaded from '{local_scope}'. Deploying would write into an "
-                        f"application this source did not come from. Re-download from "
-                        f"'{active}' if the record really moved."
-                    ),
-                    "local_scope": local_scope,
-                    "candidates": _candidates(matches),
-                }
-            matches = in_scope
-
-        if len(matches) > 1:
-            return {
-                "error": "TARGET_AMBIGUOUS",
-                "message": (
-                    f"{len(matches)} records named '{resolved.remote_name}'{qual_hint} on "
-                    f"'{active}' ({resolved.table}) — can't pick the deploy target unambiguously."
-                    + (
-                        f" All of them are in '{local_scope}', so the application does not "
-                        "separate them either."
-                        if local_scope and scoped
-                        else " Their scopes are listed below; this source records no scope of "
-                        "its own to narrow by (no _manifest.json)."
-                    )
-                ),
-                "local_scope": local_scope or None,
-                "candidates": _candidates(matches),
-            }
-        # Rebind to the TARGET's own sys_id (new object — never mutate resolved).
-        resolved = _ResolvedComponent(
-            resolved.table,
-            str(matches[0].get("sys_id") or ""),
-            resolved.name,
-            resolved.fields,
-            resolved.scope_root,
-            active,
-            remote_name=resolved.remote_name,
-            qualifier=resolved.qualifier,
-        )
+        target = _resolve_cross_instance_target(config, auth_manager, resolved, active)
+        if isinstance(target, dict):
+            return target
+        resolved = target
         cross_instance_deploy = True
     else:
         try:
@@ -3122,7 +3164,15 @@ def update_remote_from_local(
                 "fields_matched": lineage["fields_matched"],
             }
     if cross_instance_deploy and update_data and not params.force and promotion_proof is None:
-        field_diffs = _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT)
+        field_diffs = _compute_field_diffs(
+            resolved,
+            remote_record,
+            _CONFLICT_DIFF_CONTEXT,
+            more_hint=(
+                f" on diff_local_component(path, cross_instance=true, "
+                f"{_instance_retry_hint(active)}, field=<this field>)"
+            ),
+        )
         verdict = _promotion_verdict(field_diffs, remote_updated_by)
         if lineage["proven"]:
             verdict["target_lineage"] = (

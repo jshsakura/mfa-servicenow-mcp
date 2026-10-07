@@ -776,3 +776,37 @@ def test_flow_publish_blocked_without_confirm_publish(monkeypatch, tmp_path):
             )
         )
     assert seen == {}
+
+
+def test_compare_instances_full_shows_a_difference_deep_in_a_long_body(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """output=full used to show the first 1,200 chars of each side — nothing at
+    all when two long bodies part ways deep inside. It is a line diff now."""
+    server = _build_multi_server(monkeypatch, tmp_path)
+    shared = "\n".join(f"line {i}" for i in range(3000))
+
+    def fake_query_page(config, _auth_manager, **_kwargs):
+        tail = "dev tail" if "dev" in config.instance_url else "test tail"
+        row = {
+            "sys_id": {"value": "aaaa1111bbbb2222cccc3333dddd4444"},
+            "script": {"value": shared + "\n" + tail},
+        }
+        return ([row], 1)
+
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_query_page", fake_query_page)
+
+    result = server._compare_instances_impl(
+        {
+            "source": "dev",
+            "target": "test",
+            "table": "sp_widget",
+            "key_field": "sys_id",
+            "fields": "sys_id,script",
+            "output": "full",
+        }
+    )
+
+    diff = result["changed"][0]["diffs"]["script"]
+    assert "-test tail" in diff["diff"] and "+dev tail" in diff["diff"]
+    assert (diff["lines_added"], diff["lines_removed"], diff["hunks_total"]) == (1, 1, 1)

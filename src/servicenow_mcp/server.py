@@ -54,6 +54,7 @@ from servicenow_mcp.utils.instances import (
 )
 from servicenow_mcp.utils.progress import use_progress_emitter
 from servicenow_mcp.utils.response_budget import enforce_response_budget, get_response_budget
+from servicenow_mcp.utils.text_diff import paged_diff
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 from servicenow_mcp.utils.write_journal import record_write
 
@@ -1337,6 +1338,10 @@ class ServiceNowMCP:
                                 "query": {"type": "string"},
                                 "fields": {"type": "string"},
                                 "ignore_fields": {"type": "array", "items": {"type": "string"}},
+                                "hunk": {
+                                    "type": "integer",
+                                    "description": "output=full: show only this diff hunk (1-based).",
+                                },
                                 "limit": {"type": "integer", "default": 100},
                                 "output": {
                                     "type": "string",
@@ -2037,6 +2042,8 @@ class ServiceNowMCP:
         output = str(arguments.get("output") or "compact").strip().lower()
         normalize_strings = coerce_bool(arguments.get("normalize_strings"), True)
         ignore_fields = set(arguments.get("ignore_fields") or [])
+        hunk_arg = arguments.get("hunk")
+        hunk = int(hunk_arg) if hunk_arg is not None and hunk_arg != "" else None
         if output not in {"summary", "compact", "full"}:
             raise ValueError("output must be one of: summary, compact, full")
         for required_name, value in {
@@ -2108,10 +2115,25 @@ class ServiceNowMCP:
                 if sval != tval:
                     changed_fields.append(field)
                     if output == "full":
-                        diffs[field] = {
-                            "source": self._truncate_compare_value(sval),
-                            "target": self._truncate_compare_value(tval),
-                        }
+                        stext = sval.get("value") if isinstance(sval, dict) else sval
+                        ttext = tval.get("value") if isinstance(tval, dict) else tval
+                        if isinstance(stext, str) and isinstance(ttext, str):
+                            # A line diff of the WHOLE values, paged by hunk. The
+                            # old form showed the first 1,200 chars of each side,
+                            # which says nothing when two bodies part ways deep in.
+                            diffs[field] = paged_diff(
+                                ttext,
+                                stext,
+                                old_label=f"{target}/{field}",
+                                new_label=f"{source}/{field}",
+                                hunk=hunk,
+                                more_hint=f" (with fields='{field}' and query narrowed to this record)",
+                            )
+                        else:
+                            diffs[field] = {
+                                "source": self._truncate_compare_value(sval),
+                                "target": self._truncate_compare_value(tval),
+                            }
             if changed_fields:
                 item: Dict[str, Any] = {"key": key, "fields_changed": changed_fields}
                 if output == "full":
