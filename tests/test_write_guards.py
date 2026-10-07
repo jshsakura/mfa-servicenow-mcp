@@ -106,14 +106,8 @@ def test_is_read_only(tool: str, args: Dict[str, Any], expected_read_only: bool)
         ("manage_changeset", {"action": "publish"}, True),
         ("manage_changeset", {"action": "commit"}, True),
         ("manage_changeset", {"action": "create"}, False),
-        ("manage_flow_designer", {"action": "save", "publish": True}, True),
-        ("manage_flow_designer", {"action": "save", "publish": False}, False),
-        ("manage_flow_designer", {"action": "save"}, False),
-        # Direct action='publish' (snapshot recompile) is also publish-class —
-        # the OR-list matcher covers it so it demands confirm_publish='approve'.
-        ("manage_flow_designer", {"action": "publish"}, True),
-        ("manage_flow_designer", {"action": "activate"}, False),
-        ("manage_flow_designer", {"action": "deactivate"}, False),
+        # Flow Designer lost its write actions; nothing it can do is publish-class.
+        ("manage_flow_designer", {"action": "publish"}, False),
         ("sn_query", {}, False),
         ("sn_write", {}, False),
     ],
@@ -222,21 +216,6 @@ def test_g7_blocks_manage_changeset_publish() -> None:
 
 def test_g7_allows_manage_changeset_create() -> None:
     run_write_guards(_SERVER, "manage_changeset", {"action": "create", "name": "x"})
-
-
-def test_g7_blocks_manage_flow_designer_save_with_publish() -> None:
-    with pytest.raises(PolicyViolation, match=r"\[G7\]"):
-        run_write_guards(
-            _SERVER, "manage_flow_designer", {"action": "save", "flow_id": "abc", "publish": True}
-        )
-
-
-def test_g7_allows_manage_flow_designer_save_without_publish() -> None:
-    run_write_guards(
-        _SERVER,
-        "manage_flow_designer",
-        {"action": "save", "flow_id": "abc", "publish": False},
-    )
 
 
 # ---------------------------------------------------------------------------

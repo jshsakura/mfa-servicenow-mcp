@@ -42,6 +42,29 @@ class TestClassificationSingleSource:
     def test_unknown_manage_action_still_write(self):
         assert write_guards._is_read_only("manage_flow_designer", {"action": "save"}) is False
 
+    def test_read_only_manage_tools_have_no_write_action(self):
+        # A tool listed here is exempt from confirm entirely. If a write action is
+        # ever added to its enum, this fails — the exemption must go with it.
+        from typing import get_args
+
+        from servicenow_mcp.tools.flow_tools import ManageFlowDesignerParams
+
+        models = {"manage_flow_designer": ManageFlowDesignerParams}
+        assert set(models) == set(write_guards.READ_ONLY_MANAGE_TOOLS)
+        for name, params_model in models.items():
+            actions = set(get_args(params_model.model_fields["action"].annotation))
+            assert actions, name
+            assert actions <= write_guards.MANAGE_READ_ACTIONS[name], (
+                name,
+                actions - write_guards.MANAGE_READ_ACTIONS[name],
+            )
+
+    def test_read_only_manage_tool_asks_for_no_confirm(self):
+        assert (
+            server_module.ServiceNowMCP._tool_requires_confirmation("manage_flow_designer") is False
+        )
+        assert server_module.ServiceNowMCP._tool_requires_confirmation("manage_changeset") is True
+
 
 class TestQualifierMapDerived:
     def test_target_qualifier_derived_from_source_config(self):
@@ -71,6 +94,8 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "audit_pending_changes",
         "detect_angular_implicit_globals",
         "diff_local_component",
+        # A manage_* bundle with only read actions (write_guards.READ_ONLY_MANAGE_TOOLS).
+        "manage_flow_designer",
         "download_app_sources",
         "download_attachment",
         "download_portal_sources",

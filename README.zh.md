@@ -490,16 +490,16 @@ python -m servicenow_mcp \
 | 工具包 | 工具数 | ~令牌 | 说明 |
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | 用于有意关闭工具的禁用配置 |
-| `core` | 12 | ~2.0K | 用于健康检查、schema、发现和关键工件查找的最简只读必需项 |
-| `standard` | 31 | ~6.9K | **（默认）** 跨 incidents、changes、portal、logs 和源码分析的只读 |
+| `core` | 12 | ~1.9K | 用于健康检查、schema、发现和关键工件查找的最简只读必需项 |
+| `standard` | 31 | ~6.8K | **（默认）** 跨 incidents、changes、portal、logs 和源码分析的只读 |
 
 ⚠️ 具备写入能力（高级——授予创建/更新/删除）：
 
 | 工具包 | 工具数 | ~令牌 | 说明 |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.5K | ⚠️ standard + incident 和 change 运营写入 |
-| `portal_developer` | 52 | ~14.8K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
-| `platform_developer` | 46 | ~12.3K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
+| `service_desk` | 33 | ~7.4K | ⚠️ standard + incident 和 change 运营写入 |
+| `portal_developer` | 52 | ~14.6K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
+| `platform_developer` | 46 | ~12.2K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
 | `full` | 63 | ~16.8K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
 
 > **~令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）；使用更窄的包可节省上下文与成本。

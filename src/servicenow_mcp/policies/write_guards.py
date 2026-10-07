@@ -225,14 +225,6 @@ _PUBLISH_CLASS_TOOLS: Dict[str, Optional[Union[Dict[str, Any], List[Dict[str, An
     "approve_change": None,
     "submit_change_for_approval": None,
     "manage_changeset": {"action": ("publish", "commit")},
-    # A list means OR: publish-class if ANY match-dict matches. Flow Designer
-    # publishes two ways — save-then-publish (action='save', publish=True) AND
-    # the direct action='publish' snapshot recompile — both must demand the
-    # extra confirm_publish approval, so both are listed.
-    "manage_flow_designer": [
-        {"action": ("save",), "publish": True},
-        {"action": ("publish",)},
-    ],
 }
 
 
@@ -243,11 +235,6 @@ _PREVIEW_HINTS: Dict[str, str] = {
     "update_remote_from_local": (
         "Preview first with diff_local_component(path=...): it shows the exact line "
         "diff, whether the remote drifted, and who last edited it — then retry."
-    ),
-    "manage_flow_designer": (
-        "Preview first with action='get_detail' (what will be recompiled) and check "
-        "the current application/update set — then retry publish with "
-        "confirm='approve' AND confirm_publish='approve'."
     ),
 }
 
@@ -308,6 +295,15 @@ MUTATING_TOOL_NAMES = frozenset(
     }
 )
 
+# manage_* bundles whose EVERY action is a read. The manage_ prefix alone marks a
+# tool as a write, so a bundle that lost its last write action kept demanding
+# confirm='approve' on every call (and, through G7, a confirm_publish for actions
+# it no longer has) — schema weight on every request and an approval prompt for a
+# read. tests/test_write_classification.py pins each entry's action enum inside
+# MANAGE_READ_ACTIONS, so adding a write action back fails CI instead of
+# silently skipping the gate.
+READ_ONLY_MANAGE_TOOLS = frozenset({"manage_flow_designer"})
+
 # manage_<X>: per-tool set of action values that are read-only (no confirm).
 # Bundles whose actions are all writes don't appear here — the prefix gate
 # applies.
@@ -319,6 +315,7 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_group": frozenset({"list"}),
     "manage_workflow": frozenset({"list", "get", "list_versions", "get_activities"}),
     "manage_script_include": frozenset({"list", "get"}),
+    "manage_scripted_rest": frozenset({"list", "get"}),
     "manage_business_rule": frozenset({"list", "get"}),
     "manage_widget_dependency": frozenset({"list", "get"}),
     "manage_ux_list": frozenset({"list", "get"}),

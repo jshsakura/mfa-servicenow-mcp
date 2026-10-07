@@ -83,7 +83,7 @@ class ManageFlowDesignerParams(BaseModel):
         "read_action",
     ] = Field(
         ...,
-        description="Read-only: list/get_detail/get_executions/compare/get_action_source/read_action. Edit flows in the Flow Designer UI.",
+        description="What to read",
     )
 
     # ---- Common ----

@@ -17,17 +17,17 @@ Read-only — safe for any environment, no write tools:
 
 | Package | Tools | ~Tokens | When to use |
 | :--- | :---: | :---: | :--- |
-| `core` | 12 | ~2.0K | Minimal read-only: health, schema, discovery, key artifact lookups only |
-| `standard` | 31 | ~6.9K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `core` | 12 | ~1.9K | Minimal read-only: health, schema, discovery, key artifact lookups only |
+| `standard` | 31 | ~6.8K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 | `none` | 0 | 0 | Intentionally disable all tools (testing, locked-down environments) |
 
 ⚠️ Write-capable — **advanced options** that grant create/update/delete:
 
 | Package | Tools | ~Tokens | When to use |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.5K | ⚠️ Service desk agents who need to update/close incidents and changes |
-| `portal_developer` | 52 | ~14.8K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 46 | ~12.3K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
+| `service_desk` | 33 | ~7.4K | ⚠️ Service desk agents who need to update/close incidents and changes |
+| `portal_developer` | 52 | ~14.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
+| `platform_developer` | 46 | ~12.2K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
 | `full` | 63 | ~16.8K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 
 > **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Prefer the narrowest package to keep context and cost down.

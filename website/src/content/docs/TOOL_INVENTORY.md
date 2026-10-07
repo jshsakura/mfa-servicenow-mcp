@@ -221,7 +221,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_scripted_rest` | W | CRUD Scripted REST services + resources (sys_ws_definition/sys_ws_operation). Use list/get to find sys_ids. | standard (get, list), portal_developer, platform_developer (get, list), service_desk (get, list), full |
+| `manage_scripted_rest` | R/W | CRUD Scripted REST services + resources (sys_ws_definition/sys_ws_operation). Use list/get to find sys_ids. | standard (get, list), portal_developer, platform_developer (get, list), service_desk (get, list), full |
 
 ### Scrum Task Tools (1)
 
@@ -312,7 +312,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_workflow` | R/W | LEGACY Workflow engine ONLY (wf_workflow/wf_activity). Most flows are Flow Designer -> use manage_flow_designer. | core (get_activities, list), standard (get_activities, list), portal_developer, platform_developer, service_desk (get_activities, list), full |
+| `manage_workflow` | R/W | LEGACY Workflow engine ONLY (wf_workflow/wf_activity). Most flows are Flow Designer -> use manage_flow_designer. | core (get_activities, list), standard (get_activities, list), portal_developer (get, get_activities, list, list_versions), platform_developer, service_desk (get_activities, list), full |
 
 ### Xml Export Tools (1)
 

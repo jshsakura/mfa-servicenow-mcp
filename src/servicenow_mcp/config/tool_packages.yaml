@@ -109,7 +109,9 @@ portal_developer:
     - manage_portal_layout
     - manage_portal_component
     - manage_widget_dependency
-    - manage_workflow
+    # Legacy Workflow engine: reads only here (writes in platform_developer/full)
+    - manage_workflow:
+        actions: [list, get, list_versions, get_activities]
     - manage_catalog
     - manage_ui_policy
     # UX Workspace list config CRUD (sys_ux_list — view/columns/fixed_query)

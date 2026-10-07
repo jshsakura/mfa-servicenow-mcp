@@ -490,16 +490,16 @@ Read-only (सुरक्षित डिफ़ॉल्ट):
 | Package | Tools | ~टोकन | Description |
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | जानबूझकर टूल बंद करने के लिए Disabled प्रोफ़ाइल |
-| `core` | 12 | ~2.0K | health, schema, discovery, और प्रमुख artifact lookups के लिए न्यूनतम read-only आवश्यक चीज़ें |
-| `standard` | 31 | ~6.9K | **(Default)** incidents, changes, portal, logs, और source विश्लेषण के पार read-only |
+| `core` | 12 | ~1.9K | health, schema, discovery, और प्रमुख artifact lookups के लिए न्यूनतम read-only आवश्यक चीज़ें |
+| `standard` | 31 | ~6.8K | **(Default)** incidents, changes, portal, logs, और source विश्लेषण के पार read-only |
 
 ⚠️ Write-capable (उन्नत — create/update/delete देता है):
 
 | Package | Tools | ~टोकन | Description |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.5K | ⚠️ standard + incident और change ऑपरेशनल writes |
-| `portal_developer` | 52 | ~14.8K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
-| `platform_developer` | 46 | ~12.3K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
+| `service_desk` | 33 | ~7.4K | ⚠️ standard + incident और change ऑपरेशनल writes |
+| `portal_developer` | 52 | ~14.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
+| `platform_developer` | 46 | ~12.2K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
 | `full` | 63 | ~16.8K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
 
 > **~टोकन** हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens हैं (tiktoken `cl100k_base` आधार; वास्तविक Claude token संख्या थोड़ी भिन्न हो सकती है)। संकरे package पर बने रहने से context और लागत दोनों बचती हैं।

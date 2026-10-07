@@ -494,16 +494,16 @@ Read-only (safe defaults):
 | Package | Tools | ~Tokens | Description |
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | Disabled profile for intentionally turning tools off |
-| `core` | 12 | ~2.0K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 31 | ~6.9K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `core` | 12 | ~1.9K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
+| `standard` | 31 | ~6.8K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
 
 ⚠️ Write-capable (advanced — grants create/update/delete):
 
 | Package | Tools | ~Tokens | Description |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.5K | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 52 | ~14.8K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
-| `platform_developer` | 46 | ~12.3K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `service_desk` | 33 | ~7.4K | ⚠️ standard + incident and change operational writes |
+| `portal_developer` | 52 | ~14.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 46 | ~12.2K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
 | `full` | 63 | ~16.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
 
 > **~Tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down.

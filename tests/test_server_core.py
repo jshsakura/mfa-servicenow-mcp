@@ -1134,12 +1134,20 @@ class TestPublishConfirmIsAdvertisedNotHidden:
         assert schema["properties"]["confirm_publish"]["enum"] == ["approve"]
         assert "confirm_publish" in schema["required"]
 
-    @pytest.mark.parametrize("tool_name", ["manage_changeset", "manage_flow_designer"])
+    @pytest.mark.parametrize("tool_name", ["manage_changeset"])
     def test_action_dependent_tools_advertise_without_requiring(self, tool_name):
         """These publish on SOME actions; requiring it would block their reads."""
         schema = self._schema(tool_name)
         assert "confirm_publish" in schema["properties"]
         assert "confirm_publish" not in schema["required"]
+
+    def test_a_read_only_bundle_carries_neither_approval_field(self):
+        """Flow Designer lost its writes; both fields were dead weight per request."""
+        from servicenow_mcp.server import ServiceNowMCP
+
+        assert "confirm_publish" not in self._schema("manage_flow_designer")["properties"]
+        # confirm is only injected for tools that require it — this one does not.
+        assert ServiceNowMCP._tool_requires_confirmation("manage_flow_designer") is False
 
     def test_a_plain_write_tool_is_not_given_the_field(self):
         schema = self._schema("manage_business_rule")

@@ -255,6 +255,41 @@ class TestSchemaEmittedToLlm:
         assert len(action_enum) > 4
 
 
+class TestReadOnlyAllowlistAsksNoApproval:
+    """A package that exposes only a bundle's reads must not advertise confirm."""
+
+    READ_ONLY_IN_STANDARD = (
+        "manage_workflow",
+        "manage_widget_dependency",
+        "manage_script_include",
+        "manage_scripted_rest",
+    )
+
+    def _tools(self, pkg):
+        import asyncio
+
+        return {t.name: t for t in asyncio.run(_server_with_package(pkg)._list_tools_impl())}
+
+    def test_standard_reads_carry_no_confirm(self):
+        tools = self._tools("standard")
+        for name in self.READ_ONLY_IN_STANDARD:
+            assert "confirm" not in tools[name].inputSchema["properties"], name
+            assert "confirm='approve'" not in tools[name].description, name
+
+    def test_the_same_bundle_with_writes_still_asks(self):
+        tools = self._tools("full")
+        for name in self.READ_ONLY_IN_STANDARD:
+            assert "confirm" in tools[name].inputSchema["properties"], name
+
+    def test_a_read_without_confirm_passes_the_gate(self):
+        from servicenow_mcp.policies.write_guards import MANAGE_READ_ACTIONS
+
+        for name in self.READ_ONLY_IN_STANDARD:
+            # The schema drops confirm only because the handler exempts these.
+            allowed = _server_with_package("standard")._active_action_allowlists[name]
+            assert allowed <= MANAGE_READ_ACTIONS[name], name
+
+
 class TestDispatchRejectGate:
     def test_disallowed_action_raises(self):
         # In standard, manage_workflow is restricted to reads. Calling
@@ -335,3 +370,39 @@ class TestDispatchRejectGate:
             assert marker["ran"], "old name should route to download_server_sources"
         finally:
             s.tool_definitions["download_server_sources"] = impl_def
+
+
+class TestHiddenActionsAreNamed:
+    """A narrowed bundle says where its hidden actions live, so a needed write
+    becomes "switch package" instead of a dead end or an sn_query workaround."""
+
+    def _tools(self, pkg):
+        import asyncio
+
+        return {t.name: t for t in asyncio.run(_server_with_package(pkg)._list_tools_impl())}
+
+    def test_portal_developer_workflow_is_reads_and_points_at_full_surface(self):
+        wf = self._tools("portal_developer")["manage_workflow"]
+        assert set(wf.inputSchema["properties"]["action"]["enum"]) == {
+            "list",
+            "get",
+            "list_versions",
+            "get_activities",
+        }
+        assert "confirm" not in wf.inputSchema["properties"]
+        assert "More actions: platform_developer package." in wf.description
+
+    def test_read_only_package_carries_no_hint(self):
+        for tool in self._tools("standard").values():
+            assert "More actions:" not in tool.description, tool.name
+
+    def test_rejection_names_the_packages(self):
+        import asyncio
+
+        server = _server_with_package("portal_developer")
+        with pytest.raises(ValueError, match="platform_developer"):
+            asyncio.run(
+                server._call_tool_impl(
+                    "manage_workflow", {"action": "create", "confirm": "approve"}
+                )
+            )

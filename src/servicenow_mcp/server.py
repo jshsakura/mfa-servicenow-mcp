@@ -121,6 +121,7 @@ from servicenow_mcp.policies.write_guards import (  # noqa: E402
     MANAGE_READ_ACTIONS,
     MUTATING_TOOL_NAMES,
     MUTATING_TOOL_PREFIXES,
+    READ_ONLY_MANAGE_TOOLS,
     is_arg_triggered_write,
 )
 
@@ -1052,6 +1053,8 @@ class ServiceNowMCP:
 
     @staticmethod
     def _is_blocked_mutating_tool(tool_name: str) -> bool:
+        if tool_name in READ_ONLY_MANAGE_TOOLS:
+            return False
         return tool_name.startswith(MUTATING_TOOL_PREFIXES) or tool_name in MUTATING_TOOL_NAMES
 
     @staticmethod
@@ -1067,6 +1070,40 @@ class ServiceNowMCP:
     @staticmethod
     def _tool_requires_confirmation(tool_name: str) -> bool:
         return ServiceNowMCP._is_blocked_mutating_tool(tool_name)
+
+    def _exposes_writes(self, tool_name: str) -> bool:
+        """True if this package lets *tool_name* write (not only its read actions)."""
+        if not self._tool_requires_confirmation(tool_name):
+            return False
+        allowed = self._active_action_allowlists.get(tool_name)
+        return allowed is None or not allowed <= MANAGE_READ_ACTIONS.get(tool_name, frozenset())
+
+    def _package_has_writes(self) -> bool:
+        return any(self._exposes_writes(t) for t in self.enabled_tool_names)
+
+    def _packages_with_more_actions(self, tool_name: str) -> List[str]:
+        """Packages that expose MORE of *tool_name*'s actions than this one does.
+
+        A narrowed bundle hides actions the user may still need; naming where
+        they live turns "the tool cannot do that" into "switch to X".
+        """
+        here = self._active_action_allowlists.get(tool_name)
+        if here is None:
+            return []
+        if not self._package_has_writes():
+            # A read-only package (core/standard) hides writes by design; the
+            # caller already knows a write means another package.
+            return []
+        out = []
+        for pkg, tools in self.package_definitions.items():
+            if tool_name not in tools:
+                continue
+            there = self.package_action_maps.get(pkg, {}).get(tool_name)
+            if there is None or not there <= here:
+                # Full surface first, then the smallest package: the first name
+                # is the one the description carries.
+                out.append((there is not None, len(tools), pkg))
+        return [pkg for _, _, pkg in sorted(out)]
 
     @staticmethod
     def _inject_confirmation_schema(schema: Dict[str, Any], tool_name: str = "") -> Dict[str, Any]:
@@ -1145,10 +1182,20 @@ class ServiceNowMCP:
         schema_with_instance["properties"] = properties
         return schema_with_instance
 
-    def _augment_tool_description(self, tool_name: str, description: str) -> str:
+    def _augment_tool_description(
+        self,
+        tool_name: str,
+        description: str,
+        requires_confirm: Optional[bool] = None,
+        more_in: Optional[List[str]] = None,
+    ) -> str:
         """Append confirmation notice and skill guide hint (if any) to description."""
-        if self._tool_requires_confirmation(tool_name):
+        if requires_confirm is None:
+            requires_confirm = self._tool_requires_confirmation(tool_name)
+        if requires_confirm:
             description = f"{description} (confirm='approve')"
+        if more_in:
+            description = f"{description} More actions: {'/'.join(more_in)} package."
         # Append skill guide hint — lightweight pointer, ~5 tokens.
         # Skip generic tools referenced by 3+ skills (e.g. sn_query) — hint would be arbitrary.
         skill_uris = self._tool_to_skills.get(tool_name)
@@ -1371,7 +1418,10 @@ class ServiceNowMCP:
                     if allowed is not None:
                         fields_by_action = getattr(params_model, "_FIELDS_BY_ACTION", None)
                         schema = _narrow_action_schema(schema, allowed, fields_by_action)
-                    is_write = self._tool_requires_confirmation(tool_name)
+                    # A package that exposes only a bundle's read actions needs no
+                    # confirm: the call handler already lets those through without
+                    # an approval, so advertising it is dead weight on every request.
+                    is_write = self._exposes_writes(tool_name)
                     if is_write:
                         schema = self._inject_confirmation_schema(schema, tool_name)
                     if self.instance_contexts:
@@ -1384,7 +1434,12 @@ class ServiceNowMCP:
                     tool_list.append(
                         types.Tool(
                             name=tool_name,
-                            description=self._augment_tool_description(tool_name, description),
+                            description=self._augment_tool_description(
+                                tool_name,
+                                description,
+                                requires_confirm=is_write,
+                                more_in=self._packages_with_more_actions(tool_name)[:1],
+                            ),
                             inputSchema=schema,
                         )
                     )
@@ -1556,6 +1611,12 @@ class ServiceNowMCP:
                     f"Action '{action_val}' is not available for '{name}' "
                     f"in package '{self.current_package_name}'. "
                     f"Allowed: {sorted(allowed_actions)}."
+                    + (
+                        f" It is available in: {', '.join(more)} — ask the user to switch "
+                        "MCP_TOOL_PACKAGE and restart; do not work around it with sn_query."
+                        if (more := self._packages_with_more_actions(name))
+                        else ""
+                    )
                 )
 
         if not self._active_instance_allows_tool_write(name, arguments):
