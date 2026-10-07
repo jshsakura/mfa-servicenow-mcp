@@ -529,12 +529,15 @@ def test_a_silenced_page_does_not_paste_a_kilobyte_of_ids_into_the_log(caplog):
     """An IN list of sys_ids is routinely kilobytes; the SHAPE identifies it."""
     import logging
 
-    from servicenow_mcp.tools.sn_api import _LOG_QUERY_CHARS, sn_query_page
+    from servicenow_mcp.tools.sn_api import _LOG_QUERY_CHARS, SYS_ID_IN_CHUNK, sn_query_page
 
     cfg = _browser_cfg_for("https://silentpage2.service-now.com")
     am = MagicMock()
     am.make_request.side_effect = RuntimeError("connection reset")
-    huge = "sp_widgetIN" + ",".join("aaaa1111bbbb2222cccc3333dddd%04d" % i for i in range(100))
+    # One chunk's worth (a longer list is split before it is sent) — still ~1 KB.
+    huge = "sp_widgetIN" + ",".join(
+        "aaaa1111bbbb2222cccc3333dddd%04d" % i for i in range(SYS_ID_IN_CHUNK)
+    )
 
     with caplog.at_level(logging.WARNING, logger="servicenow_mcp.tools.sn_api"):
         sn_query_page(

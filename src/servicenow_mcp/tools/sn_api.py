@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 from urllib.parse import parse_qs, parse_qsl, unquote, urlparse
 
 import requests
@@ -474,6 +474,104 @@ def invalidate_read_cache(namespace: Optional[str] = None) -> int:
 # only on instances with enough rows to fill a chunk.
 SYS_ID_IN_CHUNK = 30
 
+# A bare `^OR` joins conditions; `^ORDERBY…` is an ordering clause that merely
+# starts with the same two letters.
+_OR_JOIN = re.compile(r"\^OR(?!DERBY)")
+_IN_CLAUSE = re.compile(r"^([a-z0-9_.]+)IN(.*)$")
+
+
+def split_oversized_in(query: str, chunk: int = SYS_ID_IN_CHUNK) -> Optional[List[str]]:
+    """The query rewritten as several, each with an `IN` list the server accepts.
+
+    A per-call-site chunk size kept being forgotten: seven days of real sessions
+    carried a provider read of ~190 ids that 400'd, was silenced into an empty
+    page, and wrote `total=0` to the provider map on three instances — and the
+    LLM sent the same shape through sn_query, where it came back as a bare
+    "Bad Request". Splitting here makes the limit a property of the query layer
+    instead of something every caller has to remember.
+
+    Only the one shape whose split is exact is handled: AND-joined clauses with a
+    single oversized `<field>IN<values>`. The union of the parts is then the
+    original result. `^OR` / `^NQ` change what a split would mean, and an escaped
+    `^^` makes clause boundaries ambiguous — those return None and run as sent.
+    """
+    if not query or _OR_JOIN.search(query) or "^NQ" in query or "^^" in query:
+        return None
+    clauses = query.split("^")
+    target: Optional[int] = None
+    values: List[str] = []
+    for index, clause in enumerate(clauses):
+        match = _IN_CLAUSE.match(clause)
+        if not match or match.group(2).startswith("javascript:"):
+            continue
+        items = [v for v in match.group(2).split(",") if v]
+        if len(items) <= chunk:
+            continue
+        if target is not None:
+            return None  # two oversized lists: a split of one still overflows
+        target, values = index, items
+    if target is None:
+        return None
+    field = _IN_CLAUSE.match(clauses[target]).group(1)  # type: ignore[union-attr]
+    queries = []
+    for start in range(0, len(values), chunk):
+        parts = list(clauses)
+        parts[target] = f"{field}IN{','.join(values[start:start + chunk])}"
+        queries.append("^".join(parts))
+    return queries
+
+
+def _order_field(query: str, orderby: Optional[str]) -> Optional[Tuple[str, bool]]:
+    """(field, descending) the caller asked the rows to be sorted by, if any."""
+    if orderby:
+        return (orderby[1:], True) if orderby.startswith("-") else (orderby, False)
+    for clause in reversed(query.split("^")):
+        if clause.startswith("ORDERBYDESC"):
+            return clause[len("ORDERBYDESC") :], True
+        if clause.startswith("ORDERBY"):
+            return clause[len("ORDERBY") :], False
+    return None
+
+
+def _merge_split_rows(
+    parts: List[List[Dict[str, Any]]], order: Optional[Tuple[str, bool]]
+) -> List[Dict[str, Any]]:
+    """Concatenate per-chunk rows, drop repeats, and restore the requested order.
+
+    Each chunk is ordered by the server on its own, so a merged read is only in
+    the asked order after a re-sort over all of them.
+    """
+    seen: set = set()
+    merged: List[Dict[str, Any]] = []
+    for rows in parts:
+        for row in rows:
+            key = row.get("sys_id")
+            key = key.get("value") if isinstance(key, dict) else key
+            if key:
+                if key in seen:
+                    continue
+                seen.add(key)
+            merged.append(row)
+    if order:
+        field, descending = order
+
+        def _raw(row: Dict[str, Any]) -> str:
+            value = row.get(field)
+            if isinstance(value, dict):
+                value = value.get("value")
+            return "" if value is None else str(value)
+
+        raws = [_raw(row) for row in merged]
+        keys: List[Any]
+        try:
+            keys = [float(v) for v in raws]
+        except ValueError:
+            keys = list(raws)
+        pairs = sorted(zip(keys, range(len(merged)), strict=True), reverse=descending)
+        merged = [merged[i] for _, i in pairs]
+    return merged
+
+
 _LOG_QUERY_CHARS = 300
 
 
@@ -529,6 +627,36 @@ def sn_query_page(
     cached = _cache_get(ck)
     if cached is not None:
         return cached  # type: ignore[return-value]
+
+    sub_queries = split_oversized_in(query)
+    if sub_queries:
+        # Every chunk is read from row 0 to offset+limit, so the slice taken
+        # after the merge is the same window the single query would have been.
+        parts: List[List[Dict[str, Any]]] = []
+        split_total: Optional[int] = 0
+        for sub_query in sub_queries:
+            rows, sub_total = sn_query_page(
+                config,
+                auth_manager,
+                table=table,
+                query=sub_query,
+                fields=fields,
+                limit=offset + limit,
+                offset=0,
+                display_value=display_value,
+                no_count=no_count,
+                orderby=orderby,
+                fail_silently=fail_silently,
+            )
+            parts.append(rows)
+            # One unknown (or silenced) chunk makes the sum a guess — report none.
+            split_total = (
+                None if split_total is None or sub_total is None else split_total + sub_total
+            )
+        merged = _merge_split_rows(parts, _order_field(query, orderby))
+        # Not cached as a whole: each chunk already is, and a chunk that was
+        # silenced into [] must stay retryable rather than ride a merged entry.
+        return merged[offset : offset + limit], split_total
 
     url = f"{config.instance_url}/api/now/table/{table}"
     params: Dict[str, Any] = {
@@ -653,6 +781,28 @@ def sn_query_all(
     """
     size = max(10, min(page_size, 100))
     cap = max(1, max_records)
+    sub_queries = split_oversized_in(query)
+    if sub_queries:
+        parts: List[List[Dict[str, Any]]] = []
+        fetched = 0
+        for sub_query in sub_queries:
+            if fetched >= cap:
+                break
+            part = sn_query_all(
+                config,
+                auth_manager,
+                table=table,
+                query=sub_query,
+                fields=fields,
+                page_size=page_size,
+                max_records=cap - fetched,
+                parallel=parallel,
+                display_value=display_value,
+                fail_silently=fail_silently,
+            )
+            parts.append(part)
+            fetched += len(part)
+        return _merge_split_rows(parts, _order_field(query, None))[:cap]
     # --- First page (sequential, needs total count) ---
     first_fetch = min(size, cap)
     first_rows, total_count = sn_query_page(
@@ -1202,11 +1352,12 @@ def _extract_sn_error(response: requests.Response) -> Optional[str]:
     return message or detail or None
 
 
-def _table_exists(config: ServerConfig, auth_manager: AuthManager, table: str) -> bool:
-    """Cheaply check whether a table is registered in sys_db_object.
+def _table_exists(config: ServerConfig, auth_manager: AuthManager, table: str) -> Optional[bool]:
+    """Whether ``table`` is registered in sys_db_object: True, False, or None.
 
-    Lets sn_schema tell "table does not exist" apart from "valid table whose
-    fields are all inherited from a parent" — both otherwise return 0 rows.
+    None is "could not find out" (network, auth, an error body) and is kept
+    apart from False on purpose — a caller told "no such table" on a failed
+    lookup goes hunting for a different name for a table that is fine.
     """
     try:
         url = f"{config.instance_url}/api/now/table/sys_db_object"
@@ -1216,10 +1367,67 @@ def _table_exists(config: ServerConfig, auth_manager: AuthManager, table: str) -
             params={"sysparm_query": f"name={table}", "sysparm_fields": "name", "sysparm_limit": 1},
             timeout=config.timeout,
         )
-        # An error body carries no "result" key, so this is False on 4xx/5xx too.
-        return bool(_safe_json(resp).get("result"))
+        result = _safe_json(resp).get("result")
+        if not isinstance(result, list):
+            return None  # an error body carries no "result" list
+        return bool(result)
     except Exception:
-        return False
+        return None
+
+
+def _similar_tables(config: ServerConfig, auth_manager: AuthManager, table: str) -> List[str]:
+    """Registered table names close to ``table``. Empty when nothing is close."""
+    tokens = sorted({t for t in table.split("_") if len(t) >= 4}, key=len, reverse=True)[:3]
+    if not tokens:
+        return []
+    try:
+        resp = auth_manager.make_request(
+            "GET",
+            f"{config.instance_url}/api/now/table/sys_db_object",
+            params={
+                "sysparm_query": "^OR".join(f"nameLIKE{t}" for t in tokens),
+                "sysparm_fields": "name",
+                "sysparm_limit": 500,
+            },
+            timeout=config.timeout,
+        )
+        result = _safe_json(resp).get("result")
+    except Exception:
+        return []
+    if not isinstance(result, list):
+        return []
+    names = sorted({str(r.get("name") or "") for r in result} - {""})
+    # A scope prefix the caller left off is the commonest miss (rfq_entry for
+    # x_app_rfq_entry), and difflib scores it too low to surface on its own.
+    suffixed = [n for n in names if n.endswith(f"_{table}")]
+    close = [n for n in near_matches(table, names, limit=5) if n not in suffixed]
+    return (suffixed + close)[:5]
+
+
+def _unknown_table_response(
+    config: ServerConfig, auth_manager: AuthManager, table: str, exc: Exception
+) -> Optional[Dict[str, Any]]:
+    """A definite "no such table" answer for a rejected read, or None.
+
+    ServiceNow answers a misspelled table with a 4xx whose body often does not
+    survive to the caller, so the tool used to hand back "HTTP Error 400: Bad
+    Request" and leave the model to guess — real sessions then tried three
+    more invented names in a row. Only a PROVEN absence (sys_db_object read
+    back, no row) produces this; a lookup that failed leaves the original error.
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status is None or not 400 <= status < 500 or status == 401 or _is_auth_error(exc):
+        return None
+    if _table_exists(config, auth_manager, table) is not False:
+        return None
+    return {
+        "success": False,
+        "error": "unknown_table",
+        "table": table,
+        "did_you_mean": _similar_tables(config, auth_manager, table),
+        "message": f"Table '{table}' does not exist on this instance (not in sys_db_object).",
+        "hint": "Pick a name from did_you_mean, or search with sn_discover.",
+    }
 
 
 def _is_login_redirect_response(response: requests.Response) -> bool:
@@ -1785,6 +1993,10 @@ def sn_query(
 
         return response_data
     except Exception as exc:
+        unknown_table = _unknown_table_response(config, auth_manager, params.table, exc)
+        if unknown_table:
+            unknown_table["query_echo"] = params.query or ""
+            return unknown_table
         response: Dict[str, Any] = {
             "success": False,
             "table": params.table,
@@ -1840,6 +2052,10 @@ def sn_aggregate(
             "result": _safe_json(response).get("result"),
         }
     except Exception as exc:
+        unknown_table = _unknown_table_response(config, auth_manager, params.table, exc)
+        if unknown_table:
+            unknown_table["aggregate"] = agg
+            return unknown_table
         return {
             "success": False,
             "table": params.table,
@@ -1920,7 +2136,7 @@ def sn_schema(
             if ref:
                 entry["reference"] = ref
             shaped.append(entry)
-        if not shaped and not _table_exists(config, auth_manager, params.table):
+        if not shaped and _table_exists(config, auth_manager, params.table) is False:
             # 0 fields can mean "no such table" OR "valid table, fields inherited".
             # Disambiguate so the LLM doesn't retry a typo'd name.
             return {

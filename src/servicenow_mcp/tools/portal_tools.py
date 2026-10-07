@@ -3852,6 +3852,19 @@ def download_portal_sources(
                 page_size=100,
                 max_records=1000,
             )
+            # This read is fail-silent, and it once came back empty for every
+            # provider at once (an IN list the server refused) while the map
+            # recorded `total=0` as if the widgets had none. Count against what
+            # was asked for, so a short read is a stated gap and not a quiet one.
+            missing_providers = len(
+                set(m2m_ids) - {str(p.get("sys_id") or "") for p in provider_rows}
+            )
+            if missing_providers:
+                warnings.append(
+                    f"INCOMPLETE PROVIDER READ — {missing_providers} of {len(m2m_ids)} linked "
+                    f"angular providers were not returned by {ANGULAR_PROVIDER_TABLE} and were "
+                    f"NOT downloaded (deleted, ACL-hidden, or the read failed; see the server log)."
+                )
             # Pre-fetch each provider's script CONCURRENTLY — still one record per
             # request (no bulk IN, so large scripts never truncate) but parallel
             # instead of one sequential round-trip per provider.
