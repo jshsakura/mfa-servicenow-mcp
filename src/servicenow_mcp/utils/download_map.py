@@ -20,7 +20,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set
 
-from servicenow_mcp.utils.sync_anchor import anchor_matches_disk
+from servicenow_mcp.utils.sync_anchor import advance_sha_history, anchor_matches_disk
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +184,19 @@ def merge_map_file(
     preserved = len(existing_keys - new_keys)
 
     merged: Dict[str, Any] = dict(existing)
-    merged.update(new_entries)
+    for key, entry in new_entries.items():
+        prior = existing.get(key)
+        # A sync anchor being replaced by a download keeps the bodies it held as
+        # history — the same fold _record_sync_meta does on push. Without it every
+        # re-download erased the version a promotion target still holds, and the
+        # promotion could no longer prove the target was only behind.
+        if isinstance(entry, dict) and isinstance(prior, dict) and "field_shas" in entry:
+            history = advance_sha_history(
+                prior, entry.get("field_shas") or {}, str(entry.get("sys_id") or "")
+            )
+            if history:
+                entry = {**entry, "field_sha_history": history}
+        merged[key] = entry
 
     writer(path, merged)
 

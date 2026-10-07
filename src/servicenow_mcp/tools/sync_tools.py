@@ -34,6 +34,7 @@ from ..utils.sync_anchor import (
     WRITTEN,
     SyncMeta,
     SyncMetaEntry,
+    advance_sha_history,
     cleanup_mirror,
     field_sha,
     is_mirror_artifact,
@@ -925,42 +926,11 @@ def _record_sync_meta(
                 "sys_updated_by": updated_by,
                 "sys_mod_count": mod_count,
                 "field_shas": field_shas or {},
-                "field_sha_history": _advance_sha_history(previous, field_shas or {}),
+                "field_sha_history": advance_sha_history(previous, field_shas or {}, sys_id),
                 "downloaded_at": datetime.now(UTC).isoformat(),
             },
         },
     )
-
-
-# How many superseded bodies per field the anchor remembers. A promotion target
-# is usually one or two revisions behind its origin; twenty is generous for that
-# and still a few kilobytes of hex.
-_SHA_HISTORY_CAP = 20
-
-
-def _advance_sha_history(
-    previous: Dict[str, Any], new_shas: Dict[str, str]
-) -> Dict[str, List[str]]:
-    """Fold the anchor being replaced into the per-field history, newest first.
-
-    Every sha that ever sat in ``field_shas`` was recorded only when the local
-    copy provably equalled the server body, so the history is a list of bodies
-    the origin has actually held. That is what lets a promotion prove the target
-    is merely behind instead of asking a human to compare 67 KB by eye: an
-    edit pushed to the origin replaces the anchor with the EDITED body, and
-    without this the pre-edit version — the one the target still holds — is gone.
-    """
-    history: Dict[str, List[str]] = {
-        f: [h for h in v if isinstance(h, str) and h]
-        for f, v in (previous.get("field_sha_history") or {}).items()
-        if isinstance(v, list)
-    }
-    for field_name, old_sha in (previous.get("field_shas") or {}).items():
-        if not isinstance(old_sha, str) or not old_sha or old_sha == new_shas.get(field_name):
-            continue
-        chain = [old_sha] + [h for h in history.get(field_name, []) if h != old_sha]
-        history[field_name] = chain[:_SHA_HISTORY_CAP]
-    return history
 
 
 def _is_download_root(path: Path) -> bool:

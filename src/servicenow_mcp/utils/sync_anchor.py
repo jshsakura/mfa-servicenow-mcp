@@ -108,6 +108,43 @@ def field_sha(text: str) -> str:
     return hashlib.sha256(normalize_for_hash(text).encode("utf-8")).hexdigest()
 
 
+# How many superseded bodies per field an anchor remembers. A promotion target
+# is usually one or two revisions behind its origin; twenty is generous for that
+# and still a few kilobytes of hex.
+SHA_HISTORY_CAP = 20
+
+
+def advance_sha_history(
+    previous: Dict[str, Any], new_shas: Dict[str, str], sys_id: str = ""
+) -> Dict[str, list]:
+    """Fold the anchor being replaced into the per-field history, newest first.
+
+    Every sha that ever sat in ``field_shas`` was recorded only when the local
+    copy provably equalled the server body, so the history is a list of bodies
+    the origin has actually held. That is what lets a promotion prove the target
+    is merely behind instead of asking a human to compare 67 KB by eye: a push
+    or a re-download replaces the anchor with the NEWER body, and without this
+    the older version — the one the target still holds — is gone.
+
+    A different ``sys_id`` under the same name is a different record (deleted and
+    re-created); its bodies say nothing about this one, so nothing carries over.
+    """
+    prior_id = str(previous.get("sys_id") or "")
+    if sys_id and prior_id and prior_id != sys_id:
+        return {}
+    history: Dict[str, list] = {
+        f: [h for h in v if isinstance(h, str) and h]
+        for f, v in (previous.get("field_sha_history") or {}).items()
+        if isinstance(v, list)
+    }
+    for field_name, old_sha in (previous.get("field_shas") or {}).items():
+        if not isinstance(old_sha, str) or not old_sha or old_sha == new_shas.get(field_name):
+            continue
+        chain = [old_sha] + [h for h in history.get(field_name, []) if h != old_sha]
+        history[field_name] = chain[:SHA_HISTORY_CAP]
+    return history
+
+
 def mirror_path_for(file_path: Path) -> Path:
     """Server-mirror sidecar path: ``script.js`` -> ``script.remote.js``.
 

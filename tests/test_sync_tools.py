@@ -4803,9 +4803,9 @@ class TestPromotionLineage:
         )
 
     def test_history_keeps_the_superseded_body(self):
-        from servicenow_mcp.tools.sync_tools import _SHA_HISTORY_CAP, _advance_sha_history
+        from servicenow_mcp.utils.sync_anchor import SHA_HISTORY_CAP, advance_sha_history
 
-        history = _advance_sha_history(
+        history = advance_sha_history(
             {
                 "field_shas": {"script": "aaa", "css": "ccc"},
                 "field_sha_history": {"script": ["zzz"]},
@@ -4819,7 +4819,7 @@ class TestPromotionLineage:
             "field_shas": {"script": "new0"},
             "field_sha_history": {"script": [f"h{i}" for i in range(40)]},
         }
-        assert len(_advance_sha_history(long, {"script": "new1"})["script"]) == _SHA_HISTORY_CAP
+        assert len(advance_sha_history(long, {"script": "new1"})["script"]) == SHA_HISTORY_CAP
 
     def test_record_sync_meta_carries_the_history_forward(self, tmp_path):
         from servicenow_mcp.tools.sync_tools import _record_sync_meta
@@ -4965,3 +4965,42 @@ class TestPromotionLineage:
             json.dumps({"name": "dev", "url": "https://dev.service-now.com", "g_ck": ""}),
             encoding="utf-8",
         )
+
+
+class TestHistorySurvivesRedownload:
+    """A re-download replaced the whole _sync_meta entry and erased the history,
+    so "edit, push origin, re-download, promote" lost the very version the
+    target still held."""
+
+    def _merge(self, path, entry):
+        from servicenow_mcp.utils.download_map import merge_map_file
+
+        def writer(p, data):
+            p.write_text(json.dumps(data), encoding="utf-8")
+
+        return merge_map_file(path, {"my-widget": entry}, writer=writer, label="test_sync_meta")
+
+    def test_a_download_folds_the_replaced_anchor_into_history(self, tmp_path):
+        path = tmp_path / "_sync_meta.json"
+        self._merge(path, {"sys_id": "s1", "field_shas": {"script": "v1"}})
+        self._merge(path, {"sys_id": "s1", "field_shas": {"script": "v2"}})
+        merged = self._merge(path, {"sys_id": "s1", "field_shas": {"script": "v3"}})
+
+        assert merged["my-widget"]["field_sha_history"] == {"script": ["v2", "v1"]}
+
+    def test_a_recreated_record_does_not_inherit_the_old_records_history(self, tmp_path):
+        path = tmp_path / "_sync_meta.json"
+        self._merge(path, {"sys_id": "s1", "field_shas": {"script": "v1"}})
+        merged = self._merge(path, {"sys_id": "s2", "field_shas": {"script": "v9"}})
+
+        assert "field_sha_history" not in merged["my-widget"]
+
+    def test_push_then_redownload_keeps_the_pre_edit_version(self, tmp_path):
+        from servicenow_mcp.tools.sync_tools import _record_sync_meta
+
+        path = tmp_path / "_sync_meta.json"
+        self._merge(path, {"sys_id": "s1", "field_shas": {"script": "pre-edit"}})  # download
+        _record_sync_meta(tmp_path, "my-widget", "s1", "t2", "alice", "2", {"script": "edited"})
+        merged = self._merge(path, {"sys_id": "s1", "field_shas": {"script": "edited"}})
+
+        assert "pre-edit" in merged["my-widget"]["field_sha_history"]["script"]
