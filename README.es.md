@@ -490,17 +490,17 @@ Solo lectura (valores predeterminados seguros):
 | Paquete | Herramientas | ~Tokens | Descripción |
 | :--- | :---: | :---: | :--- |
 | `none` | 0 | 0 | Perfil deshabilitado para desactivar herramientas intencionadamente |
-| `core` | 12 | ~3.0K | Mínimo de solo lectura para salud, esquema, descubrimiento y búsquedas clave de artefactos |
-| `standard` | 31 | ~7.3K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de fuentes |
+| `core` | 12 | ~2.0K | Mínimo de solo lectura para salud, esquema, descubrimiento y búsquedas clave de artefactos |
+| `standard` | 31 | ~6.9K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de fuentes |
 
 ⚠️ Con capacidad de escritura (avanzado — otorga create/update/delete):
 
 | Paquete | Herramientas | ~Tokens | Descripción |
 | :--- | :---: | :---: | :--- |
-| `service_desk` | 33 | ~8.2K | ⚠️ standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 52 | ~10.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
-| `platform_developer` | 46 | ~10.8K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 63 | ~13.8K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| `service_desk` | 33 | ~7.5K | ⚠️ standard + escrituras operativas de incidentes y cambios |
+| `portal_developer` | 52 | ~14.8K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
+| `platform_developer` | 46 | ~12.3K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
+| `full` | 63 | ~16.8K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
 
 > **~Tokens** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken `cl100k_base`; el conteo real de Claude varía ligeramente); usar el paquete más reducido ahorra contexto y costo.
 
