@@ -4740,3 +4740,218 @@ class TestPushUpdateSetWarning:
         assert result["success"] is True
         assert "update_set_warning" not in result
         mock_us.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Promotion lineage — a cross-instance push proves the target is merely behind
+# its origin by content, instead of stopping on every edited line.
+# ---------------------------------------------------------------------------
+class TestPromotionLineage:
+    EDITED = "var x = 1;"  # local == what was pushed to the origin
+    PRE_EDIT = "var x = 0;"  # the origin's body before that push
+
+    def _widget_path(self, root):
+        return root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+    def _arrange(self, root, history):
+        from servicenow_mcp.utils.sync_anchor import field_sha
+
+        (root / "_settings.json").write_text(
+            json.dumps({"name": "dev", "url": "https://dev.service-now.com", "g_ck": ""}),
+            encoding="utf-8",
+        )
+        (root / "global" / "sp_widget" / "_sync_meta.json").write_text(
+            json.dumps(
+                {
+                    "my-widget": {
+                        "sys_id": "wid-1",
+                        "sys_updated_on": "2025-01-10 10:00:00",
+                        "sys_mod_count": "7",
+                        "field_shas": {"script": field_sha(self.EDITED)},
+                        "field_sha_history": {"script": [field_sha(t) for t in history]},
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def _target(self, script):
+        return {
+            "sys_id": "TEST-wid-99",
+            "name": "my-widget",
+            "script": script,
+            "sys_updated_on": "2025-01-12 09:00:00",
+            "sys_updated_by": "other.dev",
+            "sys_mod_count": "3",
+        }
+
+    def _push(self, mock_config, mock_auth, root):
+        return update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(self._widget_path(root)), cross_instance_deploy=True),
+        )
+
+    def test_history_keeps_the_superseded_body(self):
+        from servicenow_mcp.tools.sync_tools import _SHA_HISTORY_CAP, _advance_sha_history
+
+        history = _advance_sha_history(
+            {
+                "field_shas": {"script": "aaa", "css": "ccc"},
+                "field_sha_history": {"script": ["zzz"]},
+            },
+            {"script": "bbb", "css": "ccc"},
+        )
+        assert history["script"] == ["aaa", "zzz"]
+        assert "css" not in history  # unchanged field adds nothing
+
+        long = {
+            "field_shas": {"script": "new0"},
+            "field_sha_history": {"script": [f"h{i}" for i in range(40)]},
+        }
+        assert len(_advance_sha_history(long, {"script": "new1"})["script"]) == _SHA_HISTORY_CAP
+
+    def test_record_sync_meta_carries_the_history_forward(self, tmp_path):
+        from servicenow_mcp.tools.sync_tools import _record_sync_meta
+
+        _record_sync_meta(tmp_path, "w", "s1", "t1", "alice", "1", {"script": "aaa"})
+        _record_sync_meta(tmp_path, "w", "s1", "t2", "alice", "2", {"script": "bbb"})
+        _record_sync_meta(tmp_path, "w", "s1", "t3", "alice", "3", {"script": "ccc"})
+
+        entry = _read_sync_meta(tmp_path)["w"]
+        assert entry["field_shas"] == {"script": "ccc"}
+        assert entry["field_sha_history"] == {"script": ["bbb", "aaa"]}
+
+    @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_a_target_holding_a_version_the_origin_held_is_promoted_without_force(
+        self,
+        mock_resolve,
+        mock_fetch,
+        mock_update,
+        mock_write_meta,
+        monkeypatch,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        """edit -> push dev -> promote test: changing a line removes the old one,
+        so the line-count verdict always stopped here, and the model compared
+        67 KB by hand until a truncation and an MFA prompt ended it. The target
+        holds the origin's pre-edit body; that is provable, so it is proven."""
+        import servicenow_mcp.tools.sync_tools as st
+
+        self._arrange(download_root, history=[self.PRE_EDIT])
+        monkeypatch.setattr(
+            st, "_origin_freshness", lambda *a, **k: {"checked": True, "stale": False}
+        )
+        mock_resolve.return_value = [{"sys_id": "TEST-wid-99", "name": "my-widget"}]
+        mock_fetch.side_effect = [self._target(self.PRE_EDIT), self._target(self.EDITED)]
+        mock_update.return_value = {"message": "Update successful", "sys_id": "TEST-wid-99"}
+
+        result = self._push(mock_config, mock_auth, download_root)
+
+        assert result.get("success") is True, result
+        assert result["promotion"]["verdict"] == "target_is_behind_origin"
+        assert "script" in result["promotion"]["fields_matched"]
+        mock_update.assert_called_once()
+        # The tree's anchor describes its ORIGIN; the target's counter must not
+        # be written into it.
+        mock_write_meta.assert_not_called()
+
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_a_target_body_the_origin_never_held_still_stops(
+        self,
+        mock_resolve,
+        mock_fetch,
+        mock_update,
+        monkeypatch,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        import servicenow_mcp.tools.sync_tools as st
+
+        self._arrange(download_root, history=[self.PRE_EDIT])
+        monkeypatch.setattr(
+            st, "_origin_freshness", lambda *a, **k: {"checked": True, "stale": False}
+        )
+        mock_resolve.return_value = [{"sys_id": "TEST-wid-99", "name": "my-widget"}]
+        mock_fetch.return_value = self._target("var x = 2; // edited on the target")
+
+        result = self._push(mock_config, mock_auth, download_root)
+
+        assert result["error"] == "CROSS_INSTANCE_UNREVIEWED"
+        mock_update.assert_not_called()
+        assert result["promotion"]["lineage"]["fields_unproven"] == ["script"]
+        assert "NOT PROVEN" in result["promotion"]["target_lineage"]
+
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_a_proven_lineage_with_an_unchecked_origin_still_stops(
+        self,
+        mock_resolve,
+        mock_fetch,
+        mock_update,
+        monkeypatch,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        """The target loses nothing, but whether the copy is the origin's latest
+        was not established — that half is not proven, so it is not passed."""
+        import servicenow_mcp.tools.sync_tools as st
+
+        self._arrange(download_root, history=[self.PRE_EDIT])
+        monkeypatch.setattr(
+            st, "_origin_freshness", lambda *a, **k: {"checked": False, "reason": "offline"}
+        )
+        mock_resolve.return_value = [{"sys_id": "TEST-wid-99", "name": "my-widget"}]
+        mock_fetch.return_value = self._target(self.PRE_EDIT)
+
+        result = self._push(mock_config, mock_auth, download_root)
+
+        assert result["error"] == "CROSS_INSTANCE_UNREVIEWED"
+        mock_update.assert_not_called()
+        assert result["promotion"]["target_lineage"].startswith("PROVEN")
+        assert "ORIGIN NOT CHECKED" in result["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_a_copy_with_no_recorded_versions_is_not_checked_not_cleared(
+        self,
+        mock_resolve,
+        mock_fetch,
+        mock_update,
+        monkeypatch,
+        mock_config,
+        mock_auth,
+        download_root,
+    ):
+        import servicenow_mcp.tools.sync_tools as st
+
+        self._set_settings_only(download_root)
+        monkeypatch.setattr(
+            st, "_origin_freshness", lambda *a, **k: {"checked": True, "stale": False}
+        )
+        mock_resolve.return_value = [{"sys_id": "TEST-wid-99", "name": "my-widget"}]
+        mock_fetch.return_value = self._target(self.PRE_EDIT)
+
+        result = self._push(mock_config, mock_auth, download_root)
+
+        assert result["error"] == "CROSS_INSTANCE_UNREVIEWED"
+        mock_update.assert_not_called()
+        assert "NOT CHECKED" in result["promotion"]["target_lineage"]
+
+    def _set_settings_only(self, root):
+        # The fixture's anchor has no field_shas at all (legacy tree).
+        (root / "_settings.json").write_text(
+            json.dumps({"name": "dev", "url": "https://dev.service-now.com", "g_ck": ""}),
+            encoding="utf-8",
+        )

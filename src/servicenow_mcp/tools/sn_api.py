@@ -18,6 +18,7 @@ from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.query_fields import near_matches, table_columns, unknown_query_fields
 from servicenow_mcp.utils.registry import register_tool
+from servicenow_mcp.utils.sync_anchor import field_sha
 from servicenow_mcp.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,26 @@ def truncate_results(
         safe.append(row)
 
     return safe, truncation_notice
+
+
+def _clipped_field_fingerprints(
+    rows: List[Dict[str, Any]], max_len: int = 50000
+) -> List[Dict[str, Any]]:
+    """Length and full-value hash of every string ``truncate_results`` will cut."""
+    out: List[Dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        for key, value in row.items():
+            if isinstance(value, str) and len(value) > max_len:
+                out.append(
+                    {
+                        "record": row.get("sys_id") or index,
+                        "field": key,
+                        "returned_chars": max_len,
+                        "full_length": len(value),
+                        "full_sha256": field_sha(value),
+                    }
+                )
+    return out
 
 
 def apply_payload_safety(
@@ -1949,6 +1970,12 @@ def sn_query(
         # that was in scope, so a missing key in a record means "null/empty
         # for that record" — not "field doesn't exist on this table".
         compact = [strip_empty_fields(row) for row in result]
+        # Fingerprint every value the clip below is about to cut, BEFORE it cuts.
+        # A clipped body cannot be compared: a real session matched the first
+        # 50,000 of 67,576 chars against another instance, could say nothing
+        # about the rest, and went off to a browser to fetch it. The hash of the
+        # WHOLE value answers "same or not" exactly, without the body in context.
+        clipped = _clipped_field_fingerprints(compact)
         safe_result, budget_notice = truncate_results(compact)
 
         queried_fields = (safe_fields or "").split(",") if safe_fields else []
@@ -1974,6 +2001,16 @@ def sn_query(
             notices.append(budget_notice)
         if notices:
             response_data["safety_notice"] = " | ".join(notices)
+        if clipped:
+            response_data["clipped_fields"] = clipped
+            response_data["clipped_hint"] = (
+                "These values were cut for context. Do NOT compare the visible text: "
+                "full_sha256 is the hash of the WHOLE value (EOL-normalized, the same basis "
+                "as _sync_meta field_shas) — equal hashes mean identical bodies. To compare "
+                "a body across instances use compare_instances(source, target, "
+                f"table='{params.table}', key_field='sys_id', fields='<field>'), which "
+                "compares untruncated values."
+            )
 
         if not safe_result:
             # Only reachable after a 2xx (sn_query_page runs with

@@ -247,3 +247,49 @@ class TestUnknownTable:
         result = sn_schema(config, auth, SchemaParams(table="x_myapp_base_child"))
 
         assert result["success"] is True
+
+
+class TestClippedFieldFingerprint:
+    """A clipped body cannot be compared by its visible prefix; the full hash can."""
+
+    def _auth(self, body):
+        def handler(method, url, params=None, **_):
+            if url.endswith("/sp_widget"):
+                return _response(
+                    200, [{"sys_id": "aaaa1111bbbb2222cccc3333dddd4444", "script": body}]
+                )
+            return _response(200, [])
+
+        auth = MagicMock()
+        auth.make_request.side_effect = handler
+        return auth
+
+    def _read(self, config, body):
+        return sn_query(
+            config,
+            self._auth(body),
+            GenericQueryParams(table="sp_widget", query="", fields="sys_id,script", limit=1),
+        )
+
+    def test_a_clipped_field_carries_its_whole_hash_and_length(self, config):
+        from servicenow_mcp.utils.sync_anchor import field_sha
+
+        body = "a" * 50000 + "b" * 17576
+        result = self._read(config, body)
+
+        clip = result["clipped_fields"][0]
+        assert clip["field"] == "script"
+        assert clip["full_length"] == 67576
+        assert clip["full_sha256"] == field_sha(body)
+        assert "compare_instances" in result["clipped_hint"]
+
+    def test_bodies_that_differ_only_past_the_clip_hash_differently(self, config):
+        invalidate_query_cache()
+        first = self._read(config, "a" * 50000 + "tail-one")["clipped_fields"][0]
+        invalidate_query_cache()
+        second = self._read(config, "a" * 50000 + "tail-two")["clipped_fields"][0]
+
+        assert first["full_sha256"] != second["full_sha256"]
+
+    def test_an_unclipped_read_carries_no_fingerprint_block(self, config):
+        assert "clipped_fields" not in self._read(config, "short")

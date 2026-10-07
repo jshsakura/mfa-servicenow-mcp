@@ -501,6 +501,52 @@ def _promotion_verdict(
     }
 
 
+def _target_lineage(
+    remote_record: Dict[str, Any], meta: SyncMeta, fields: List[str]
+) -> Dict[str, Any]:
+    """Does the TARGET hold, in every field about to be replaced, a body the
+    origin has held? Carries what it proved.
+
+    A cross-instance push has no anchor on the target, so the gate used to treat
+    any removed line as possibly someone's work and stop — and every ordinary
+    "edit, push to dev, promote to test" landed there, because changing a line
+    is removing the old one. The model then compared the bodies by hand, got cut
+    off at 50 KB, and ended on an MFA prompt. The question has an exact answer:
+    if the target's body hashes to a version this copy's origin held, there is
+    nothing on the target that did not come from the origin, and replacing it
+    loses no one's work. ``proven`` is True only when that holds for every field;
+    a field with no recorded history is ``unanchored``, never a match.
+    """
+    current = meta.get("field_shas") or {}
+    history = meta.get("field_sha_history") or {}
+    matched: Dict[str, str] = {}
+    unproven: List[str] = []
+    unanchored: List[str] = []
+    for field_name in fields:
+        known = [current.get(field_name)] + list(history.get(field_name) or [])
+        known = [h for h in known if isinstance(h, str) and h]
+        if not known:
+            unanchored.append(field_name)
+            continue
+        target_sha = field_sha(str(remote_record.get(field_name) or ""))
+        if target_sha == known[0]:
+            matched[field_name] = "your current copy's origin version"
+        elif target_sha in known:
+            matched[field_name] = f"an earlier origin version ({known.index(target_sha)} back)"
+        else:
+            # Not a version this copy ever recorded. That is either work done on
+            # the target, or an origin revision this machine never downloaded —
+            # the hash cannot say which, so it says neither.
+            unproven.append(field_name)
+    return {
+        "checked": not unanchored,
+        "proven": bool(fields) and not unproven and not unanchored,
+        "fields_matched": matched,
+        "fields_unproven": unproven,
+        "fields_unanchored": unanchored,
+    }
+
+
 def _routing_hint(url: str) -> str:
     """The literal ``instance=`` pair that routes a call to *url*, alias filled in.
 
@@ -847,6 +893,7 @@ def _record_sync_meta(
     provably equals the remote body.
     """
     meta = _read_sync_meta(table_dir)
+    previous = meta.get(name) or {}
     # Immutable update: build a new mapping rather than mutating the loaded one.
     _write_sync_meta(
         table_dir,
@@ -858,10 +905,42 @@ def _record_sync_meta(
                 "sys_updated_by": updated_by,
                 "sys_mod_count": mod_count,
                 "field_shas": field_shas or {},
+                "field_sha_history": _advance_sha_history(previous, field_shas or {}),
                 "downloaded_at": datetime.now(UTC).isoformat(),
             },
         },
     )
+
+
+# How many superseded bodies per field the anchor remembers. A promotion target
+# is usually one or two revisions behind its origin; twenty is generous for that
+# and still a few kilobytes of hex.
+_SHA_HISTORY_CAP = 20
+
+
+def _advance_sha_history(
+    previous: Dict[str, Any], new_shas: Dict[str, str]
+) -> Dict[str, List[str]]:
+    """Fold the anchor being replaced into the per-field history, newest first.
+
+    Every sha that ever sat in ``field_shas`` was recorded only when the local
+    copy provably equalled the server body, so the history is a list of bodies
+    the origin has actually held. That is what lets a promotion prove the target
+    is merely behind instead of asking a human to compare 67 KB by eye: an
+    edit pushed to the origin replaces the anchor with the EDITED body, and
+    without this the pre-edit version — the one the target still holds — is gone.
+    """
+    history: Dict[str, List[str]] = {
+        f: [h for h in v if isinstance(h, str) and h]
+        for f, v in (previous.get("field_sha_history") or {}).items()
+        if isinstance(v, list)
+    }
+    for field_name, old_sha in (previous.get("field_shas") or {}).items():
+        if not isinstance(old_sha, str) or not old_sha or old_sha == new_shas.get(field_name):
+            continue
+        chain = [old_sha] + [h for h in history.get(field_name, []) if h != old_sha]
+        history[field_name] = chain[:_SHA_HISTORY_CAP]
+    return history
 
 
 def _is_download_root(path: Path) -> bool:
@@ -3021,15 +3100,50 @@ def update_remote_from_local(
     # There is no anchor to gate on, so gate on the only evidence there is: the
     # target's own body differs from what is about to replace it. Same second
     # approval as any other overwrite — force=true — so this is a gate, not a wall.
+    promotion_proof: Optional[Dict[str, Any]] = None
     if cross_instance_deploy and update_data and not params.force:
-        field_diffs = _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT)
-        verdict = _promotion_verdict(field_diffs, remote_updated_by)
         # Is the body being promoted still the origin's current one? The drift
         # check is off on this path by construction (no shared baseline with the
         # target), which left "my copy is stale" undetectable in EITHER direction.
         origin_state = _origin_freshness(
             origin, resolved.table, resolved.sys_id, meta, list(resolved.fields)
         )
+        lineage = _target_lineage(remote_record, meta, list(update_data.keys()))
+        # The target holds only bodies the origin has held, and the origin has not
+        # moved past this copy: nothing on the target is anyone's unseen work, and
+        # nothing newer on the origin is being left behind. That is a clean
+        # promotion, proven by content — the same standing a same-instance clean
+        # fast-forward has, so it passes the same way. Anything short of both
+        # stays at the gate below.
+        if lineage["proven"] and origin_state.get("checked") and not origin_state.get("stale"):
+            promotion_proof = {
+                "verdict": "target_is_behind_origin",
+                "proven_by": "content",
+                "fields_matched": lineage["fields_matched"],
+            }
+    if cross_instance_deploy and update_data and not params.force and promotion_proof is None:
+        field_diffs = _compute_field_diffs(resolved, remote_record, _CONFLICT_DIFF_CONTEXT)
+        verdict = _promotion_verdict(field_diffs, remote_updated_by)
+        if lineage["proven"]:
+            verdict["target_lineage"] = (
+                "PROVEN: every field the target holds is a version its origin held — the "
+                "removed lines are earlier versions of your own lines, not work done on the "
+                "target. The push stops only because of the origin check above."
+            )
+        elif lineage["fields_unproven"]:
+            verdict["target_lineage"] = (
+                f"NOT PROVEN for {', '.join(lineage['fields_unproven'])}: the target's body "
+                "is not any version this copy recorded from its origin. Either someone "
+                "changed it on the target, or the origin had a revision this copy never "
+                "downloaded. Read the diff below before forcing."
+            )
+        else:
+            verdict["target_lineage"] = (
+                f"NOT CHECKED for {', '.join(lineage['fields_unanchored'])}: this copy has "
+                "no recorded origin version to compare against. Re-download it from its "
+                "origin to anchor it, then push again."
+            )
+        verdict["lineage"] = lineage
         if origin_state.get("checked") and origin_state.get("stale"):
             if origin_state.get("verified_by") == "content":
                 what = f"its source changed there ({', '.join(origin_state['fields_changed_on_origin'])})"
@@ -3535,18 +3649,24 @@ def update_remote_from_local(
     #     settled push re-litigate itself: next diff compared the current editor
     #     (you) against an anchor owner still holding the ORIGINAL author name,
     #     and reported an "ownership change" for the edit you had just made.
-    try:
-        _record_sync_meta(
-            table_dir,
-            resolved.name,
-            resolved.sys_id,
-            str((fresh_remote or {}).get("sys_updated_on") or ""),
-            _display_str((fresh_remote or {}).get("sys_updated_by")) or me,
-            str((fresh_remote or {}).get("sys_mod_count") or ""),
-            _local_field_shas(resolved),
-        )
-    except Exception as e:
-        logger.warning("Failed to update _sync_meta.json after push: %s", e)
+    #     NOT after a cross-instance promotion: this tree's anchor describes its
+    #     ORIGIN. Writing the target's sys_id and sys_mod_count into it made the
+    #     next push to the origin compare the origin's live counter against the
+    #     TARGET's — a target counter at or above the origin's hid every edit
+    #     made on the origin since, which is the one thing the anchor exists to see.
+    if not cross_instance_deploy:
+        try:
+            _record_sync_meta(
+                table_dir,
+                resolved.name,
+                resolved.sys_id,
+                str((fresh_remote or {}).get("sys_updated_on") or ""),
+                _display_str((fresh_remote or {}).get("sys_updated_by")) or me,
+                str((fresh_remote or {}).get("sys_mod_count") or ""),
+                _local_field_shas(resolved),
+            )
+        except Exception as e:
+            logger.warning("Failed to update _sync_meta.json after push: %s", e)
 
     # The push reconciled local and server, so a leftover .remote server-mirror
     # sidecar (from an earlier conflict) is now stale — clear it.
@@ -3609,4 +3729,6 @@ def update_remote_from_local(
             ack[warning_key] = result[warning_key]
     if not resolved.instance_url:
         ack["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
+    if promotion_proof:
+        ack["promotion"] = promotion_proof
     return ack
