@@ -4066,8 +4066,8 @@ def download_portal_sources(
 
     if incremental_active:
         warnings.append(
-            "incremental: only records with a newer sys_updated_on were fetched; "
-            "unchanged local files were preserved. Run a full download periodically."
+            "incremental: fetched every record whose server sys_mod_count differs from its "
+            "own anchor, or whose local files no longer match it; the rest were already current."
         )
 
     result: Dict[str, Any] = {

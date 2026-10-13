@@ -3853,7 +3853,7 @@ class DownloadAppSourcesParams(BaseModel):
     )
     incremental: bool = Field(
         default=False,
-        description="Re-download only records changed since last sync (sys_updated_on).",
+        description="Re-download only records changed since last sync (per-record sys_mod_count).",
     )
     reconcile_deletions: bool = Field(
         default=False,
