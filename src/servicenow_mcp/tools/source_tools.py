@@ -53,15 +53,19 @@ from servicenow_mcp.utils.source_layout import (
 from servicenow_mcp.utils.sync_anchor import (
     BLANK_REMOTE_KEPT,
     CONFLICT_MIRRORED,
+    HELD_OUTCOMES,
     IN_SYNC_OUTCOMES,
     LEGACY_KEPT,
+    LOCAL_EDITS_KEEP,
     REFRESHED,
     SyncMeta,
 )
 from servicenow_mcp.utils.sync_anchor import field_sha as _field_sha
 from servicenow_mcp.utils.sync_anchor import (
     is_mirror_artifact,
+    local_edits_decision,
     reconcile_field,
+    rerun_call,
     sweep_legacy_baseline,
 )
 from servicenow_mcp.utils.workspace_roots import record_download_root
@@ -2727,6 +2731,7 @@ def _download_source_types(
     incremental: bool = False,
     reconcile_deletions: bool = False,
     emit_per_type: bool = False,
+    on_local_edits: str = LOCAL_EDITS_KEEP,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
@@ -2741,9 +2746,11 @@ def _download_source_types(
             resume-skip so changed records overwrite stale local files.
         reconcile_deletions: Warn (no auto-delete) about records present locally but gone
             remotely, via a sys_id-only list query per family.
+        on_local_edits: The user's answer for files carrying local edits — keep
+            (default), clean or stash (see sync_anchor.reconcile_field).
 
     Returns dict with keys: type_results, manifest_entries, warnings, total_files,
-    deletion_candidates.
+    deletion_candidates, held_local_edits.
     """
     max_per_type = _clamp_download_per_type(max_per_type)
     page_size = max(10, min(page_size, 100))
@@ -2755,6 +2762,9 @@ def _download_source_types(
     warnings: List[str] = []
     deletion_candidates: Dict[str, List[str]] = {}
     total_files = 0
+    # Paths whose local edits were held back — appended from worker threads
+    # (list.append is atomic), sorted once at the end for stable output.
+    held_local_edits: List[str] = []
 
     # Tripped by the first worker that hits an unrecoverable auth failure, so
     # the remaining (queued) types bail immediately instead of each re-firing
@@ -3150,7 +3160,12 @@ def _download_source_types(
                                 prior_field_shas.get(sf, ""),
                                 legacy_overwrite=incremental,
                                 blank_remote_is_unknown=True,
+                                known_shas=(prior_entry.get("field_sha_history") or {}).get(sf)
+                                or (),
+                                on_local_edits=on_local_edits,
                             )
+                            if actions[sf] in HELD_OUTCOMES:
+                                held_local_edits.append(str(field_paths[sf]))
                         elif content_str.strip():
                             _dl_write_file(field_paths[sf], content_str)
                             backfilled += 1
@@ -3444,7 +3459,17 @@ def _download_source_types(
         "warnings": warnings,
         "total_files": total_files,
         "deletion_candidates": deletion_candidates,
+        "held_local_edits": sorted(held_local_edits),
     }
+
+
+def _rerun_for(config: ServerConfig, tool: str, params: BaseModel) -> str:
+    """This call again for the held-edits question — see sync_anchor.rerun_call."""
+    from servicenow_mcp.tools.sync_tools import _alias_for_instance_url
+
+    return rerun_call(
+        tool, params.model_dump(exclude_defaults=True), _alias_for_instance_url(config.instance_url)
+    )
 
 
 def _build_download_result(
@@ -3454,8 +3479,12 @@ def _build_download_result(
     elapsed_ms: int,
     tool_name: str,
     scope_resolution: Optional[str] = None,
+    rerun: str = "",
 ) -> Dict[str, Any]:
-    """Build a standard return dict from _download_source_types output."""
+    """Build a standard return dict from _download_source_types output.
+
+    ``rerun``: the caller's own call (sync_anchor.rerun_call) for the held-edits
+    question; without it the question carries no ready calls."""
     result: Dict[str, Any] = {
         "success": True,
         "tool": tool_name,
@@ -3476,6 +3505,11 @@ def _build_download_result(
         result["scope_resolution"] = scope_resolution
     if dl["warnings"]:
         result["warnings"] = dl["warnings"]
+    if dl.get("held_local_edits"):
+        result["local_edits_decision"] = local_edits_decision(
+            dl["held_local_edits"],
+            rerun or f"{tool_name}(scope='{scope}', on_local_edits='{{mode}}')",
+        )
     return result
 
 
@@ -3485,6 +3519,10 @@ def _build_download_result(
 class _ScopeDownloadParams(BaseModel):
     scope: str = Field(
         ..., description="Scope namespace (x_app) or app name; auto-resolved to the namespace."
+    )
+    on_local_edits: Literal["keep", "clean", "stash"] = Field(
+        default="keep",
+        description="Files with your edits: keep, clean (take server), stash (set aside, take server).",
     )
     max_records_per_type: int = Field(
         default=DEFAULT_DOWNLOAD_PER_TYPE,
@@ -3603,6 +3641,7 @@ def download_server_sources(
         extra_query=extra_q or None,
         skip_empty_source_retry=skip_empty_source_retry or None,
         emit_per_type=True,
+        on_local_edits=params.on_local_edits,
     )
     return _build_download_result(
         params.scope,
@@ -3611,6 +3650,7 @@ def download_server_sources(
         int((time.perf_counter() - started) * 1000),
         "download_server_sources",
         scope_resolution=scope_resolution,
+        rerun=_rerun_for(config, "download_server_sources", params),
     )
 
 
@@ -3818,6 +3858,10 @@ class DownloadAppSourcesParams(BaseModel):
     reconcile_deletions: bool = Field(
         default=False,
         description="Warn about local records deleted on the instance. No auto-delete.",
+    )
+    on_local_edits: Literal["keep", "clean", "stash"] = Field(
+        default="keep",
+        description="Files with your edits: keep, clean (take server), stash (set aside, take server).",
     )
     build_graph: bool = Field(
         default=False,
@@ -4106,6 +4150,7 @@ def download_app_sources(
     all_manifest_entries: List[Dict[str, Any]] = []
     all_warnings: List[str] = []
     all_deletion_candidates: Dict[str, List[str]] = {}
+    all_held: List[str] = []
     all_files = 0
     widget_summary: Optional[Dict[str, Any]] = None
     schema_summary: Optional[Dict[str, Any]] = None
@@ -4157,6 +4202,7 @@ def download_app_sources(
             all_manifest_entries.extend(p.get("manifest_entries") or [])
             all_warnings.extend(p.get("warnings") or [])
             all_deletion_candidates.update(p.get("deletion_candidates") or {})
+            all_held.extend(p.get("held_local_edits") or [])
             all_files += int(p.get("files") or 0)
             resumed.append(key)
             return p.get("extra") or {}
@@ -4164,6 +4210,7 @@ def download_app_sources(
         me0 = len(all_manifest_entries)
         wn0 = len(all_warnings)
         dc0 = set(all_deletion_candidates)
+        h0 = len(all_held)
         f0 = all_files
         extra = fn() or {}
         # Detect an auth failure surfaced by this stage (warnings or per-type
@@ -4194,6 +4241,7 @@ def download_app_sources(
                 "deletion_candidates": {
                     k: v for k, v in all_deletion_candidates.items() if k not in dc0
                 },
+                "held_local_edits": all_held[h0:],
                 "files": all_files - f0,
                 "extra": extra,
             },
@@ -4216,6 +4264,7 @@ def download_app_sources(
                 include_linked_script_includes=True,
                 incremental=params.incremental,
                 reconcile_deletions=params.reconcile_deletions,
+                on_local_edits=params.on_local_edits,
             )
             # Explicit retry: transient API errors surface as success=False.
             # Retry up to _RETRY_MAX_ATTEMPTS times before falling back.
@@ -4260,6 +4309,9 @@ def download_app_sources(
                 # are not lost when the orchestrator wraps the result.
                 for w in widget_summary.get("warnings") or []:
                     all_warnings.append(f"widget sources: {w}")
+                all_held.extend(
+                    (widget_summary.get("local_edits_decision") or {}).get("files") or []
+                )
                 portal_gone = widget_summary.get("deleted_widget_candidates") or []
                 if portal_gone:
                     all_deletion_candidates["widget"] = list(portal_gone)
@@ -4302,11 +4354,13 @@ def download_app_sources(
                     only_active=params.only_active,
                     incremental=params.incremental,
                     reconcile_deletions=params.reconcile_deletions,
+                    on_local_edits=params.on_local_edits,
                 )
                 all_type_results.update(dl["type_results"])
                 all_manifest_entries.extend(dl["manifest_entries"])
                 all_warnings.extend(dl["warnings"])
                 all_deletion_candidates.update(dl.get("deletion_candidates", {}))
+                all_held.extend(dl.get("held_local_edits") or [])
                 all_files += dl["total_files"]
             except Exception as exc:
                 all_warnings.append(f"widget sources fallback failed: {exc}")
@@ -4349,11 +4403,13 @@ def download_app_sources(
                 skip_empty_source_retry=set() if params.acl_script_only else {"acl"},
                 incremental=params.incremental,
                 reconcile_deletions=params.reconcile_deletions,
+                on_local_edits=params.on_local_edits,
             )
             all_type_results.update(dl["type_results"])
             all_manifest_entries.extend(dl["manifest_entries"])
             all_warnings.extend(dl["warnings"])
             all_deletion_candidates.update(dl.get("deletion_candidates", {}))
+            all_held.extend(dl.get("held_local_edits") or [])
             all_files += dl["total_files"]
             return {}
 
@@ -4382,11 +4438,13 @@ def download_app_sources(
             },
             incremental=params.incremental,
             reconcile_deletions=params.reconcile_deletions,
+            on_local_edits=params.on_local_edits,
         )
         gi = dl_global["type_results"].get("sp_instance", {"count": 0})
         all_type_results["sp_instance_global"] = gi
         all_warnings.extend(dl_global["warnings"])
         all_deletion_candidates.update(dl_global.get("deletion_candidates", {}))
+        all_held.extend(dl_global.get("held_local_edits") or [])
         all_files += dl_global["total_files"]
         return {}
 
@@ -4480,6 +4538,10 @@ def download_app_sources(
         summary["dep_summary"] = dep_summary
     if all_deletion_candidates:
         summary["deletion_candidates"] = all_deletion_candidates
+    if all_held:
+        summary["local_edits_decision"] = local_edits_decision(
+            sorted(set(all_held)), _rerun_for(config, "download_app_sources", params)
+        )
     if params.incremental:
         all_warnings.append(
             "incremental: each family's records were compared to the live server "

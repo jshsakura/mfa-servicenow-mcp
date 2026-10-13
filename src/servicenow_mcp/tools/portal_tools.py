@@ -10,7 +10,7 @@ import re
 from concurrent.futures import as_completed
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import BaseModel, Field
@@ -24,9 +24,20 @@ from ..utils.http_result import json_result
 from ..utils.progress import emit_progress
 from ..utils.registry import register_tool
 from ..utils.source_layout import FIELD_FILENAME, field_filename, normalize_source_eol
-from ..utils.sync_anchor import CONFLICT_MIRRORED, KEPT_LOCAL, REFRESHED, SyncMeta
-from ..utils.sync_anchor import field_sha as _field_sha
-from ..utils.sync_anchor import reconcile_field, sweep_legacy_baseline
+from ..utils.sync_anchor import (
+    CONFLICT_MIRRORED,
+    DISCARDED,
+    HELD_OUTCOMES,
+    IN_SYNC_OUTCOMES,
+    KEPT_LOCAL,
+    REFRESHED,
+    STASHED,
+    SyncMeta,
+    local_edits_decision,
+    reconcile_field,
+    rerun_call,
+    sweep_legacy_baseline,
+)
 from ..utils.workspace_roots import known_download_roots, record_download_root
 from .sn_api import (
     SYS_ID_IN_CHUNK,
@@ -45,18 +56,6 @@ logger = logging.getLogger(__name__)
 
 # filename -> field name, so a synced file resolves to the anchor key sync_tools uses.
 _FILENAME_FIELD = {v: k for k, v in FIELD_FILENAME.items()}
-
-
-def _portal_field_shas(record: Dict[str, Any], fields: tuple) -> Dict[str, str]:
-    """Per-field normalized content sha at download — the offline edit anchor read
-    by sync_tools so a freshly downloaded component attributes yours/theirs with
-    no network and no frozen snapshot (see utils/sync_anchor.py)."""
-    shas: Dict[str, str] = {}
-    for f in fields:
-        body = record.get(f)
-        if isinstance(body, str) and body.strip():
-            shas[f] = _field_sha(body)
-    return shas
 
 
 # Constants for Portal tables
@@ -238,6 +237,10 @@ class DownloadPortalSourcesParams(BaseModel):
     reconcile_deletions: bool = Field(
         default=False,
         description="Warn about local records deleted on the instance. No auto-delete.",
+    )
+    on_local_edits: Literal["keep", "clean", "stash"] = Field(
+        default="keep",
+        description="Files with your edits: keep, clean (take server), stash (set aside, take server).",
     )
 
 
@@ -3349,6 +3352,7 @@ def _download_linked_script_includes(
     scope_root: Path,
     emit_phases: bool,
     sync_source_file: Callable[[str, str, Path, str], None],
+    anchor_shas: Callable[[str, str], Dict[str, str]],
     out_of_sync_keys: Set[Tuple[str, str]],
     now_iso: str,
 ) -> List[Dict[str, str]]:
@@ -3390,7 +3394,7 @@ def _download_linked_script_includes(
                     "sys_updated_on": str(row.get("sys_updated_on") or ""),
                     "sys_updated_by": str(row.get("sys_updated_by") or ""),
                     "sys_mod_count": str(row.get("sys_mod_count") or ""),
-                    "field_shas": _portal_field_shas(row, ("script",)),
+                    "field_shas": anchor_shas("sys_script_include", name),
                     "downloaded_at": now_iso,
                 }
             exported.append(
@@ -3484,22 +3488,43 @@ def download_portal_sources(
     conflict_files: List[str] = []
     kept_edit_files: List[str] = []
     refreshed_files: List[str] = []
+    taken_files: Dict[str, List[str]] = {DISCARDED: [], STASHED: []}
+    held_paths: List[str] = []
     out_of_sync_keys: Set[Tuple[str, str]] = set()
 
-    # Prior per-field content-sha anchors, read once from the on-disk _sync_meta so
-    # reconcile can tell YOUR edits from server changes with no frozen snapshot.
+    # Prior per-field content-sha anchors (and the older bodies behind them), read
+    # once from the on-disk _sync_meta so reconcile can tell YOUR edits from server
+    # changes with no frozen snapshot.
     _prior_shas: Dict[Tuple[str, str], Dict[str, str]] = {}
+    _prior_history: Dict[Tuple[str, str], Dict[str, list]] = {}
     for _tbl in ("sp_widget", "sp_angular_provider", "sys_script_include"):
         for _key, _entry in read_download_map(scope_root / _tbl / "_sync_meta.json").items():
             if isinstance(_entry, dict) and _entry.get("field_shas"):
                 _prior_shas[(_tbl, _key)] = _entry["field_shas"]
+                _prior_history[(_tbl, _key)] = _entry.get("field_sha_history") or {}
+    # Anchors this run PROVED, per record: the sha reconcile returns for a field it
+    # left equal to the server. The anchor is built from these plus the prior shas
+    # of fields this run did not touch — never from the payload, which can carry a
+    # field (``script`` for SI discovery) that was never written to disk.
+    _synced_shas: Dict[Tuple[str, str], Dict[str, str]] = {}
 
     def _sync_source_file(table: str, meta_key: str, fpath: Path, content: str) -> None:
         field = _FILENAME_FIELD.get(fpath.name, fpath.stem)
         stored_sha = _prior_shas.get((table, meta_key), {}).get(field, "")
-        outcome, _sha = reconcile_field(fpath, content, stored_sha, legacy_overwrite=True)
+        outcome, sha = reconcile_field(
+            fpath,
+            content,
+            stored_sha,
+            legacy_overwrite=True,
+            known_shas=_prior_history.get((table, meta_key), {}).get(field) or (),
+            on_local_edits=params.on_local_edits,
+        )
         sweep_legacy_baseline(fpath.parent)  # self-tidy any pre-anchor _baseline/
         label = f"{table}/{fpath.parent.name}/{fpath.name}"
+        if outcome in IN_SYNC_OUTCOMES:
+            _synced_shas.setdefault((table, meta_key), {})[field] = sha
+        if outcome in HELD_OUTCOMES:
+            held_paths.append(str(fpath))
         if outcome == CONFLICT_MIRRORED:
             conflict_files.append(label)
             out_of_sync_keys.add((table, meta_key))
@@ -3508,6 +3533,14 @@ def download_portal_sources(
             out_of_sync_keys.add((table, meta_key))
         elif outcome == REFRESHED:
             refreshed_files.append(label)
+        elif outcome in taken_files:
+            taken_files[outcome].append(label)
+
+    def _anchor_shas(table: str, meta_key: str) -> Dict[str, str]:
+        return {
+            **_prior_shas.get((table, meta_key), {}),
+            **_synced_shas.get((table, meta_key), {}),
+        }
 
     _write_json_file(
         root / "_settings.json",
@@ -3763,9 +3796,7 @@ def download_portal_sources(
                 "sys_updated_on": str(widget.get("sys_updated_on") or ""),
                 "sys_updated_by": str(widget.get("sys_updated_by") or ""),
                 "sys_mod_count": str(widget.get("sys_mod_count") or ""),
-                "field_shas": _portal_field_shas(
-                    widget, ("template", "script", "client_script", "css", "link")
-                ),
+                "field_shas": _anchor_shas("sp_widget", _wid),
                 "downloaded_at": _now_iso,
             }
     merge_map_file(
@@ -3898,7 +3929,7 @@ def download_portal_sources(
                             "sys_updated_on": str(provider.get("sys_updated_on") or ""),
                             "sys_updated_by": str(provider.get("sys_updated_by") or ""),
                             "sys_mod_count": str(provider.get("sys_mod_count") or ""),
-                            "field_shas": _portal_field_shas(provider, ("script",)),
+                            "field_shas": _anchor_shas("sp_angular_provider", name),
                             "downloaded_at": _now_iso,
                         }
                 if sys_id:
@@ -3965,6 +3996,7 @@ def download_portal_sources(
         scope_root=scope_root,
         emit_phases=emit_phases,
         sync_source_file=_sync_source_file,
+        anchor_shas=_anchor_shas,
         out_of_sync_keys=out_of_sync_keys,
         now_iso=_now_iso,
     )
@@ -4015,6 +4047,15 @@ def download_portal_sources(
             f"kept your local edits on {len(kept_edit_files)} file(s) (server copy unchanged "
             f"since your last download/push): {shown}{more}"
         )
+    for _outcome, _verb in (
+        (DISCARDED, "took the server copy (edits dropped)"),
+        (STASHED, "took the server copy (edits set aside in _stash/)"),
+    ):
+        if taken_files[_outcome]:
+            warnings.append(
+                f"{_verb} on {len(taken_files[_outcome])} file(s): "
+                + ", ".join(taken_files[_outcome][:10])
+            )
     if refreshed_files:
         shown = ", ".join(refreshed_files[:10])
         more = "" if len(refreshed_files) <= 10 else f" (+{len(refreshed_files) - 10} more)"
@@ -4056,6 +4097,17 @@ def download_portal_sources(
         result["missing_widget_ids"] = missing_widget_tokens
     if scope_resolution:
         result["scope_resolution"] = scope_resolution
+    if held_paths:
+        from .sync_tools import _alias_for_instance_url
+
+        result["local_edits_decision"] = local_edits_decision(
+            held_paths,
+            rerun_call(
+                "download_portal_sources",
+                params.model_dump(exclude_defaults=True),
+                _alias_for_instance_url(config.instance_url),
+            ),
+        )
     return result
 
 

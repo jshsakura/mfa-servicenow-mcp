@@ -11,7 +11,7 @@ import time
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 from urllib.parse import urlencode
 
 from pydantic import BaseModel, Field
@@ -25,11 +25,15 @@ from ..utils.registry import register_tool
 from ..utils.sync_anchor import (
     BLANK_REMOTE_KEPT,
     CONFLICT_MIRRORED,
+    DISCARDED,
+    HELD_OUTCOMES,
     IN_SYNC_OUTCOMES,
     KEPT_LOCAL,
     LEGACY_KEPT,
+    LOCAL_EDITS_KEEP,
     MIRROR_ABSENT,
     REFRESHED,
+    STASHED,
     UNCHANGED,
     WRITTEN,
     SyncMeta,
@@ -38,9 +42,11 @@ from ..utils.sync_anchor import (
     cleanup_mirror,
     field_sha,
     is_mirror_artifact,
+    local_edits_decision,
     mirror_path_for,
     reconcile_field,
     refresh_mirror,
+    rerun_call,
 )
 from ..utils.text_diff import paged_diff
 from .portal_tools import (
@@ -262,6 +268,10 @@ class DiffLocalComponentParams(BaseModel):
     refresh: bool = Field(
         default=False,
         description="Fast-forward clean local files to the live server body; edits kept.",
+    )
+    on_local_edits: Literal["keep", "clean", "stash"] = Field(
+        default="keep",
+        description="With refresh, edited files: keep, clean (take server), stash (set aside first).",
     )
     hunk: Optional[int] = Field(
         default=None,
@@ -2083,6 +2093,8 @@ _REFRESH_BUCKETS: Dict[str, str] = {
     CONFLICT_MIRRORED: "conflicts_mirrored",
     LEGACY_KEPT: "kept_no_anchor",
     BLANK_REMOTE_KEPT: "kept_no_anchor",
+    DISCARDED: "took_server_dropped_edits",
+    STASHED: "took_server_stashed_edits",
 }
 
 
@@ -2091,8 +2103,14 @@ def _refresh_local_from_remote(
     remote_record: Dict[str, Any],
     table_dir: Path,
     meta: SyncMetaEntry,
+    *,
+    on_local_edits: str = LOCAL_EDITS_KEEP,
+    only_field: Optional[str] = None,
+    rerun: str = "",
 ) -> Dict[str, Any]:
-    """Fast-forward the local working copy to the live server body. Never clobbers.
+    """Fast-forward the local working copy to the live server body. Never clobbers
+    unless asked: ``on_local_edits`` (clean/stash) is the user's answer for edited
+    files, limited to ``only_field`` when one is named.
 
     The write side of diff, and the reason it is a flag rather than a bulk
     re-download: ``reconcile_field`` decides per FIELD, so a component with one
@@ -2109,8 +2127,10 @@ def _refresh_local_from_remote(
     moved" and hide the conflict for good.
     """
     stored = dict(meta.get("field_shas") or {})
+    history = meta.get("field_sha_history") or {}
     new_shas = dict(stored)
     buckets: Dict[str, List[str]] = {}
+    held: List[str] = []
     all_in_sync = bool(resolved.fields)
 
     for field_name, fpath in sorted(resolved.fields.items()):
@@ -2118,8 +2138,18 @@ def _refresh_local_from_remote(
         # an empty body is a real empty field, not the spurious blank a bulk query
         # can return.
         outcome, sha = reconcile_field(
-            fpath, str(remote_record.get(field_name) or ""), stored.get(field_name, "")
+            fpath,
+            str(remote_record.get(field_name) or ""),
+            stored.get(field_name, ""),
+            known_shas=history.get(field_name) or (),
+            on_local_edits=(
+                on_local_edits
+                if only_field is None or only_field == field_name
+                else LOCAL_EDITS_KEEP
+            ),
         )
+        if outcome in HELD_OUTCOMES:
+            held.append(str(fpath))
         if sha:
             new_shas[field_name] = sha
         if outcome not in IN_SYNC_OUTCOMES:
@@ -2156,6 +2186,13 @@ def _refresh_local_from_remote(
 
     out: Dict[str, Any] = {k: v for k, v in sorted(buckets.items())}
     out["sync_meta_updated"] = meta_updated
+    if held:
+        component = str(resolved.fields[sorted(resolved.fields)[0]].parent)
+        out["local_edits_decision"] = local_edits_decision(
+            held,
+            rerun
+            or f"diff_local_component(path='{component}', refresh=True, on_local_edits='{{mode}}')",
+        )
     return out
 
 
@@ -2480,6 +2517,17 @@ def diff_local_component(
         compare_to = Path(params.compare_to).expanduser().resolve()
         return _diff_against_compare_to(path, compare_to, params.context_lines)
 
+    if params.on_local_edits != LOCAL_EDITS_KEEP:
+        if not params.refresh:
+            return {"error": "on_local_edits applies to refresh; pass refresh=True with it."}
+        if params.cross_instance:
+            return {
+                "error": (
+                    "on_local_edits writes the server body into this copy; with cross_instance "
+                    "that would be ANOTHER instance's body. Refresh from the copy's own origin."
+                )
+            }
+
     # Refresh writes to disk per COMPONENT, so a root/scope/table dir has no single
     # component to fast-forward — say which tool does that instead of half-doing it.
     if params.refresh and path.is_dir():
@@ -2550,7 +2598,19 @@ def diff_local_component(
     # fast-forward has happened — never a picture of the state we just replaced.
     refresh_report: Optional[Dict[str, Any]] = None
     if params.refresh:
-        refresh_report = _refresh_local_from_remote(resolved, remote_record, table_dir, meta)
+        refresh_report = _refresh_local_from_remote(
+            resolved,
+            remote_record,
+            table_dir,
+            meta,
+            on_local_edits=params.on_local_edits,
+            only_field=params.field,
+            rerun=rerun_call(
+                "diff_local_component",
+                params.model_dump(exclude_defaults=True),
+                _alias_for_instance_url(config.instance_url),
+            ),
+        )
         meta = _read_sync_meta(table_dir).get(resolved.name, {})
 
     local_updated_on = meta.get("sys_updated_on", "")

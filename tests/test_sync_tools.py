@@ -4460,6 +4460,53 @@ class TestDiffRefreshFastForward:
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_held_edit_asks_and_clean_answer_takes_the_server(
+        self, mock_fetch, mock_sn_query, mock_config, mock_auth, download_root
+    ):
+        """A held edit comes back as a question with ready calls; answering
+        'clean' takes the server body and the record is in sync again — no
+        folder deletion needed to get out of the edited state."""
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        self._anchor(widget_dir, **{"script.js": "var x = 1;"})
+        (widget_dir / "script.js").write_text("var x = 2; // mine", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "script": "var x = 99; // theirs",
+            "sys_updated_on": "2025-01-20 08:00:00",
+            "sys_updated_by": "bob",
+            "sys_mod_count": "9",
+        }
+        path = str(widget_dir / "script.js")
+
+        asked = diff_local_component(
+            mock_config, mock_auth, DiffLocalComponentParams(path=path, refresh=True)
+        )
+        decision = asked["refresh"]["local_edits_decision"]
+        assert decision["files"] == [path]
+        assert "on_local_edits='clean'" in decision["options"]["clean"]
+
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=path, refresh=True, on_local_edits="clean"),
+        )
+        assert (widget_dir / "script.js").read_text(encoding="utf-8") == "var x = 99; // theirs"
+        assert not (widget_dir / "script.remote.js").exists()
+        assert result["refresh"]["took_server_dropped_edits"] == ["script"]
+        assert "local_edits_decision" not in result["refresh"]
+        assert _read_sync_meta(widget_dir.parent)["my-widget"]["sys_mod_count"] == "9"
+
+    def test_on_local_edits_needs_refresh(self, mock_config, mock_auth, download_root):
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_dir / "script.js"), on_local_edits="stash"),
+        )
+        assert "refresh=True" in result["error"]
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_true_conflict_mirrors_the_server_and_holds_the_watermark(
         self, mock_fetch, mock_sn_query, mock_config, mock_auth, download_root
     ):

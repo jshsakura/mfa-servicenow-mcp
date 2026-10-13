@@ -1,5 +1,6 @@
 """Extra tests for portal_tools.py — covering missed branches and helper functions."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -2111,3 +2112,118 @@ class TestHelperFunctions:
     def test_field_change_summary_unchanged(self):
         result = _build_field_change_summary("script", "same", "same")
         assert result["changed"] is False
+
+
+# ---------------------------------------------------------------------------
+# download_portal_sources — the anchor describes the FILES, and held edits ask
+# ---------------------------------------------------------------------------
+
+
+def _widget_row(**fields):
+    row = {
+        "sys_id": "aaaa1111bbbb2222cccc3333dddd4444",
+        "name": "Simple Widget",
+        "id": "simple_widget",
+        "sys_scope": "x_app",
+        "template": "<div></div>",
+        "script": "var x = 1;",
+        "client_script": "",
+        "link": "",
+        "css": "",
+        "option_schema": "",
+        "demo_data": "",
+        "sys_mod_count": "3",
+        "sys_updated_on": "2026-01-01 00:00:00",
+    }
+    row.update(fields)
+    return row
+
+
+def _widget_meta(scope_root):
+    return json.loads((scope_root / "sp_widget" / "_sync_meta.json").read_text())["simple_widget"]
+
+
+class TestPortalDownloadAnchors:
+    @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+    def test_payload_field_never_written_does_not_move_its_anchor(
+        self, mock_qa, mock_config, mock_auth_manager, tmp_path
+    ):
+        """``script`` rides along for SI discovery without being written. Recording
+        the payload's sha made the old script.js read as "your edit" — a push
+        would then revert the server."""
+        from servicenow_mcp.utils.sync_anchor import field_sha
+
+        scope_root = tmp_path / "x_app"
+        wdir = scope_root / "sp_widget" / "simple_widget"
+        wdir.mkdir(parents=True)
+        (wdir / "script.js").write_text("old body", encoding="utf-8")
+        (scope_root / "sp_widget" / "_sync_meta.json").write_text(
+            json.dumps(
+                {"simple_widget": {"sys_id": "x", "field_shas": {"script": field_sha("old body")}}}
+            )
+        )
+        mock_qa.return_value = [_widget_row(script="new server body")]
+        download_portal_sources(
+            mock_config,
+            mock_auth_manager,
+            DownloadPortalSourcesParams(
+                output_dir=str(scope_root),
+                scope="x_app",
+                include_widget_server_script=False,
+                include_linked_script_includes=True,
+            ),
+        )
+        assert (wdir / "script.js").read_text(encoding="utf-8") == "old body"
+        assert _widget_meta(scope_root)["field_shas"]["script"] == field_sha("old body")
+
+    @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+    def test_blank_field_is_anchored_so_an_edit_to_it_survives(
+        self, mock_qa, mock_config, mock_auth_manager, tmp_path
+    ):
+        """A blank field used to get no anchor, so code written into it later was
+        overwritten as an unanchored legacy file on the next download."""
+        from servicenow_mcp.utils.sync_anchor import field_sha
+
+        scope_root = tmp_path / "x_app"
+        params = DownloadPortalSourcesParams(output_dir=str(scope_root), scope="x_app")
+        mock_qa.return_value = [_widget_row()]
+        download_portal_sources(mock_config, mock_auth_manager, params)
+        assert _widget_meta(scope_root)["field_shas"]["link"] == field_sha("")
+
+        link = scope_root / "sp_widget" / "simple_widget" / "link.js"
+        link.write_text("function link() {}", encoding="utf-8")
+        result = download_portal_sources(mock_config, mock_auth_manager, params)
+        assert link.read_text(encoding="utf-8") == "function link() {}"
+        decision = result["local_edits_decision"]
+        assert decision["files"] == [str(link)]
+        assert "on_local_edits='stash'" in decision["options"]["stash"]
+        # The rerun must target THIS tree: a call without output_dir would land on
+        # the default path and never touch the held files.
+        assert f"output_dir={str(scope_root)!r}" in decision["options"]["stash"]
+
+    @patch("servicenow_mcp.tools.portal_tools.sn_query_all")
+    def test_stash_answer_takes_server_and_sets_edit_aside(
+        self, mock_qa, mock_config, mock_auth_manager, tmp_path
+    ):
+        scope_root = tmp_path / "x_app"
+        mock_qa.return_value = [_widget_row()]
+        download_portal_sources(
+            mock_config,
+            mock_auth_manager,
+            DownloadPortalSourcesParams(output_dir=str(scope_root), scope="x_app"),
+        )
+        script = scope_root / "sp_widget" / "simple_widget" / "script.js"
+        script.write_text("my edit", encoding="utf-8")
+        result = download_portal_sources(
+            mock_config,
+            mock_auth_manager,
+            DownloadPortalSourcesParams(
+                output_dir=str(scope_root), scope="x_app", on_local_edits="stash"
+            ),
+        )
+        assert script.read_text(encoding="utf-8") == "var x = 1;"
+        stash = tmp_path / "_stash" / "x_app" / "sp_widget" / "simple_widget" / "script.js"
+        assert stash.read_text(encoding="utf-8") == "my edit"
+        assert "local_edits_decision" not in result
+        # Back in sync: the record took the live stamps again.
+        assert _widget_meta(scope_root)["sys_mod_count"] == "3"

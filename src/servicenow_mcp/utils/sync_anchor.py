@@ -24,13 +24,22 @@ from __future__ import annotations
 import hashlib
 import shutil
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Iterable, Tuple
 
 from servicenow_mcp.utils.atomic_io import atomic_write_text
 from servicenow_mcp.utils.source_layout import field_filename, normalize_source_eol
 
 MIRROR_MARKER = ".remote"
 LEGACY_BASELINE_DIRNAME = "_baseline"
+STASH_DIRNAME = "_stash"
+
+# What a (re)download does with a file that carries YOUR edits. The tool never
+# picks for you: KEEP is the default, and the other two are the user's answer to
+# the question the tool asks whenever it held an edit back.
+LOCAL_EDITS_KEEP = "keep"  # leave the edit in place (mirror on a real conflict)
+LOCAL_EDITS_CLEAN = "clean"  # take the server body; the edit is dropped
+LOCAL_EDITS_STASH = "stash"  # take the server body; the edit is set aside first
+LOCAL_EDITS_MODES = (LOCAL_EDITS_KEEP, LOCAL_EDITS_CLEAN, LOCAL_EDITS_STASH)
 
 # One component's _sync_meta entry: the scalar stamps (sys_id, sys_updated_on,
 # sys_updated_by, sys_mod_count, downloaded_at) AND the nested per-field sha map
@@ -220,9 +229,47 @@ CONFLICT_MIRRORED = "conflict_mirrored"  # local edits AND server moved -> mirro
 LEGACY_KEPT = "legacy_kept"  # no anchor, caller policy = preserve local
 BLANK_REMOTE_KEPT = "blank_remote_kept"  # remote body blank/unknown -> untouched
 
+DISCARDED = "discarded"  # local edits dropped on request -> server body written
+STASHED = "stashed"  # local edits set aside on request -> server body written
+
 # Outcomes after which the local file provably equals the current remote body, so
 # the caller may record the returned sha + bump the mod_count watermark.
-IN_SYNC_OUTCOMES = frozenset({WRITTEN, UNCHANGED, REFRESHED})
+IN_SYNC_OUTCOMES = frozenset({WRITTEN, UNCHANGED, REFRESHED, DISCARDED, STASHED})
+# Outcomes where an edit of yours was held back — the ones that need a decision.
+HELD_OUTCOMES = frozenset({KEPT_LOCAL, CONFLICT_MIRRORED, LEGACY_KEPT})
+
+
+def stash_path_for(file_path: Path) -> Path:
+    """Where a set-aside edit goes: ``<parent>/_stash/<scope>/<table>/<name>/<file>``.
+
+    Outside the scope root on purpose: every tree scanner walks the scope root,
+    and a stashed body inside it would be read as a component. One slot per file
+    — a later stash of the same file replaces the earlier one, so stashes never
+    pile up. Plain files, no git assumed.
+    """
+    record_dir = file_path.parent
+    scope_root = record_dir.parent.parent
+    return (
+        scope_root.parent
+        / STASH_DIRNAME
+        / scope_root.name
+        / record_dir.parent.name
+        / record_dir.name
+        / file_path.name
+    )
+
+
+def _take_remote(file_path: Path, remote: str, mode: str) -> str:
+    """Replace a held local file with the server body, per the user's answer."""
+    outcome = DISCARDED
+    if mode == LOCAL_EDITS_STASH:
+        stash = stash_path_for(file_path)
+        stash.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(file_path, stash)
+        outcome = STASHED
+    _write_local(file_path, remote)
+    cleanup_mirror(file_path)
+    return outcome
 
 
 def _write_local(file_path: Path, content: str) -> None:
@@ -237,6 +284,8 @@ def reconcile_field(
     *,
     legacy_overwrite: bool = False,
     blank_remote_is_unknown: bool = False,
+    known_shas: Iterable[str] = (),
+    on_local_edits: str = LOCAL_EDITS_KEEP,
 ) -> Tuple[str, str]:
     """Two-copy reconcile of one field on (re)download. Never clobbers local edits.
 
@@ -250,7 +299,42 @@ def reconcile_field(
     incremental refresh may overwrite the local copy we cannot prove is unedited.
     ``blank_remote_is_unknown``: some bulk queries return empty bodies spuriously;
     when set, a blank remote leaves the local file (and anchor) untouched.
+    ``known_shas``: older bodies the server has held for this field (the anchor's
+    ``field_sha_history``). A local copy equal to one of them is a copy that fell
+    behind, not an edit: nothing in it is yours, so it fast-forwards like a clean
+    file. Without this, a file whose anchor had moved past it (an anchor recorded
+    from a payload the file never received) read as "your edit" forever and could
+    only be cleared by deleting the folder.
+    ``on_local_edits``: the user's answer for a file that carries edits — KEEP
+    (default), CLEAN or STASH. Never applied to a blank remote under
+    ``blank_remote_is_unknown``: a spurious blank is not a server body to take.
     """
+    outcome, sha = _reconcile(
+        file_path,
+        remote_content,
+        stored_sha,
+        legacy_overwrite=legacy_overwrite,
+        blank_remote_is_unknown=blank_remote_is_unknown,
+        known_shas=known_shas,
+    )
+    if outcome in HELD_OUTCOMES and on_local_edits in (LOCAL_EDITS_CLEAN, LOCAL_EDITS_STASH):
+        remote = remote_content if isinstance(remote_content, str) else ""
+        try:
+            return _take_remote(file_path, remote, on_local_edits), field_sha(remote)
+        except OSError:
+            return outcome, sha  # could not set it aside -> leave the edit alone
+    return outcome, sha
+
+
+def _reconcile(
+    file_path: Path,
+    remote_content: str,
+    stored_sha: str,
+    *,
+    legacy_overwrite: bool,
+    blank_remote_is_unknown: bool,
+    known_shas: Iterable[str],
+) -> Tuple[str, str]:
     remote = remote_content if isinstance(remote_content, str) else ""
     remote_sha = field_sha(remote)
 
@@ -274,6 +358,13 @@ def reconcile_field(
     if local_sha == remote_sha:
         cleanup_mirror(file_path)
         return UNCHANGED, remote_sha
+
+    # A body the server held before is not an edit — it is a copy that fell behind.
+    # Proven from the record's own history, so it holds even with no current anchor.
+    if local_sha in {h for h in known_shas if isinstance(h, str) and h}:
+        _write_local(file_path, remote)
+        cleanup_mirror(file_path)
+        return REFRESHED, remote_sha
 
     # No anchor: we cannot PROVE whether the local copy carries edits.
     if not stored_sha:
@@ -300,3 +391,48 @@ def reconcile_field(
     # an always-fresh mirror of the CURRENT server body next to it for manual merge.
     atomic_write_text(mirror_path_for(file_path), normalize_source_eol(remote))
     return CONFLICT_MIRRORED, stored_sha
+
+
+def rerun_call(tool: str, args: Dict[str, Any], instance_alias: str = "") -> str:
+    """The caller's own call again, with ``{mode}`` where the answer goes.
+
+    Built from the arguments the caller actually passed: a rerun that dropped
+    ``output_dir`` or ``instance`` would land on a DIFFERENT tree (the default
+    path, the active instance) — and with an explicit ``output_dir`` it would
+    write another instance's bodies into this one. ``instance`` is stripped by the
+    router before the tool runs, so it is passed back in explicitly.
+    """
+    parts = [f"{k}={v!r}" for k, v in args.items() if k != "on_local_edits"]
+    if instance_alias:
+        parts.append(f"instance={instance_alias!r}")
+    parts.append("on_local_edits='{mode}'")
+    return f"{tool}({', '.join(parts)})"
+
+
+def local_edits_decision(held: list, rerun_call: str) -> Dict[str, Any]:
+    """The question a download/refresh asks when it held edits back.
+
+    Held edits used to be reported and then left to pile up, and the only way to
+    clear them was deleting the folder and downloading again. Which way to go is
+    the user's call, so it is asked — with each answer as a ready call.
+    ``rerun_call`` is the same call with ``{mode}`` where the answer goes.
+    """
+    return {
+        "question": (
+            f"{len(held)} file(s) carry your local edits and were left as they are. "
+            "Keep working on them, or take the server copy?"
+        ),
+        "files": list(held),
+        "options": {
+            LOCAL_EDITS_KEEP: "Leave them; push with update_remote_from_local when ready.",
+            LOCAL_EDITS_CLEAN: (
+                "Take the server copy, dropping the edits: "
+                + rerun_call.replace("{mode}", LOCAL_EDITS_CLEAN)
+            ),
+            LOCAL_EDITS_STASH: (
+                f"Take the server copy, edits copied to {STASH_DIRNAME}/ first "
+                "(one slot per file, beside the scope folder): "
+                + rerun_call.replace("{mode}", LOCAL_EDITS_STASH)
+            ),
+        },
+    }

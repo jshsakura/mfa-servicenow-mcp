@@ -8,20 +8,30 @@ from servicenow_mcp.tools.sync_tools import _normalize_for_compare
 from servicenow_mcp.utils.sync_anchor import (
     BLANK_REMOTE_KEPT,
     CONFLICT_MIRRORED,
+    DISCARDED,
+    IN_SYNC_OUTCOMES,
     KEPT_LOCAL,
     LEGACY_KEPT,
+    LOCAL_EDITS_CLEAN,
+    LOCAL_EDITS_KEEP,
+    LOCAL_EDITS_STASH,
     MIRROR_ABSENT,
     MIRROR_CURRENT,
     MIRROR_REFRESHED,
     REFRESHED,
+    STASH_DIRNAME,
+    STASHED,
     UNCHANGED,
     WRITTEN,
     field_sha,
     is_mirror_artifact,
+    local_edits_decision,
     mirror_path_for,
     normalize_for_hash,
     reconcile_field,
     refresh_mirror,
+    rerun_call,
+    stash_path_for,
     sweep_legacy_baseline,
 )
 
@@ -208,3 +218,99 @@ class TestMirrorFreshness:
 
         assert refresh_mirror(f, "theirs") == MIRROR_ABSENT
         assert not mirror_path_for(f).exists()
+
+
+class TestLocalEditChoices:
+    """Held edits must have a way out other than deleting the folder — and which
+    way is the user's answer, never the tool's guess."""
+
+    def _tree(self, tmp_path, body):
+        fpath = tmp_path / "x_app" / "sp_widget" / "w" / "script.js"
+        fpath.parent.mkdir(parents=True)
+        fpath.write_text(body, encoding="utf-8")
+        return fpath
+
+    def test_old_server_body_is_a_stale_copy_not_an_edit(self, tmp_path):
+        # The anchor moved past the file (recorded from a body the file never got);
+        # the file still holds a body the server once had -> fast-forward it.
+        fpath = self._tree(tmp_path, "v1")
+        outcome, sha = reconcile_field(fpath, "v2", field_sha("v2"), known_shas=[field_sha("v1")])
+        assert outcome == REFRESHED
+        assert fpath.read_text(encoding="utf-8") == "v2"
+        assert sha == field_sha("v2")
+
+    def test_history_does_not_cover_a_real_edit(self, tmp_path):
+        fpath = self._tree(tmp_path, "mine")
+        outcome, _ = reconcile_field(fpath, "v1", field_sha("v1"), known_shas=[field_sha("v0")])
+        assert outcome == KEPT_LOCAL
+        assert fpath.read_text(encoding="utf-8") == "mine"
+
+    def test_keep_is_the_default(self, tmp_path):
+        fpath = self._tree(tmp_path, "mine")
+        outcome, _ = reconcile_field(fpath, "theirs", field_sha("base"))
+        assert outcome == CONFLICT_MIRRORED
+        assert fpath.read_text(encoding="utf-8") == "mine"
+
+    def test_clean_takes_server_and_clears_mirror(self, tmp_path):
+        fpath = self._tree(tmp_path, "mine")
+        mirror_path_for(fpath).write_text("stale", encoding="utf-8")
+        outcome, sha = reconcile_field(
+            fpath, "theirs", field_sha("base"), on_local_edits=LOCAL_EDITS_CLEAN
+        )
+        assert outcome == DISCARDED
+        assert outcome in IN_SYNC_OUTCOMES
+        assert sha == field_sha("theirs")
+        assert fpath.read_text(encoding="utf-8") == "theirs"
+        assert not mirror_path_for(fpath).exists()
+        assert not (tmp_path / STASH_DIRNAME).exists()
+
+    def test_stash_sets_edit_aside_outside_scope_root(self, tmp_path):
+        fpath = self._tree(tmp_path, "mine")
+        outcome, _ = reconcile_field(
+            fpath, "theirs", field_sha("theirs"), on_local_edits=LOCAL_EDITS_STASH
+        )
+        assert outcome == STASHED
+        stash = tmp_path / STASH_DIRNAME / "x_app" / "sp_widget" / "w" / "script.js"
+        assert stash_path_for(fpath) == stash
+        assert stash.read_text(encoding="utf-8") == "mine"
+        assert fpath.read_text(encoding="utf-8") == "theirs"
+
+    def test_stash_keeps_one_slot_per_file(self, tmp_path):
+        fpath = self._tree(tmp_path, "first")
+        reconcile_field(fpath, "s1", field_sha("s1"), on_local_edits=LOCAL_EDITS_STASH)
+        fpath.write_text("second", encoding="utf-8")
+        reconcile_field(fpath, "s2", field_sha("s1"), on_local_edits=LOCAL_EDITS_STASH)
+        stashed = list((tmp_path / STASH_DIRNAME).rglob("*.js"))
+        assert len(stashed) == 1
+        assert stashed[0].read_text(encoding="utf-8") == "second"
+
+    def test_spurious_blank_is_never_taken(self, tmp_path):
+        fpath = self._tree(tmp_path, "mine")
+        outcome, _ = reconcile_field(
+            fpath,
+            "",
+            field_sha("base"),
+            blank_remote_is_unknown=True,
+            on_local_edits=LOCAL_EDITS_CLEAN,
+        )
+        assert outcome == BLANK_REMOTE_KEPT
+        assert fpath.read_text(encoding="utf-8") == "mine"
+
+    def test_decision_offers_three_ready_calls(self):
+        d = local_edits_decision(["/a/script.js"], "dl(scope='x', on_local_edits='{mode}')")
+        assert d["files"] == ["/a/script.js"]
+        assert set(d["options"]) == {LOCAL_EDITS_KEEP, LOCAL_EDITS_CLEAN, LOCAL_EDITS_STASH}
+        assert "on_local_edits='clean'" in d["options"][LOCAL_EDITS_CLEAN]
+        assert "on_local_edits='stash'" in d["options"][LOCAL_EDITS_STASH]
+
+
+def test_rerun_call_carries_caller_args_and_instance():
+    call = rerun_call(
+        "download_portal_sources",
+        {"scope": "x_app", "output_dir": "/t/x_app", "on_local_edits": "keep"},
+        "test",
+    )
+    assert call == (
+        "download_portal_sources(scope='x_app', output_dir='/t/x_app', "
+        "instance='test', on_local_edits='{mode}')"
+    )
