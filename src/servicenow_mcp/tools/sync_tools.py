@@ -219,6 +219,10 @@ _CONFLICT_DIFF_CONTEXT = 3
 # Versions to read back when asking the server who changed a record since your
 # anchor. Only needs enough to answer "was anyone but me in here", not a full log.
 _EDITOR_HISTORY_LIMIT = 20
+# How far a record's own sys_update_version row may trail its sys_updated_on.
+# The version is written after the record save — measured 1s on a live instance —
+# so the version your copy was taken FROM sits just past your anchor timestamp.
+_ANCHOR_VERSION_SKEW_S = 5
 # "Not asked" — never confused with "asked and came back clean".
 _NO_EDITOR_HISTORY: Dict[str, Any] = {
     "checked": False,
@@ -1352,6 +1356,7 @@ def _editors_since(
     since: str,
     me: str,
     me_confirmed: bool,
+    since_by: str = "",
 ) -> Dict[str, Any]:
     """WHO changed this record on the server after ``since`` — asked of the server.
 
@@ -1393,6 +1398,17 @@ def _editors_since(
     that is wrong (or unsupported on some instance) fails by returning nothing —
     which would read as "no other editor", turning a broken query into a safety
     claim. Cutting locally cannot fail that direction.
+
+    The cut has one known skew: a version row is written AFTER the record save,
+    so the version your copy was taken from can carry ``sys_created_on`` a second
+    past ``since`` (the record's ``sys_updated_on``). Cut strictly, that row reads
+    as an edit made after your copy, and its author — the person whose version you
+    downloaded — is named as having changed the record since. ``since_by`` (the
+    anchor's recorded editor) identifies it: the OLDEST row in range, by that
+    editor, within ``_ANCHOR_VERSION_SKEW_S`` of ``since`` is the anchor's own
+    version and is not counted. Only the oldest, so a later real edit by the
+    same person still counts; with no ``since_by`` nothing is dropped and the
+    answer stays the over-reporting one.
     """
     out: Dict[str, Any] = {
         "checked": False,
@@ -1424,8 +1440,7 @@ def _editors_since(
     rows = rows_of(resp)
     # Fewer rows than the cap => the server had no more to give => fully covered.
     complete = len(rows) < _EDITOR_HISTORY_LIMIT
-    others: List[str] = []
-    counted = 0
+    in_range: List[Tuple[str, str]] = []
     for row in rows:
         when = _display_str(row.get("sys_created_on")).strip()
         if since and when and when <= since:
@@ -1433,12 +1448,18 @@ def _editors_since(
             # been seen, so the range IS covered however many rows follow.
             complete = True
             break
-        counted += 1
-        if not out["attributable"]:
-            continue
-        who = _display_str(row.get("sys_created_by")).strip()
-        if who and who != me and who not in others:
-            others.append(who)
+        in_range.append((when, _display_str(row.get("sys_created_by")).strip()))
+    if in_range and _is_anchor_version(in_range[-1], since, since_by):
+        # The version your copy came from, written a beat after the record save.
+        # Reaching it means the range back to the anchor is covered.
+        in_range.pop()
+        complete = True
+    others: List[str] = []
+    if out["attributable"]:
+        for _, who in in_range:
+            if who and who != me and who not in others:
+                others.append(who)
+    counted = len(in_range)
     return {
         "checked": True,
         # The change we know happened has to be IN there for the answer to mean
@@ -1448,6 +1469,20 @@ def _editors_since(
         "others": others,
         "versions": counted,
     }
+
+
+def _is_anchor_version(row: Tuple[str, str], since: str, since_by: str) -> bool:
+    """Is this history row the version your anchor was taken from? See _editors_since."""
+    when, who = row
+    if not (since and since_by and who == since_by):
+        return False
+    try:
+        fmt = "%Y-%m-%d %H:%M:%S"
+        lag = (datetime.strptime(when, fmt) - datetime.strptime(since, fmt)).total_seconds()
+    except ValueError:
+        # An unparseable stamp proves nothing either way; keep the row counted.
+        return False
+    return 0 < lag <= _ANCHOR_VERSION_SKEW_S
 
 
 def _record_update_set_hold(
@@ -2645,6 +2680,7 @@ def diff_local_component(
             local_updated_on,
             me,
             me_confirmed,
+            since_by=meta.get("sys_updated_by", ""),
         )
         if drift["drifted"]
         else _NO_EDITOR_HISTORY
@@ -3122,6 +3158,7 @@ def update_remote_from_local(
             local_updated_on,
             me,
             me_confirmed,
+            since_by=meta.get("sys_updated_by", ""),
         )
         if drifted
         else _NO_EDITOR_HISTORY
@@ -3446,13 +3483,17 @@ def update_remote_from_local(
             # Name who the history actually implicates. The last-stamp holder can
             # be you while the work at stake is someone else's — logging
             # sys_updated_by would record the overwrite against the wrong person.
+            # The last stamp is logged with ITS OWN editor: pairing the history's
+            # names with the last stamp's time attributed one person's save to
+            # another (your own UI save logged as a coworker's edit).
             logger.warning(
-                "force=true overwriting %s's edit on %s/%s (%s, updated %s)",
+                "force=true overwriting work by %s on %s/%s (%s; last stamp %s by %s)",
                 ", ".join(editors["others"]) or remote_updated_by,
                 resolved.table,
                 resolved.name,
                 resolved.sys_id,
                 remote_updated_on,
+                remote_updated_by or "unknown",
             )
 
     # 3. update_data was built above (with the magnitude used for risk scoring).
@@ -3598,40 +3639,43 @@ def update_remote_from_local(
 
         if is_acl:
             # Report the FACTS, not a guessed cause. A Table-API 403 does not tell
-            # us WHY, so we lead with what is certain, name the most-likely cause
-            # for this table type, and give a remedy that holds regardless of cause.
-            # The record_hold is surfaced as CONTEXT — an open update set tracks
-            # changes, it does not by itself lock a record against a write, so it is
-            # deliberately NOT presented as the cause (that sent users chasing the
-            # wrong fix).
+            # us WHY, so we lead with what is certain and name candidates, never a
+            # verdict — in EITHER direction. Asserting the update-set hold as the
+            # cause sent users chasing it on sp_* tables where it was not; asserting
+            # it was NOT the cause ("don't wait on any update set", "verify roles")
+            # was just as unread, and was measured wrong: in one session and scope,
+            # exactly the records held in another user's open set 403'd while their
+            # siblings saved, and a save in the caller's own set cleared it.
             is_sp = resolved.table.startswith("sp_")
             parts = [
                 f"HTTP 403: ServiceNow received the Table-API write to "
                 f"{resolved.table}/{resolved.sys_id} on '{active}' and rejected it. Local files "
                 "and _sync_meta are UNCHANGED. A Table-API 403 does not report its own cause."
             ]
+            if record_hold:
+                parts.append(
+                    f"Candidate cause (not confirmed): this record is held by "
+                    f"'{record_hold['held_by']}' in the still-open update set "
+                    f"'{record_hold['update_set']}', which is not yours. Records held this way "
+                    "have been seen to 403 while other records in the same session, scope and "
+                    "update set saved — so roles are not the first suspect. It is a leftover "
+                    "uncommitted change, not a sign anyone is editing now."
+                )
             if is_sp:
                 parts.append(
-                    f"Most likely cause: '{resolved.table}' is a Service Portal table whose write "
+                    f"{'Other candidate' if record_hold else 'Most likely cause'}: "
+                    f"'{resolved.table}' is a Service Portal table whose write "
                     "is gated by protections beyond role/ACL — a script-field source-context "
                     "(Referer) check, sys_policy record protection, or a condition-scripted field "
                     "ACL — that the generic Table API cannot satisfy. This routinely passes on one "
                     "instance and 403s on another with identical roles (works on dev, blocked on "
                     "test)."
                 )
-            else:
+            elif not record_hold:
                 parts.append(
                     "Likely cause: the account lacks write ACL on this table/scope on the target "
                     "instance — verify roles. The session scope was already aligned, so do NOT "
                     "blindly retry."
-                )
-            if record_hold:
-                parts.append(
-                    f"Context (NOT a confirmed cause): this record was last changed by "
-                    f"'{record_hold['held_by']}' in the still-open update set "
-                    f"'{record_hold['update_set']}'. An open update set only TRACKS changes; it "
-                    "does not by itself lock a record against a Table-API write — so do not assume "
-                    "closing it will unblock this push."
                 )
             remedy = (
                 "Reliable paths (independent of the exact cause): "
@@ -3657,12 +3701,22 @@ def update_remote_from_local(
         if is_acl:
             ui_name = "SP Designer" if resolved.table.startswith("sp_") else "record form (Studio)"
             blocked_reason = "target_write_acl_denied"
-            recommended_action = (
-                f"Edit '{resolved.name}' directly in the {active} UI ({ui_name}), then re-run "
-                f"diff_local_component to verify. Do NOT retry this Table-API push and do NOT wait "
-                f"on any user's update set — neither changes this ACL result. Only a role/ACL fix "
-                f"on '{active}' (or the UI edit) will land it."
-            )
+            if record_hold:
+                recommended_action = (
+                    f"Open '{resolved.name}' in the {active} UI ({ui_name}) with the record's "
+                    f"application selected, choose to continue in YOUR current update set when "
+                    f"warned about '{record_hold['update_set']}', and make the edit there. That "
+                    f"save puts the record in your update set; then re-run diff_local_component — "
+                    f"anything still pending can be pushed again. Do NOT blind-retry this push "
+                    f"before that save, and do not wait on the other user: nobody has to be editing "
+                    f"for an open set to hold a record."
+                )
+            else:
+                recommended_action = (
+                    f"Edit '{resolved.name}' directly in the {active} UI ({ui_name}), then re-run "
+                    f"diff_local_component to verify. Do NOT retry this Table-API push unchanged — "
+                    f"a role/ACL fix on '{active}' or the UI edit is what lands it."
+                )
         else:
             blocked_reason = "target_rejected_write"
             recommended_action = (

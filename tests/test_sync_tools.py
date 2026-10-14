@@ -1538,17 +1538,21 @@ class TestUpdateRemoteFromLocal:
         assert result["record_hold"]["held_by"] == "other.dev"
         assert result["record_hold"]["update_set"] == "Sprint 12 fixes"
         hint = result["hint"].lower()
-        # The hold is surfaced as CONTEXT, never asserted as the 403's cause — an
-        # open update set does not lock a record against a Table-API write.
+        # The hold is named as a CANDIDATE, neither asserted as the cause nor ruled
+        # out. Ruling it out ("does not lock", "verify roles") was measured wrong:
+        # the held records were exactly the ones that 403'd.
         assert "other.dev" in hint
-        assert "not a confirmed cause" in hint
-        assert "does not by itself lock" in hint
-        # Deterministic next step: a single action, and an explicit "do not chase
-        # the update set / do not blind-retry" so the caller cannot loop on a dead end.
+        assert "candidate cause (not confirmed)" in hint
+        assert "does not by itself lock" not in hint
+        assert "verify roles" not in hint
+        # Deterministic next step: the save that moves the record into the
+        # caller's own set, then re-diff — never "don't bother with the update set".
         assert result["blocked_reason"] == "target_write_acl_denied"
         action = result["recommended_action"].lower()
-        assert "do not wait on any user's update set" in action
-        assert "do not retry this table-api push" in action
+        assert "do not wait on any user's update set" not in action
+        assert "your current update set" in action
+        assert "sprint 12 fixes" in action
+        assert "diff_local_component" in action
         assert "ui" in action
         mock_write_meta.assert_not_called()
 
@@ -3636,6 +3640,96 @@ class TestEditorHistoryLimits:
         assert out["complete"] is True
         assert out["versions"] == 1  # only the one version after the anchor counts
         assert out["others"] == []  # bob's edit predates your copy — not a conflict
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_the_version_your_copy_came_from_is_not_an_edit_since(
+        self, mock_query, mock_config, mock_auth
+    ):
+        """The version row is written a beat after the record save.
+
+        Measured live: record sys_updated_on 01:38:49, its version row 01:38:50.
+        Cut strictly, the author of the version you DOWNLOADED was named as having
+        changed the record since — CONFLICT_OTHER_USER on a record only you had
+        touched, and a force log blaming them for your own save.
+        """
+        mock_query.return_value = {
+            "results": [
+                {"sys_created_by": "alice", "sys_created_on": "2026-10-14 02:01:03"},
+                {"sys_created_by": "bob", "sys_created_on": "2026-09-30 01:38:50"},
+                {"sys_created_by": "carol", "sys_created_on": "2026-09-22 06:10:33"},
+            ]
+        }
+
+        out = _editors_since(
+            mock_config,
+            mock_auth,
+            "sp_widget",
+            "wid-1",
+            "2026-09-30 01:38:49",
+            "alice",
+            True,
+            since_by="bob",
+        )
+
+        assert out["others"] == []
+        assert out["versions"] == 1  # only alice's own later save
+        assert out["complete"] is True
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_a_later_real_edit_by_the_anchor_editor_still_counts(
+        self, mock_query, mock_config, mock_auth
+    ):
+        """Only the OLDEST in-range row can be the anchor's own version."""
+        mock_query.return_value = {
+            "results": [
+                {"sys_created_by": "bob", "sys_created_on": "2026-09-30 01:38:53"},
+                {"sys_created_by": "bob", "sys_created_on": "2026-09-30 01:38:50"},
+            ]
+        }
+
+        out = _editors_since(
+            mock_config,
+            mock_auth,
+            "sp_widget",
+            "wid-1",
+            "2026-09-30 01:38:49",
+            "alice",
+            True,
+            since_by="bob",
+        )
+
+        assert out["others"] == ["bob"]
+        assert out["versions"] == 1
+
+    @pytest.mark.parametrize(
+        "since_by, created_on",
+        [
+            ("", "2026-09-30 01:38:50"),  # no recorded anchor editor: cannot tell
+            ("carol", "2026-09-30 01:38:50"),  # someone else's row in the window
+            ("bob", "2026-09-30 01:40:00"),  # same editor, far past any write skew
+            ("bob", "not a date"),
+        ],
+    )
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    def test_anything_short_of_the_anchor_version_still_counts(
+        self, mock_query, since_by, created_on, mock_config, mock_auth
+    ):
+        mock_query.return_value = {
+            "results": [{"sys_created_by": "bob", "sys_created_on": created_on}]
+        }
+
+        out = _editors_since(
+            mock_config,
+            mock_auth,
+            "sp_widget",
+            "wid-1",
+            "2026-09-30 01:38:49",
+            "alice",
+            True,
+            since_by=since_by,
+        )
+
+        assert out["others"] == ["bob"]
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
     def test_the_range_is_cut_locally_not_by_an_encoded_date_query(
