@@ -6,6 +6,7 @@ This module provides the main implementation of the ServiceNow MCP server.
 
 import base64
 import contextlib
+import contextvars
 import logging
 import os
 from functools import lru_cache
@@ -14,10 +15,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import anyio
 import anyio.from_thread
 import anyio.to_thread
+import jsonschema
 import mcp.types as types
 import yaml
 from mcp.server.lowlevel import Server
-from pydantic import AnyUrl, ValidationError
+from pydantic import ValidationError
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.resources.attachment_resources import (
@@ -57,10 +59,33 @@ from servicenow_mcp.utils.response_budget import enforce_response_budget, get_re
 from servicenow_mcp.utils.text_diff import paged_diff
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 from servicenow_mcp.utils.write_journal import record_write
+from servicenow_mcp.version import get_version
 
 logger = logging.getLogger(__name__)
 
 FastMCP = Server
+
+# The in-flight request's context for the code under the tools/call handler.
+# mcp 1.x exposed it as `Server.request_context`; 2.x hands it to the handler
+# as an argument instead, and the progress bridge sits several calls below the
+# handler. Each request runs in its own task, so a ContextVar is per request.
+_REQUEST_CTX: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "servicenow_mcp_request_ctx", default=None
+)
+
+
+def _tool_error_result(message: str) -> types.CallToolResult:
+    """A failed tool call as a tool RESULT, the shape mcp 1.x produced.
+
+    1.x's `call_tool` decorator turned every exception into this; 2.x passes a
+    raised exception through as a JSON-RPC error, which clients show to the
+    model differently (or not at all). Keep the 1.x contract.
+    """
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=message)],
+        is_error=True,
+    )
+
 
 # Tools heavy enough that streaming mid-call progress is worth a worker thread.
 # MUST be pure data tools — NEVER browser/auth tools, which have to run on the
@@ -580,7 +605,9 @@ class ServiceNowMCP:
         else:
             self.config = config
 
-        self.mcp_server: Server = FastMCP(self.config.server_name)  # Use low-level Server
+        self.mcp_server: Server = FastMCP(
+            self.config.server_name, version=get_version()
+        )  # Use low-level Server
         self.name = self.config.server_name
         self.instance_entries = load_instance_config_env(os.getenv(INSTANCE_CONFIG_ENV))
         self.active_instance_alias = select_active_alias(
@@ -674,12 +701,63 @@ class ServiceNowMCP:
 
     def _register_handlers(self):
         """Register the list_tools, call_tool, and resource handlers."""
-        self.mcp_server.list_tools()(self._list_tools_impl)
-        self.mcp_server.call_tool()(self._call_tool_impl)
-        self.mcp_server.list_resources()(self._list_resources_impl)
-        self.mcp_server.read_resource()(self._read_resource_impl)
-        self.mcp_server.list_resource_templates()(self._list_resource_templates_impl)
+        add = self.mcp_server.add_request_handler
+        add("tools/list", types.PaginatedRequestParams, self._on_list_tools)
+        add("tools/call", types.CallToolRequestParams, self._on_call_tool)
+        add("resources/list", types.PaginatedRequestParams, self._on_list_resources)
+        add("resources/read", types.ReadResourceRequestParams, self._on_read_resource)
+        add(
+            "resources/templates/list",
+            types.PaginatedRequestParams,
+            self._on_list_resource_templates,
+        )
         logger.info("Registered list_tools, call_tool, and resource handlers.")
+
+    # mcp 2.x handlers take (ctx, params) and return the result model. Each one
+    # is a thin adapter over the matching _*_impl, which keep their 1.x shapes.
+
+    async def _on_list_tools(self, ctx, params) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=await self._list_tools_impl())
+
+    async def _on_list_resources(self, ctx, params) -> types.ListResourcesResult:
+        return types.ListResourcesResult(resources=await self._list_resources_impl())
+
+    async def _on_list_resource_templates(self, ctx, params) -> types.ListResourceTemplatesResult:
+        return types.ListResourceTemplatesResult(
+            resource_templates=await self._list_resource_templates_impl()
+        )
+
+    async def _on_read_resource(self, ctx, params) -> types.ReadResourceResult:
+        # 1.x's read_resource wrapper re-wrapped each item from `.content` /
+        # `.mime_type` (its ReadResourceContents helper), which the
+        # Text/BlobResourceContents returned here do not have, so every read
+        # through the SDK raised AttributeError. Return the contents as built.
+        return types.ReadResourceResult(contents=await self._read_resource_impl(params.uri))
+
+    async def _on_call_tool(self, ctx, params) -> types.CallToolResult:
+        """tools/call, with what mcp 1.x's `call_tool` decorator did implicitly.
+
+        That wrapper validated arguments against the listed inputSchema, wrapped
+        the returned content in a CallToolResult, and turned any exception into
+        an is_error result. 2.x does none of it, so each is done here.
+        """
+        name = params.name
+        arguments = params.arguments or {}
+        token = _REQUEST_CTX.set(ctx)
+        try:
+            listed = {tool.name: tool for tool in await self._list_tools_impl()}
+            tool = listed.get(name)
+            if tool is not None:
+                try:
+                    jsonschema.validate(instance=arguments, schema=tool.input_schema)
+                except jsonschema.ValidationError as exc:
+                    return _tool_error_result(f"Input validation error: {exc.message}")
+            content = await self._call_tool_impl(name, arguments)
+            return types.CallToolResult(content=list(content), is_error=False)
+        except Exception as exc:
+            return _tool_error_result(str(exc))
+        finally:
+            _REQUEST_CTX.reset(token)
 
     def _instance_read_context(self, alias: str) -> Optional[Tuple[Any, Any]]:
         """(config, auth_manager) for a configured alias, or None if unusable.
@@ -1242,10 +1320,10 @@ class ServiceNowMCP:
         for uri, name, description, category, _tools, content in self._skill_entries:
             resources.append(
                 types.Resource(
-                    uri=AnyUrl(uri),
+                    uri=str(uri),
                     name=f"{category}/{name}",
                     description=description,
-                    mimeType="text/markdown",
+                    mime_type="text/markdown",
                     size=len(content.encode("utf-8")),
                 )
             )
@@ -1257,10 +1335,10 @@ class ServiceNowMCP:
             return []
         return [
             types.ResourceTemplate(
-                uriTemplate="skill://{category}/{name}",
+                uri_template="skill://{category}/{name}",
                 name="Skill Guide",
                 description="Workflow guide for ServiceNow operations. Pull on-demand for SOP details.",
-                mimeType="text/markdown",
+                mime_type="text/markdown",
             )
         ]
 
@@ -1321,13 +1399,13 @@ class ServiceNowMCP:
             links.append(
                 types.ResourceLink(
                     type="resource_link",
-                    uri=AnyUrl(entry.uri),
+                    uri=str(entry.uri),
                     name=entry.file_name,
                     description=(
                         "Downloaded ServiceNow attachment. Read this resource only when the file "
                         "content is needed."
                     ),
-                    mimeType=entry.mime_type,
+                    mime_type=entry.mime_type,
                     size=entry.size_bytes,
                 )
             )
@@ -1354,14 +1432,16 @@ class ServiceNowMCP:
                 raise ValueError(str(exc)) from exc
             return [
                 types.BlobResourceContents(
-                    uri=AnyUrl(entry.uri),
-                    mimeType=entry.mime_type,
+                    uri=str(entry.uri),
+                    mime_type=entry.mime_type,
                     blob=base64.b64encode(attachment_bytes).decode("ascii"),
                 )
             ]
         for skill_uri, _name, _desc, _cat, _tools, content in self._skill_entries:
             if skill_uri == uri_str:
-                return [types.TextResourceContents(uri=uri, text=content, mimeType="text/markdown")]
+                return [
+                    types.TextResourceContents(uri=uri, text=content, mime_type="text/markdown")
+                ]
         raise ValueError(f"Resource not found: {uri_str}")
 
     async def _list_tools_impl(self) -> List[types.Tool]:
@@ -1386,7 +1466,7 @@ class ServiceNowMCP:
                 types.Tool(
                     name="list_tool_packages",
                     description="Lists available tool packages and the currently loaded one.",
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {},
                     },
@@ -1397,14 +1477,14 @@ class ServiceNowMCP:
                     types.Tool(
                         name="list_instances",
                         description="List configured ServiceNow instances and the active instance.",
-                        inputSchema={"type": "object", "properties": {}},
+                        input_schema={"type": "object", "properties": {}},
                     )
                 )
                 tool_list.append(
                     types.Tool(
                         name="compare_instances",
                         description="Read-only compare records across two configured instances.",
-                        inputSchema={
+                        input_schema={
                             "type": "object",
                             "properties": {
                                 "source": {"type": "string"},
@@ -1469,7 +1549,7 @@ class ServiceNowMCP:
                                 requires_confirm=is_write,
                                 more_in=self._packages_with_more_actions(tool_name)[:1],
                             ),
-                            inputSchema=schema,
+                            input_schema=schema,
                         )
                     )
                 except Exception as e:
@@ -1869,12 +1949,12 @@ class ServiceNowMCP:
         """Return (progress_token, session) for the in-flight request, or
         (None, None) when there is no request context or the client did not
         request progress (no progressToken in the call's _meta)."""
-        try:
-            ctx = self.mcp_server.request_context
-        except LookupError:
+        ctx = _REQUEST_CTX.get()
+        if ctx is None:
             return None, None
-        meta = getattr(ctx, "meta", None)
-        token = getattr(meta, "progressToken", None) if meta is not None else None
+        # 2.x parses `_meta` into a dict keyed by field name, not the wire alias.
+        meta = getattr(ctx, "meta", None) or {}
+        token = meta.get("progress_token")
         if token is None:
             return None, None
         return token, getattr(ctx, "session", None)
@@ -1903,14 +1983,13 @@ class ServiceNowMCP:
 
         def _report(progress, total, message):
             # Runs in the worker thread; hop back to the loop to send the notice.
+            # report_progress rides THIS request's channel and stamps the
+            # caller's token itself. The connection-wide channel 1.x used
+            # (send_progress_notification without a request id) is a no-op
+            # sentinel on a 2026-07-28 HTTP connection: the notice would be
+            # dropped at debug level with nothing raised.
             try:
-                anyio.from_thread.run(
-                    session.send_progress_notification,
-                    progress_token,
-                    progress,
-                    total,
-                    message,
-                )
+                anyio.from_thread.run(session.report_progress, progress, total, message)
             except Exception as exc:  # noqa: BLE001 - progress must never break the tool
                 # Swallowed on purpose — but not silently. This channel went
                 # dead for two days under anyio 4.15 (its lazy imports meant

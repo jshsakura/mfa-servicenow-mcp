@@ -244,13 +244,13 @@ class TestDownloadEmitsProgress:
 class _FakeSession:
     """Records progress notifications instead of writing them to a transport."""
 
-    def __init__(self):
+    def __init__(self, token="tok-9"):
         self.notifications = []
+        self._token = token
 
-    async def send_progress_notification(
-        self, progress_token, progress, total=None, message=None, related_request_id=None
-    ):
-        self.notifications.append((progress_token, progress, total, message))
+    async def report_progress(self, progress, total=None, message=None):
+        # The real session stamps the request's own token; record it the same way.
+        self.notifications.append((self._token, progress, total, message))
 
 
 def _stub_with_channel(token, session):

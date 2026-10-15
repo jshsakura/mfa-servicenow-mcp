@@ -461,10 +461,9 @@ class TestNoStdlibJsonLeaks:
         # The module should have json_fast but not json
         source = open(mod.__file__).read()
         lines = source.split("\n")
+        # Match the module name exactly: a prefix test flags `import jsonschema`.
         direct_imports = [
-            line
-            for line in lines
-            if line.strip().startswith("import json") and "json_fast" not in line
+            line for line in lines if line.split()[:2] in (["import", "json"], ["from", "json"])
         ]
         assert len(direct_imports) == 0, f"Found stdlib json import: {direct_imports}"
 

@@ -237,7 +237,7 @@ class TestSchemaEmittedToLlm:
 
         tools = asyncio.run(s._list_tools_impl())
         workflow = next(t for t in tools if t.name == "manage_workflow")
-        action_enum = workflow.inputSchema["properties"]["action"]["enum"]
+        action_enum = workflow.input_schema["properties"]["action"]["enum"]
         # Only the actually-used read actions reach the LLM.
         assert set(action_enum) == {"list", "get_activities"}
 
@@ -248,7 +248,7 @@ class TestSchemaEmittedToLlm:
         tools = asyncio.run(s._list_tools_impl())
         workflow = next(t for t in tools if t.name == "manage_workflow")
         # Full surface — write actions visible.
-        action_enum = workflow.inputSchema["properties"]["action"]["enum"]
+        action_enum = workflow.input_schema["properties"]["action"]["enum"]
         assert "list" in action_enum
         # Workflow has writes (e.g. create/update/publish/etc.) — full must
         # expose more than just the four reads.
@@ -273,13 +273,13 @@ class TestReadOnlyAllowlistAsksNoApproval:
     def test_standard_reads_carry_no_confirm(self):
         tools = self._tools("standard")
         for name in self.READ_ONLY_IN_STANDARD:
-            assert "confirm" not in tools[name].inputSchema["properties"], name
+            assert "confirm" not in tools[name].input_schema["properties"], name
             assert "confirm='approve'" not in tools[name].description, name
 
     def test_the_same_bundle_with_writes_still_asks(self):
         tools = self._tools("full")
         for name in self.READ_ONLY_IN_STANDARD:
-            assert "confirm" in tools[name].inputSchema["properties"], name
+            assert "confirm" in tools[name].input_schema["properties"], name
 
     def test_a_read_without_confirm_passes_the_gate(self):
         from servicenow_mcp.policies.write_guards import MANAGE_READ_ACTIONS
@@ -383,13 +383,13 @@ class TestHiddenActionsAreNamed:
 
     def test_portal_developer_workflow_is_reads_and_points_at_full_surface(self):
         wf = self._tools("portal_developer")["manage_workflow"]
-        assert set(wf.inputSchema["properties"]["action"]["enum"]) == {
+        assert set(wf.input_schema["properties"]["action"]["enum"]) == {
             "list",
             "get",
             "list_versions",
             "get_activities",
         }
-        assert "confirm" not in wf.inputSchema["properties"]
+        assert "confirm" not in wf.input_schema["properties"]
         assert "More actions: platform_developer package." in wf.description
 
     def test_read_only_package_carries_no_hint(self):

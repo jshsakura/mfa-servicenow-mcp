@@ -213,7 +213,7 @@ def test_download_result_returns_link_then_reads_blob(tmp_path):
 
         resource = await server._read_resource_impl(result[1].uri)
         assert len(resource) == 1
-        assert resource[0].mimeType == "application/pdf"
+        assert resource[0].mime_type == "application/pdf"
         assert base64.b64decode(resource[0].blob) == path.read_bytes()
         server.auth_manager.make_request.assert_not_called()
 

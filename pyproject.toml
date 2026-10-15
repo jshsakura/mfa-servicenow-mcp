@@ -28,17 +28,20 @@ dependencies = [
     # Upper bounds cap each dep at the next major: uvx/PyPI installs always
     # pull the latest allowed combo (no lockfile), so an upstream major with a
     # breaking schema/transport/validation API would otherwise break a fresh
-    # install with no code change here. We bind deeply to mcp's schema gen,
-    # pydantic v2 model API, and httpx's 0.x transport, the riskiest surfaces.
-    # Floor at 1.28.1: <1.28.1 carries three high-sev advisories (WebSocket
-    # Host/Origin validation, HTTP-transport principal check, task-handler
-    # cross-client access). uvx/PyPI installs have no lockfile, so the floor is
-    # the only guard against a fresh install resolving a vulnerable 1.27.x.
-    "mcp[cli]>=1.28.1,<2",
+    # install with no code change here. We bind deeply to mcp's handler API
+    # and the pydantic v2 model API, the riskiest surfaces.
+    # Floor at 2.3.0: server.py is wired to the 2.x constructor-handler API
+    # (on_list_tools=, on_call_tool=, ...), which 1.x does not have, and 2.x is
+    # the line that serves protocol 2026-07-28 clients (`server/discover`).
+    # uvx/PyPI installs have no lockfile, so the floor is the only guard
+    # against a fresh install resolving a version this wiring cannot run on.
+    "mcp[cli]>=2.3.0,<3",
+    # server.py validates tool arguments itself since 2.x dropped the 1.x
+    # call_tool wrapper that did it; mcp depends on it too, but we import it.
+    "jsonschema>=4.20.0,<5",
     "requests>=2.32.4,<3",
     "pydantic>=2.0.0,<3",
     "python-dotenv>=1.0.0,<2",
-    "httpx>=0.28.0,<1",
     "PyYAML>=6.0,<7",
     "orjson>=3.9.0,<4",
     # zoneinfo reads the OS zone database, and Windows has none: without tzdata

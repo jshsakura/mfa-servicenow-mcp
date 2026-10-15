@@ -107,33 +107,6 @@ def _is_broken_pipe_group(exc: BaseException) -> bool:
 _LOG_RETENTION_DAYS = 7
 
 
-class _DiscoverProbeFilter(logging.Filter):
-    """Collapse the newer-protocol ``server/discover`` probe to one INFO line.
-
-    Clients on MCP protocol 2026-07-28 open with ``server/discover``. The mcp 1.x
-    SDK does not know the method, answers with an error, and the client falls
-    back to ``initialize`` — the session is fine. But the SDK logs it as a
-    WARNING carrying every failed union member, ~90 lines per connect, which
-    buried real warnings under one per reconnect. Only that method is touched:
-    any other request that fails validation stays a full WARNING.
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if (
-            record.levelno == logging.WARNING
-            and isinstance(record.msg, str)
-            and record.msg.startswith("Failed to validate request")
-            and "input_value='server/discover'" in record.getMessage()
-        ):
-            record.levelno, record.levelname = logging.INFO, "INFO"
-            record.msg = (
-                "Client probed 'server/discover' (MCP protocol newer than this mcp SDK); "
-                "answered with an error, client falls back to initialize."
-            )
-            record.args = ()
-        return True
-
-
 def _sweep_stale_process_logs(log_dir: str) -> None:
     """Delete log files older than the retention window, whichever instance and
     whichever naming they came from.
@@ -239,10 +212,6 @@ def configure_logging(force: bool = False) -> None:
     for handler in handlers:
         handler.setFormatter(formatter)
         root_logger.addHandler(handler)
-    # On the root LOGGER, not a handler: the SDK logs this via logging.warning(),
-    # i.e. straight to root, and a logger filter runs once before every handler.
-    if not any(isinstance(f, _DiscoverProbeFilter) for f in root_logger.filters):
-        root_logger.addFilter(_DiscoverProbeFilter())
 
 
 logger = logging.getLogger(__name__)

@@ -63,7 +63,7 @@ def test_list_tools_injects_confirm_field_for_mutating_tools(
 
     tools = {tool.name: tool for tool in asyncio.run(server._list_tools_impl())}
 
-    manage_incident_schema = tools["manage_incident"].inputSchema
+    manage_incident_schema = tools["manage_incident"].input_schema
     confirm_schema = manage_incident_schema["properties"]["confirm"]
 
     assert confirm_schema["enum"] == ["approve"]
@@ -419,12 +419,12 @@ def test_instance_schema_advertised_on_reads_and_writes(monkeypatch, tmp_path):
 
     tools = {t.name: t for t in asyncio.run(server._list_tools_impl())}
 
-    read_props = tools["sn_query"].inputSchema["properties"]
+    read_props = tools["sn_query"].input_schema["properties"]
     assert read_props["instance"]["enum"] == ["dev", "test"]
     # A read cannot write, so the write approval must not appear on it.
     assert "confirm_instance" not in read_props
 
-    write_props = tools["update_foo"].inputSchema["properties"]
+    write_props = tools["update_foo"].input_schema["properties"]
     assert write_props["instance"]["enum"] == ["dev", "test"]
     # ...and the approval the handler demands is advertised with it, from the
     # same alias list, so the caller cannot learn its name only by being refused.
