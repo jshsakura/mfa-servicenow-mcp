@@ -9,7 +9,7 @@ import contextlib
 import logging
 import os
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import anyio
 import anyio.from_thread
@@ -1518,23 +1518,15 @@ class ServiceNowMCP:
         if name == "list_instances":
             if not self.instance_contexts:
                 raise ValueError("Tool 'list_instances' is available only in multi-instance mode.")
-            return [
-                types.TextContent(
-                    type="text",
-                    text=json_fast.dumps(self._list_instances_impl()),
-                )
-            ]
+            return self._logged_builtin_result(name, arguments, self._list_instances_impl)
         if name == "compare_instances":
             if not self.instance_contexts:
                 raise ValueError(
                     "Tool 'compare_instances' is available only in multi-instance mode."
                 )
-            return [
-                types.TextContent(
-                    type="text",
-                    text=json_fast.dumps(self._compare_instances_impl(arguments)),
-                )
-            ]
+            return self._logged_builtin_result(
+                name, arguments, lambda: self._compare_instances_impl(arguments)
+            )
 
         # Check enabled-set FIRST. With lazy discovery `tool_definitions` only
         # holds enabled tools, so the "Unknown tool" check below would eclipse
@@ -1853,6 +1845,25 @@ class ServiceNowMCP:
         # Keep the JSON TextContent first for backwards compatibility. Resource
         # links are pointers only; bytes move on a separate resources/read call.
         return [types.TextContent(type="text", text=serialized_string), *resource_links]
+
+    def _logged_builtin_result(
+        self, name: str, arguments: Dict[str, Any], impl: Callable[[], Dict[str, Any]]
+    ) -> list[types.ContentBlock]:
+        """Run a server-owned tool with the same log trail as the generic path.
+
+        These tools return before the generic path, which is where arguments,
+        results and the outcome are logged. Without this a compare_instances call
+        that waited out another terminal's login and failed left only its
+        "Received" line: nothing said what it compared, or that it failed.
+        """
+        logger.debug(f"Parsed arguments for tool '{name}': {arguments}")
+        try:
+            serialized_string = json_fast.dumps(impl())
+        except Exception as exc:
+            logger.warning("Tool '%s' failed: %s", name, exc)
+            raise
+        logger.debug(f"Serialized value for tool '{name}': {serialized_string[:500]}...")
+        return [types.TextContent(type="text", text=serialized_string)]
 
     def _progress_channel(self):
         """Return (progress_token, session) for the in-flight request, or

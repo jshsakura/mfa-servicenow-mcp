@@ -36,6 +36,17 @@ def _looks_like_user_close(error_text: str) -> bool:
 _WALK_AWAY_TIMEOUT_MARKER = "timed out waiting for manual browser login/mfa completion"
 
 
+def _login_close_log_reason(error_text: str) -> str:
+    """Log wording for the cancellation path — the same split as the LLM message.
+
+    The log said "closed by user" for a window the MCP closed itself at its wait
+    limit, so anyone reading the log was told the opposite of what happened.
+    """
+    if _WALK_AWAY_TIMEOUT_MARKER in error_text:
+        return "Login window closed automatically at its wait limit (the user did not close it)"
+    return "Browser was closed by user"
+
+
 def _login_cancelled_message(profile_label: str, cooldown_s: int, error_text: str) -> str:
     """LLM-facing text for the LOGIN_CANCELLED_BY_USER raise.
 

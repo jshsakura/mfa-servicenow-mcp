@@ -76,6 +76,7 @@ from ._url_predicates import (  # noqa: F401
     _is_login_page_url,
     _is_mfa_challenge_url,
     _login_cancelled_message,
+    _login_close_log_reason,
     _login_poll_should_keep_waiting,
     _looks_like_user_close,
     _visible_window_mid_auth,
@@ -1752,8 +1753,8 @@ class AuthManager:
                             self._browser_reauth_cooldown_seconds = user_close_cooldown
                             self._browser_last_reauth_attempt_at = time.time()
                             logger.info(
-                                "Browser was closed by user — applying %ds cooldown to "
-                                "prevent immediate reopen.",
+                                "%s — applying %ds cooldown to prevent immediate reopen.",
+                                _login_close_log_reason(error_text),
                                 user_close_cooldown,
                             )
                             # Replace the raw Playwright "target closed" exception with a
@@ -1855,8 +1856,8 @@ class AuthManager:
                             self._browser_reauth_cooldown_seconds = user_close_cooldown
                             self._browser_last_reauth_attempt_at = time.time()
                             logger.info(
-                                "Browser was closed by user — applying %ds cooldown to "
-                                "prevent immediate reopen.",
+                                "%s — applying %ds cooldown to prevent immediate reopen.",
+                                _login_close_log_reason(error_text),
                                 user_close_cooldown,
                             )
                             raise ValueError(

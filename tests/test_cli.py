@@ -677,6 +677,66 @@ class TestConfigureLogging:
         finally:
             self._restore(root, saved_handlers, saved_level)
 
+    @staticmethod
+    def _validation_warning(method: str) -> logging.LogRecord:
+        """The record mcp 1.x emits via logging.warning() for an unknown method."""
+        text = (
+            "Failed to validate request: 31 validation errors for ClientRequest\n"
+            "PingRequest.method\n"
+            f"  Input should be 'ping' [type=literal_error, input_value='{method}', "
+            "input_type=str]"
+        )
+        return logging.getLogger().makeRecord("root", logging.WARNING, __file__, 1, text, (), None)
+
+    def test_newer_protocol_discover_probe_is_one_info_line(self):
+        root = logging.getLogger()
+        saved_handlers, saved_level = list(root.handlers), root.level
+        saved_filters = list(root.filters)
+        try:
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("LOG_FILE", None)
+                configure_logging(force=True)
+            record = self._validation_warning("server/discover")
+            assert root.filter(record)
+            assert record.levelno == logging.INFO
+            assert "server/discover" in record.getMessage()
+            assert "\n" not in record.getMessage()  # one line, not ~90
+        finally:
+            root.filters[:] = saved_filters
+            self._restore(root, saved_handlers, saved_level)
+
+    def test_any_other_failed_request_stays_a_full_warning(self):
+        root = logging.getLogger()
+        saved_handlers, saved_level = list(root.handlers), root.level
+        saved_filters = list(root.filters)
+        try:
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("LOG_FILE", None)
+                configure_logging(force=True)
+            record = self._validation_warning("tools/call")
+            assert root.filter(record)
+            assert record.levelno == logging.WARNING
+            assert "input_value='tools/call'" in record.getMessage()
+        finally:
+            root.filters[:] = saved_filters
+            self._restore(root, saved_handlers, saved_level)
+
+    def test_reconfiguring_does_not_stack_the_probe_filter(self):
+        from servicenow_mcp.cli import _DiscoverProbeFilter
+
+        root = logging.getLogger()
+        saved_handlers, saved_level = list(root.handlers), root.level
+        saved_filters = list(root.filters)
+        try:
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("LOG_FILE", None)
+                configure_logging(force=True)
+                configure_logging(force=True)
+            assert sum(isinstance(f, _DiscoverProbeFilter) for f in root.filters) == 1
+        finally:
+            root.filters[:] = saved_filters
+            self._restore(root, saved_handlers, saved_level)
+
     def test_log_file_adds_rotating_handler(self, tmp_path):
         root = logging.getLogger()
         saved_handlers, saved_level = list(root.handlers), root.level

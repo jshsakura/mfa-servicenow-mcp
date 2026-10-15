@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 import mcp.types as types
 import pytest
@@ -492,6 +493,61 @@ def test_compare_instances_reports_changed_and_missing(monkeypatch: pytest.Monke
     assert result["only_in_source"] == ["x_app.OnlyDev"]
     assert result["only_in_target"] == ["x_app.OnlyTest"]
     assert result["changed"][0]["key"] == "x_app.A"
+
+
+def test_compare_instances_leaves_the_same_log_trail_as_any_tool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, caplog
+):
+    """It returns before the generic path, which is where every other tool's
+    arguments and result are logged — so a compare that failed left only its
+    "Received" line, and nobody could tell what it compared or that it failed."""
+    server = _build_multi_server(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "servicenow_mcp.tools.sn_api.sn_query_page",
+        lambda *_a, **_k: ([{"api_name": "x_app.A", "script": "1"}], 1),
+    )
+    args = {
+        "source": "dev",
+        "target": "test",
+        "table": "sys_script_include",
+        "key_field": "api_name",
+        "fields": "api_name,script",
+    }
+
+    with caplog.at_level(logging.DEBUG, logger="servicenow_mcp.server"):
+        asyncio.run(server._call_tool_impl("compare_instances", args))
+
+    assert "Parsed arguments for tool 'compare_instances'" in caplog.text
+    assert "sys_script_include" in caplog.text
+    assert "Serialized value for tool 'compare_instances'" in caplog.text
+
+
+def test_a_failed_compare_instances_is_logged_and_still_raised(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, caplog
+):
+    server = _build_multi_server(monkeypatch, tmp_path)
+
+    def boom(*_a, **_k):
+        raise ValueError("LOGIN_CANCELLED_BY_USER (dev)")
+
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_query_page", boom)
+
+    with caplog.at_level(logging.WARNING, logger="servicenow_mcp.server"):
+        with pytest.raises(ValueError, match="LOGIN_CANCELLED_BY_USER"):
+            asyncio.run(
+                server._call_tool_impl(
+                    "compare_instances",
+                    {
+                        "source": "dev",
+                        "target": "test",
+                        "table": "sys_script_include",
+                        "key_field": "api_name",
+                        "fields": "api_name,script",
+                    },
+                )
+            )
+
+    assert "Tool 'compare_instances' failed: LOGIN_CANCELLED_BY_USER" in caplog.text
 
 
 def _build_browser_default_server(

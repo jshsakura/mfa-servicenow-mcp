@@ -7,6 +7,7 @@ token expiry, error handling, cookie utilities, and browser session methods.
 
 import base64
 import json
+import logging
 import os
 import time
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -3338,6 +3339,22 @@ class TestLoginCancelledMessage:
         assert "did NOT close it" in msg
         assert "on purpose" not in msg
         assert "retry this same tool call after 15s" in msg
+
+    def test_walk_away_timeout_log_does_not_say_the_user_closed_it(self, caplog):
+        """The log must tell the same story as the message: a window the MCP
+        closed at its wait limit was logged as "closed by user"."""
+        with caplog.at_level(logging.INFO, logger="servicenow_mcp.auth.auth_manager"):
+            _cancel_message_from_get_headers(
+                "Timed out waiting for manual browser login/MFA completion."
+            )
+        text = caplog.text
+        assert "closed automatically at its wait limit" in text
+        assert "closed by user" not in text
+
+    def test_real_close_is_still_logged_as_the_user(self, caplog):
+        with caplog.at_level(logging.INFO, logger="servicenow_mcp.auth.auth_manager"):
+            _cancel_message_from_get_headers("Target page, context or browser has been closed")
+        assert "Browser was closed by user" in caplog.text
 
     def test_real_close_asks_the_user_then_names_the_retry(self):
         msg = _cancel_message_from_get_headers("Target page, context or browser has been closed")
