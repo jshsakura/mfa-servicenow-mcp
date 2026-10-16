@@ -86,7 +86,11 @@ dependencies = [
 
 [project.optional-dependencies]
 browser = [
-    "playwright>=1.44.0",
+    # 1.62.0 only: with mcp 2.x it logs "Task was destroyed but it is pending"
+    # + an unretrieved TargetClosedError at every startup (10/10 runs). 1.44,
+    # 1.50, 1.55, 1.60, 1.61, 1.63 and 1.64 measured 0/5; mcp 1.x on 1.62 was
+    # clean. Cause not traced, so exclude the one version, not raise the floor.
+    "playwright>=1.44.0,!=1.62.0",
 ]
 dev = [
     "pytest>=7.0.0",
