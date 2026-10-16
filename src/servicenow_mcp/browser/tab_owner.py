@@ -61,6 +61,15 @@ OWNER_ID = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
 # whose worst failure is one re-pick. Entries are dropped oldest-written first.
 MAX_TRACKED_PINS = 32
 
+# Another session counts as BUSY on an instance only if it called within this
+# long. A live process used to be enough, and a terminal idle for twenty hours
+# then held the window: every identity switch stopped to ask the user about a
+# session nobody was in, and its pinned tab stayed off limits. Every tool call
+# refreshes `used_at` (touch), so a session that is working is never idle by
+# this measure. An entry with no readable time stays busy: an unknown last call
+# is not proof that nobody is there.
+BUSY_WITHIN_S = 10 * 60.0
+
 
 def _read(path: str) -> Dict[str, Any]:
     try:
@@ -156,15 +165,28 @@ def touch(path: str, instance_host: str) -> None:
     _write(path, pins)
 
 
+def _last_used_s(entry: Dict[str, Any], now: float) -> Optional[int]:
+    last: Any = entry.get("used_at") or entry.get("at")
+    if last is None:
+        return None
+    try:
+        return max(0, int(now - float(last)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _busy(last_used_s: Optional[int]) -> bool:
+    return last_used_s is None or last_used_s <= BUSY_WITHIN_S
+
+
 def others_on(path: str, instance_host: str) -> List[Dict[str, Any]]:
     """Other MCP sessions whose process is still running and that have used
     ``instance_host`` in this window.
 
-    What this PROVES is the process is alive, not that it is busy — an idle
-    terminal keeps its entry. So each one carries how long ago it last called,
-    and the caller (a model, then a person) judges "busy" from that. An entry
-    whose pid cannot be read counts as running, for the reason
-    ``claimed_by_others`` gives.
+    A running process is not a busy one — an idle terminal keeps its entry — so
+    each carries how long ago it last called and whether that is recent enough
+    to count as busy (``BUSY_WITHIN_S``). An entry whose pid cannot be read
+    counts as running, for the reason ``claimed_by_others`` gives.
     """
     now = time.time()
     found: List[Dict[str, Any]] = []
@@ -173,15 +195,20 @@ def others_on(path: str, instance_host: str) -> List[Dict[str, Any]]:
             continue
         if not key.endswith(f"|{instance_host}") or not _owner_alive(entry):
             continue
-        last: Any = entry.get("used_at") or entry.get("at")
-        last_used_s: Optional[int] = None
-        if last is not None:
-            try:
-                last_used_s = max(0, int(now - float(last)))
-            except (TypeError, ValueError):
-                pass
-        found.append({"pid": entry.get("pid"), "last_used_s": last_used_s})
+        last_used_s = _last_used_s(entry, now)
+        found.append(
+            {"pid": entry.get("pid"), "last_used_s": last_used_s, "busy": _busy(last_used_s)}
+        )
     return found
+
+
+def idle_others(path: str, instance_host: str) -> List[Dict[str, Any]]:
+    """Running sessions on ``instance_host`` that have not called in
+    ``BUSY_WITHIN_S`` — the ones a session-wide change goes ahead over, and
+    names in its result so the takeover is never silent."""
+    if not path or not instance_host:
+        return []
+    return [other for other in others_on(path, instance_host) if not other["busy"]]
 
 
 def shared_window_refusal(
@@ -198,7 +225,9 @@ def shared_window_refusal(
     """
     if acknowledged or not path or not instance_host:
         return None
-    others = others_on(path, instance_host)
+    # Only a session that is actually working stops the change. An idle one is
+    # gone over without asking; the caller reports it (idle_others).
+    others = [other for other in others_on(path, instance_host) if other["busy"]]
     if not others:
         return None
     seen = ", ".join(
@@ -213,11 +242,11 @@ def shared_window_refusal(
         "error": (
             f"LIMIT, not a fault: the debug window holds one identity per instance at a "
             f"time, and {len(others)} other running MCP session(s) have used {instance_host} "
-            f"in it ({seen}). {what} applies to every tab on {instance_host}, theirs "
-            "included. A running process is not proof it is busy — judge from the last "
-            "call. Either wait for that session to finish, or ask the user whether "
-            "disrupting it is fine and retry with shared_window_ack=true. Other "
-            "instances in the window are not affected."
+            f"in it within the last {int(BUSY_WITHIN_S // 60)} minutes ({seen}). {what} "
+            f"applies to every tab on {instance_host}, theirs included. Either wait for "
+            "that session to finish, or ask the user whether disrupting it is fine and "
+            "retry with shared_window_ack=true. Other instances in the window are not "
+            "affected."
         ),
     }
 
@@ -242,7 +271,11 @@ def claimed_by_others(path: str, instance_host: str) -> set:
     failures here are not symmetric. Over-counting opens one tab nobody asked
     for; under-counting navigates a page somebody is working in out from under
     them, which is the bug this whole file exists to fix.
+
+    A session idle past ``BUSY_WITHIN_S`` claims nothing: nobody is working in
+    its tab, so it is free to use. An entry with no readable time still claims.
     """
+    now = time.time()
     claimed = set()
     for key, entry in _read(path).items():
         if key == _key(instance_host) or not isinstance(entry, dict):
@@ -250,7 +283,7 @@ def claimed_by_others(path: str, instance_host: str) -> set:
         if not key.endswith(f"|{instance_host}"):
             continue
         tab_id = str(entry.get("tab_id") or "")
-        if tab_id and _owner_alive(entry):
+        if tab_id and _owner_alive(entry) and _busy(_last_used_s(entry, now)):
             claimed.add(tab_id)
     return claimed
 
@@ -279,10 +312,12 @@ def _owner_alive(entry: Any) -> bool:
 
 
 __all__ = [
+    "BUSY_WITHIN_S",
     "MAX_TRACKED_PINS",
     "OWNER_ID",
     "claimed_by_others",
     "drop_pin",
+    "idle_others",
     "others_on",
     "read_pin",
     "shared_window_refusal",

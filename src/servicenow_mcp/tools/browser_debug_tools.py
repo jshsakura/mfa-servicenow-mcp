@@ -177,7 +177,7 @@ class OpenDebugWindowParams(BaseModel):
     )
     shared_window_ack: bool = Field(
         default=False,
-        description="True only after the user OKs disrupting another live session here.",
+        description="True only after the user OKs disrupting a busy session here.",
     )
 
 
@@ -260,7 +260,7 @@ class ActInDebugWindowParams(BaseModel):
     )
     shared_window_ack: bool = Field(
         default=False,
-        description="True only after the user OKs disrupting another live session here.",
+        description="True only after the user OKs disrupting a busy session here.",
     )
 
 
@@ -412,6 +412,7 @@ def open_debug_window(
                 "the only reset available would clear every session in the window."
             ),
         }
+    idle_taken: List[Dict[str, Any]] = []
     if params.reset:
         shared = tab_owner.shared_window_refusal(
             window_owners_path(auth_manager),
@@ -421,6 +422,9 @@ def open_debug_window(
         )
         if shared:
             return shared
+        idle_taken = tab_owner.idle_others(
+            window_owners_path(auth_manager), _host_of(str(config.instance_url))
+        )
 
     # Before the population grows, retire whatever is provably unused. Never
     # fatal: an unusable reaper must not stand between the user and a window.
@@ -483,6 +487,8 @@ def open_debug_window(
             }
         if not wiped.get("reset"):
             return {**result, "success": False, **wiped}
+        if idle_taken:
+            result["idle_sessions_overridden"] = _idle_note(idle_taken)
         # The marker describes a session that no longer exists. Cleared here
         # rather than inside reset_session, which knows about pages and cookies
         # and deliberately not about where this window keeps its files.
@@ -838,6 +844,22 @@ def inspect_debug_window(
     return result
 
 
+def _idle_note(idle: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """What a session-wide change went ahead over without asking.
+
+    Idle sessions no longer stop the change (tab_owner.BUSY_WITHIN_S), but the
+    window they were last in has changed under them, so it is named, not silent.
+    """
+    return {
+        "sessions": idle,
+        "note": (
+            f"{len(idle)} other MCP session(s) had used this instance in the window but "
+            f"not in the last {int(tab_owner.BUSY_WITHIN_S // 60)} minutes, so this went "
+            "ahead without asking. Their tabs on it now see the change too."
+        ),
+    }
+
+
 def _identity_change_refusal(
     auth_manager: AuthManager, state: Any, steps: List[Dict[str, Any]], acknowledged: bool
 ) -> Optional[Dict[str, Any]]:
@@ -947,6 +969,12 @@ def act_in_debug_window(
     shared = _identity_change_refusal(auth_manager, state, steps, params.shared_window_ack)
     if shared:
         return shared
+    identity_change = any(
+        step["action"] in (IMPERSONATE_ACTION, END_IMPERSONATION_ACTION) for step in steps
+    )
+    idle_taken = (
+        tab_owner.idle_others(state.owners_path, state.instance_host) if identity_change else []
+    )
     tab_owner.touch(state.owners_path, state.instance_host)
 
     cursor_path = window_cursor_path(auth_manager)
@@ -1056,13 +1084,15 @@ def act_in_debug_window(
     # A session step changed WHO the window is, and one window is shared by
     # every MCP session and by the person watching it. Never let that be a
     # silent side effect of a batch.
-    if any(step["action"] in (IMPERSONATE_ACTION, END_IMPERSONATION_ACTION) for step in steps):
+    if identity_change:
         result["window_user"] = (raw.get("effective_user") or {}).get("user")
         # Short on purpose: window_user above already names the user, so this
         # only has to carry what the name alone does not say.
         result["session_note"] = (
             "Whole window, every MCP session, until end_impersonation. API calls unaffected."
         )
+        if idle_taken:
+            result["idle_sessions_overridden"] = _idle_note(idle_taken)
     return result
 
 

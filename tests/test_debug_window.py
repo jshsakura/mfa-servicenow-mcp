@@ -5289,3 +5289,109 @@ def test_a_reset_with_another_live_session_on_the_instance_states_the_limit(monk
     assert result["success"] is False
     assert result["limit"] == "one_identity_per_instance"
     assert called == [], "the window is not touched"
+
+
+# ---------------------------------------------------------------------------
+# Idle is not busy: a running process that has not called in a while holds nothing
+# ---------------------------------------------------------------------------
+
+IDLE_AGO_S = tab_owner.BUSY_WITHIN_S + 60.0
+
+
+def test_others_on_marks_a_recent_caller_busy_and_a_quiet_one_idle(monkeypatch, tmp_path):
+    path = str(tmp_path / "owners.json")
+    _alive(monkeypatch)
+
+    _other_session_on(path, "dev.example.com", used_ago_s=40.0)
+    assert tab_owner.others_on(path, "dev.example.com")[0]["busy"] is True
+    assert tab_owner.idle_others(path, "dev.example.com") == []
+
+    _other_session_on(path, "dev.example.com", used_ago_s=IDLE_AGO_S)
+    assert tab_owner.others_on(path, "dev.example.com")[0]["busy"] is False
+    assert [o["pid"] for o in tab_owner.idle_others(path, "dev.example.com")] == [4242]
+
+
+def test_a_session_with_no_readable_last_call_still_counts_as_busy(monkeypatch, tmp_path):
+    # An unknown last call is not proof that nobody is there.
+    import json as _json
+
+    path = str(tmp_path / "owners.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        _json.dump(
+            {"pins": {"other-session|dev.example.com": {"tab_id": "t", "pid": 4242}}}, handle
+        )
+    _alive(monkeypatch)
+
+    assert tab_owner.others_on(path, "dev.example.com")[0]["busy"] is True
+    assert tab_owner.claimed_by_others(path, "dev.example.com") == {"t"}
+    refusal = tab_owner.shared_window_refusal(path, "dev.example.com", "This", acknowledged=False)
+    assert refusal is not None and refusal["limit"] == "one_identity_per_instance"
+
+
+def test_an_idle_sessions_tab_is_free_to_use(monkeypatch, tmp_path):
+    import json as _json
+
+    path = str(tmp_path / "owners.json")
+    now = time.time()
+    pins = {
+        "busy-session|dev.example.com": {"tab_id": "tab-busy", "pid": 1, "used_at": now - 40},
+        "idle-session|dev.example.com": {
+            "tab_id": "tab-idle",
+            "pid": 2,
+            "used_at": now - IDLE_AGO_S,
+        },
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        _json.dump({"pins": pins}, handle)
+    _alive(monkeypatch)
+
+    assert tab_owner.claimed_by_others(path, "dev.example.com") == {"tab-busy"}
+
+
+def test_an_idle_session_does_not_stop_an_impersonation_and_is_named(monkeypatch, tmp_path):
+    state = _shared_state(tmp_path)
+    _other_session_on(state.owners_path, "dev.example.com", used_ago_s=IDLE_AGO_S)
+    _alive(monkeypatch)
+    ran = _act_on(monkeypatch, tmp_path, state)
+
+    result = _act_call([{"action": "impersonate", "value": "bob"}], confirm_impersonate="bob")
+
+    assert result["success"] is True
+    assert len(ran) == 1
+    overridden = result["idle_sessions_overridden"]
+    assert overridden["sessions"][0]["pid"] == 4242
+    assert overridden["sessions"][0]["busy"] is False
+    assert "without asking" in overridden["note"]
+
+
+def test_a_busy_and_an_idle_session_together_still_stop_it(monkeypatch, tmp_path):
+    import json as _json
+
+    state = _shared_state(tmp_path)
+    now = time.time()
+    pins = {
+        "busy-session|dev.example.com": {"tab_id": "", "pid": 1, "used_at": now - 40},
+        "idle-session|dev.example.com": {"tab_id": "", "pid": 2, "used_at": now - IDLE_AGO_S},
+    }
+    with open(state.owners_path, "w", encoding="utf-8") as handle:
+        _json.dump({"pins": pins}, handle)
+    _alive(monkeypatch)
+    ran = _act_on(monkeypatch, tmp_path, state)
+
+    result = _act_call([{"action": "impersonate", "value": "bob"}], confirm_impersonate="bob")
+
+    assert result["success"] is False
+    assert [o["pid"] for o in result["other_sessions"]] == [1], "only the busy one is named"
+    assert ran == []
+
+
+def test_a_plain_step_does_not_report_idle_sessions(monkeypatch, tmp_path):
+    # Only a session-wide change reaches other sessions' tabs; a click does not.
+    state = _shared_state(tmp_path)
+    _other_session_on(state.owners_path, "dev.example.com", used_ago_s=IDLE_AGO_S)
+    _alive(monkeypatch)
+    _act_on(monkeypatch, tmp_path, state)
+
+    result = _act_call([{"action": "click", "selector": "#x"}])
+
+    assert "idle_sessions_overridden" not in result
