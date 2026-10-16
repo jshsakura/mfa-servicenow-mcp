@@ -65,10 +65,11 @@ MAX_TRACKED_PINS = 32
 # long. A live process used to be enough, and a terminal idle for twenty hours
 # then held the window: every identity switch stopped to ask the user about a
 # session nobody was in, and its pinned tab stayed off limits. Every tool call
-# refreshes `used_at` (touch), so a session that is working is never idle by
-# this measure. An entry with no readable time stays busy: an unknown last call
-# is not proof that nobody is there.
-BUSY_WITHIN_S = 10 * 60.0
+# refreshes `used_at` (touch). Measured on real logs: between consecutive
+# debug-window calls p95 is 32s and only 1% of gaps exceed 3 min, so a session
+# that is working almost never reads as idle. An entry with no readable time
+# stays busy: an unknown last call is not proof that nobody is there.
+BUSY_WITHIN_S = 3 * 60.0
 
 
 def _read(path: str) -> Dict[str, Any]:
