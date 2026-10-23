@@ -350,16 +350,17 @@ class TestKnowledgeBaseTools(unittest.TestCase):
 
     def test_list_categories(self):
         """Test listing categories in a knowledge base."""
-        # Mock response
+        # The shape kb_category really returns (raw values): the parent is
+        # polymorphic — parent_id + parent_table — and there is no description.
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "result": [
                 {
                     "sys_id": "cat001",
                     "label": "Network Troubleshooting",
-                    "description": "Articles for network troubleshooting",
-                    "kb_knowledge_base": {"display_value": "IT Knowledge Base"},
-                    "parent": {"display_value": ""},
+                    "full_category": "Network Troubleshooting",
+                    "parent_table": "kb_knowledge_base",
+                    "parent_id": "kb001",
                     "active": "true",
                     "sys_created_on": "2023-01-01 00:00:00",
                     "sys_updated_on": "2023-01-02 00:00:00",
@@ -367,9 +368,9 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 {
                     "sys_id": "cat002",
                     "label": "Software Setup",
-                    "description": "Articles for software installation",
-                    "kb_knowledge_base": {"display_value": "IT Knowledge Base"},
-                    "parent": {"display_value": ""},
+                    "full_category": "Network Troubleshooting / Software Setup",
+                    "parent_table": "kb_category",
+                    "parent_id": "cat001",
                     "active": "true",
                     "sys_created_on": "2023-01-03 00:00:00",
                     "sys_updated_on": "2023-01-04 00:00:00",
@@ -388,12 +389,12 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual(2, len(result["categories"]))
         self.assertEqual("cat001", result["categories"][0]["id"])
         self.assertEqual("Network Troubleshooting", result["categories"][0]["title"])
-        self.assertEqual(
-            "Articles for network troubleshooting", result["categories"][0]["description"]
-        )
-        self.assertEqual("IT Knowledge Base", result["categories"][0]["knowledge_base"])
+        self.assertEqual("kb001", result["categories"][0]["knowledge_base"])
         self.assertEqual("", result["categories"][0]["parent_category"])
+        self.assertEqual("", result["categories"][1]["knowledge_base"])
+        self.assertEqual("cat001", result["categories"][1]["parent_category"])
         self.assertTrue(result["categories"][0]["active"])
+        self.assertIn("Top-level", result["scope"])
 
         # Verify the request
         self.auth_manager.make_request.assert_called_once()
@@ -402,14 +403,15 @@ class TestKnowledgeBaseTools(unittest.TestCase):
         self.assertEqual(f"{self.server_config.api_url}/table/kb_category", call_args[0][1])
         self.assertEqual(10, call_args[1]["params"]["sysparm_limit"])
         self.assertEqual(0, call_args[1]["params"]["sysparm_offset"])
-        self.assertEqual("true", call_args[1]["params"]["sysparm_display_value"])
+        self.assertEqual("false", call_args[1]["params"]["sysparm_display_value"])
 
-        # Verify the query syntax contains the correct pattern
-        self.assertIn("sysparm_query", call_args[1]["params"])
+        # Filters name real columns only: an unknown one is dropped server-side.
         query = call_args[1]["params"]["sysparm_query"]
-        self.assertIn("kb_knowledge_base.sys_id=kb001", query)
+        self.assertIn("parent_table=kb_knowledge_base^parent_id=kb001", query)
+        self.assertNotIn("kb_knowledge_base.sys_id", query)
         self.assertIn("active=true", query)
-        self.assertIn("labelLIKENetwork", query)
+        self.assertIn("labelLIKENetwork^ORfull_categoryLIKENetwork", query)
+        self.assertNotIn("description", query)
 
 
 class TestKnowledgeBaseParams(unittest.TestCase):

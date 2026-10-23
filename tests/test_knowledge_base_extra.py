@@ -255,82 +255,60 @@ class TestListCategoriesEdgeCases:
         assert result["categories"] == []
 
     @patch("servicenow_mcp.tools.knowledge_base.sn_query_page")
-    def test_string_kb_and_parent_fields(self, mock_query):
+    def test_a_top_level_category_names_its_knowledge_base(self, mock_query):
         config, auth = _setup()
         mock_query.return_value = (
             [
                 {
                     "sys_id": "cat1",
                     "label": "Cat",
-                    "description": "",
-                    "kb_knowledge_base": "KB Name String",
-                    "parent": "Parent Name String",
+                    "full_category": "Cat",
+                    "parent_table": "kb_knowledge_base",
+                    "parent_id": "kb1",
                     "active": "true",
-                    "sys_created_on": "",
-                    "sys_updated_on": "",
                 }
             ],
             1,
         )
 
-        params = ListCategoriesParams()
-        result = list_categories(config, auth, params)
+        result = list_categories(config, auth, ListCategoriesParams())
 
-        assert result["success"] is True
-        assert result["categories"][0]["knowledge_base"] == "KB Name String"
-        assert result["categories"][0]["parent_category"] == "Parent Name String"
+        assert result["categories"][0]["knowledge_base"] == "kb1"
+        assert result["categories"][0]["parent_category"] == ""
 
     @patch("servicenow_mcp.tools.knowledge_base.sn_query_page")
-    def test_alternative_kb_and_parent_field_names(self, mock_query):
+    def test_a_child_category_names_its_parent_category(self, mock_query):
         config, auth = _setup()
         mock_query.return_value = (
             [
                 {
-                    "sys_id": "cat1",
-                    "label": "Cat",
-                    "description": "",
-                    "kb_knowledge_base_value": "Alt KB",
-                    "parent_value": "Alt Parent",
+                    "sys_id": "cat2",
+                    "label": "Child",
+                    "parent_table": "kb_category",
+                    "parent_id": "cat1",
                     "active": True,
-                    "sys_created_on": "",
-                    "sys_updated_on": "",
                 }
             ],
             1,
         )
 
-        params = ListCategoriesParams()
-        result = list_categories(config, auth, params)
+        result = list_categories(config, auth, ListCategoriesParams(parent_category="cat1"))
 
-        assert result["success"] is True
-        assert result["categories"][0]["knowledge_base"] == "Alt KB"
-        assert result["categories"][0]["parent_category"] == "Alt Parent"
+        assert result["categories"][0]["parent_category"] == "cat1"
+        assert result["categories"][0]["knowledge_base"] == ""
+        query = mock_query.call_args[1]["query"]
+        assert "parent_table=kb_category^parent_id=cat1" in query
+        assert "scope" not in result  # only a KB-level listing is top-level-only
 
     @patch("servicenow_mcp.tools.knowledge_base.sn_query_page")
-    def test_display_value_field_names(self, mock_query):
+    def test_the_list_reads_raw_values(self, mock_query):
+        # With display values on, parent_id (a document_id) comes back empty.
         config, auth = _setup()
-        mock_query.return_value = (
-            [
-                {
-                    "sys_id": "cat1",
-                    "label": "Cat",
-                    "description": "",
-                    "kb_knowledge_base.display_value": "Display KB",
-                    "parent.display_value": "Display Parent",
-                    "active": "true",
-                    "sys_created_on": "",
-                    "sys_updated_on": "",
-                }
-            ],
-            1,
-        )
+        mock_query.return_value = ([], 0)
 
-        params = ListCategoriesParams()
-        result = list_categories(config, auth, params)
+        list_categories(config, auth, ListCategoriesParams(knowledge_base="kb1"))
 
-        assert result["success"] is True
-        assert result["categories"][0]["knowledge_base"] == "Display KB"
-        assert result["categories"][0]["parent_category"] == "Display Parent"
+        assert mock_query.call_args[1]["display_value"] is False
 
     @patch("servicenow_mcp.tools.knowledge_base.sn_query_page")
     def test_non_dict_item_skipped(self, mock_query):

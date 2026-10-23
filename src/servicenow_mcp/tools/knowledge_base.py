@@ -600,16 +600,20 @@ def list_categories(
         Dictionary with list of categories and metadata.
     """
     # Build query string
+    # Same polymorphic parent as create_category: `parent_id` + `parent_table`.
+    # The filters used to name `kb_knowledge_base` and `parent`, which are not
+    # columns here, and a condition on an unknown column is DROPPED — measured
+    # live, filtering by a knowledge base that does not exist returned the same
+    # total as no filter at all. Every category came back as "this KB's".
     query_parts = []
-    if params.knowledge_base:
-        # Try different query format to ensure we match by sys_id value
-        query_parts.append(f"kb_knowledge_base.sys_id={params.knowledge_base}")
     if params.parent_category:
-        query_parts.append(f"parent.sys_id={params.parent_category}")
+        query_parts.append(f"parent_table=kb_category^parent_id={params.parent_category}")
+    elif params.knowledge_base:
+        query_parts.append(f"parent_table=kb_knowledge_base^parent_id={params.knowledge_base}")
     if params.active is not None:
         query_parts.append(f"active={str(params.active).lower()}")
     if params.query:
-        query_parts.append(f"labelLIKE{params.query}^ORdescriptionLIKE{params.query}")
+        query_parts.append(f"labelLIKE{params.query}^ORfull_categoryLIKE{params.query}")
 
     query = "^".join(query_parts)
     logger.debug("Constructed query string: %s", query)
@@ -620,10 +624,14 @@ def list_categories(
             auth_manager,
             table="kb_category",
             query=query,
-            fields="sys_id,label,description,kb_knowledge_base,parent,active,sys_created_on,sys_updated_on",
+            fields="sys_id,label,full_category,parent_table,parent_id,active,sys_created_on,sys_updated_on",
             limit=min(params.limit, 100),
             offset=params.offset,
-            display_value=True,
+            # Raw values: a document_id has no display value — measured, with
+            # display values on, parent_id comes back empty and the category's
+            # knowledge base could not be told at all. The raw sys_id is also
+            # what parent_category takes to walk down a level.
+            display_value=False,
             fail_silently=False,
         )
 
@@ -640,33 +648,18 @@ def list_categories(
                 # Safely extract values
                 category_id = category_item.get("sys_id", "")
                 title = category_item.get("label", "")
-                description = category_item.get("description", "")
+                full_category = category_item.get("full_category", "")
 
-                # Extract knowledge base - handle both dictionary and string cases
-                knowledge_base = ""
-                kb_field = category_item.get("kb_knowledge_base")
-                if isinstance(kb_field, dict):
-                    knowledge_base = kb_field.get("display_value", "")
-                elif isinstance(kb_field, str):
-                    knowledge_base = kb_field
-                # Also check if kb_knowledge_base is missing but there's a separate value field
-                elif "kb_knowledge_base_value" in category_item:
-                    knowledge_base = category_item.get("kb_knowledge_base_value", "")
-                elif "kb_knowledge_base.display_value" in category_item:
-                    knowledge_base = category_item.get("kb_knowledge_base.display_value", "")
-
-                # Extract parent category - handle both dictionary and string cases
-                parent = ""
-                parent_field = category_item.get("parent")
-                if isinstance(parent_field, dict):
-                    parent = parent_field.get("display_value", "")
-                elif isinstance(parent_field, str):
-                    parent = parent_field
-                # Also check alternative field names
-                elif "parent_value" in category_item:
-                    parent = category_item.get("parent_value", "")
-                elif "parent.display_value" in category_item:
-                    parent = category_item.get("parent.display_value", "")
+                # parent_id says WHAT the parent is only together with
+                # parent_table: a knowledge base for a top-level category,
+                # another category below that.
+                parent_ref = category_item.get("parent_id")
+                if isinstance(parent_ref, dict):
+                    parent_ref = parent_ref.get("display_value") or parent_ref.get("value", "")
+                parent_ref = parent_ref or ""
+                parent_table = category_item.get("parent_table", "")
+                knowledge_base = parent_ref if parent_table == "kb_knowledge_base" else ""
+                parent = parent_ref if parent_table == "kb_category" else ""
 
                 # Convert active to boolean - handle string or boolean types
                 active_field = category_item.get("active")
@@ -684,7 +677,7 @@ def list_categories(
                     {
                         "id": category_id,
                         "title": title,
-                        "description": description,
+                        "full_category": full_category,
                         "knowledge_base": knowledge_base,
                         "parent_category": parent,
                         "active": active,
@@ -698,7 +691,7 @@ def list_categories(
         else:
             logger.warning("Result is not a list: %s", result)
 
-        return {
+        result_payload: Dict[str, Any] = {
             "success": True,
             "message": f"Found {len(categories)} categories",
             "categories": categories,
@@ -706,6 +699,12 @@ def list_categories(
             "limit": params.limit,
             "offset": params.offset,
         }
+        if params.knowledge_base and not params.parent_category:
+            result_payload["scope"] = (
+                "Top-level categories of the knowledge base. Pass a category's id "
+                "as parent_category to list its children."
+            )
+        return result_payload
 
     except Exception as e:
         logger.error(f"Failed to list categories: {e}")
