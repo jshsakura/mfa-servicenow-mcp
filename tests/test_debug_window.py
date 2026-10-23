@@ -5479,3 +5479,70 @@ def test_a_window_killed_by_someone_else_stops_reading_as_alive():
     # launch_window refused with "lost track of its debugging port" until the
     # launching server exited.
     assert not _is_pid_alive(process.pid)
+
+
+# ---------------------------------------------------------------------------
+# capture._element_shot — an element screenshot must not cost the batch
+# ---------------------------------------------------------------------------
+
+
+class _Loc:
+    def __init__(self, present, visible=True, raises=None):
+        self.present, self.visible, self.raises = present, visible, raises
+        self.first = self
+
+    def count(self):
+        return 1 if self.present else 0
+
+    def is_visible(self):
+        return self.visible
+
+    def screenshot(self, timeout=None):
+        if self.raises:
+            raise RuntimeError(self.raises + "\nCall log:\n  - noise")
+        return b"png"
+
+
+class _Doc:
+    def __init__(self, loc):
+        self._loc = loc
+
+    def locator(self, selector):
+        return self._loc
+
+
+class _FramedPage(_Doc):
+    def __init__(self, top, frames):
+        super().__init__(top)
+        self.main_frame = object()
+        self.frames = [self.main_frame, *frames]
+
+
+def test_an_element_inside_a_frame_is_found_there():
+    page = _FramedPage(_Loc(present=False), [_Doc(_Loc(present=True))])
+
+    raw, why = capture_module._element_shot(page, "#grid")
+
+    assert raw == b"png" and why == ""
+
+
+def test_a_hidden_element_is_reported_without_waiting_out_a_timeout():
+    page = _FramedPage(_Loc(present=True, visible=False), [])
+
+    raw, why = capture_module._element_shot(page, "#grid")
+
+    assert raw is None and "not visible" in why
+
+
+def test_a_missing_element_says_so():
+    raw, why = capture_module._element_shot(_FramedPage(_Loc(present=False), []), "#grid")
+
+    assert raw is None and "not in the page or any of its frames" in why
+
+
+def test_a_failed_shot_reports_one_line_not_playwrights_call_log():
+    page = _FramedPage(_Loc(present=True, raises="Timeout 5000ms exceeded."), [])
+
+    raw, why = capture_module._element_shot(page, "#grid")
+
+    assert raw is None and "Timeout 5000ms" in why and "Call log" not in why

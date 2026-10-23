@@ -574,8 +574,14 @@ def _screenshot(
         if mode == "element":
             if not selector:
                 raise ValueError("screenshot='element' needs a selector.")
-            path, size = _write_image(page.locator(selector).first.screenshot(), destination)
-            return path, (size or None)
+            raw, why_not = _element_shot(page, selector)
+            if raw is not None:
+                path, size = _write_image(raw, destination)
+                return path, (size or None)
+            # The steps already ran; a picture of the wrong size is not worth
+            # their results. The viewport is shot instead and labelled as such.
+            path, size = _write_image(page.screenshot(full_page=False), destination)
+            return path, {"element_not_captured": why_not, "only_viewport": True, **size}
 
         if mode == "full" and not scroll_shot.page_scrolls(page):
             stitched = scroll_shot.capture(page, destination=destination)
@@ -592,6 +598,38 @@ def _screenshot(
     finally:
         if hidden:
             _show_badge(page)
+
+
+# An element shot waits this long for its element to be visible and stable.
+# Playwright's own default is 30s, and on a hidden or off-frame element it
+# spends all of it and then raises — taking every step's result down with it.
+ELEMENT_SHOT_TIMEOUT_MS = 5_000
+
+
+def _element_shot(page: Any, selector: str) -> Tuple[Optional[bytes], str]:
+    """Screenshot ``selector`` in whichever frame holds it, or say why not.
+
+    ``page.locator`` searches the top document only, and on classic UI the
+    form lives in the ``gsft_main`` frame — so the element was never found
+    there and the shot sat out the full timeout.
+    """
+    targets: List[Any] = [page]
+    try:
+        targets += [f for f in page.frames if f is not page.main_frame]
+    except Exception as exc:  # noqa: BLE001 - a detached frame is not fatal
+        logger.debug("Could not enumerate frames: %s", exc)
+    for target in targets:
+        try:
+            locator = target.locator(selector)
+            if locator.count() == 0:
+                continue
+            if not locator.first.is_visible():
+                return None, f"'{selector}' is in the page but not visible."
+            return locator.first.screenshot(timeout=ELEMENT_SHOT_TIMEOUT_MS), ""
+        except Exception as exc:  # noqa: BLE001 - zero-size, detached, never stable
+            first_line = (str(exc).splitlines() or [""])[0][:120]
+            return None, f"'{selector}' was found but could not be shot: {first_line}"
+    return None, f"'{selector}' is not in the page or any of its frames."
 
 
 def _hide_badge(page: Any) -> bool:
