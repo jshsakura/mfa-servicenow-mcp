@@ -220,10 +220,10 @@ action डिस्पैच के साथ एकल समग्र टू�
 
 Read actions (`standard` में उपलब्ध):
 - `action="read"` (v1.18.6) — **स्क्रीन-फ़िडेलिटी** read: एक क्रमबद्ध, If/Else-नेस्टेड step वृक्ष (actions + logic + subflows निष्पादन क्रम के अनुसार मर्ज किए गए), conditions **मानव-पठनीय पाठ में डिकोड की गई**, data pills उन्हें उत्पन्न करने वाले step लेबल्स से हल किए गए, और custom Action प्रकार उनके Script बॉडी के साथ। Cycle/missing-uid गार्डेड। 142-नोड flow के लिए ~18K टोकन (पहले के ~130K की तुलना में) — किसी flow को समझने के लिए यहाँ से शुरू करें।
-- `action="read_action"` — किसी एकल custom Action परिभाषा की Script बॉडी पढ़ें।
+- `action="read_action"` — किसी एकल custom Action परिभाषा की Script बॉडी पढ़ें। मुख्य params: `flow_id` या `action_ref` (sys_id या सटीक name/internal_name)।
 - `action="list"` — flows/subflows खोजें। मुख्य params: `limit`, `offset`, `include_inactive`, `flow_status`, `scope`, `name_filter`।
 - `action="get_detail"` — flow मेटाडेटा + वैकल्पिक भारी अनुभाग। मुख्य params: `flow_id` (required), `include_structure`, `include_triggers`, `include_executions_summary`, `trace_pill`, `include_subflow_tree`, `summary_format`।
-- `action="get_executions"` — रनटाइम इतिहास (फ़िल्टर) या एकल execution विवरण। मुख्य params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`।
+- `action="get_executions"` — रनटाइम इतिहास (फ़िल्टर) या एकल execution विवरण। मुख्य params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record` (sys_id या record number), `source_table` (डिफ़ॉल्ट `task`; task को extend न करने वाली custom tables के लिए ज़रूरी), `errors_only`, `limit`/`offset`।
 - `action="compare"` — दो flows की तुलना `flow_id_a`/`flow_id_b` या `name_a`/`name_b` द्वारा करें। संरचनात्मक diff, subflow bindings, trigger अंतर रिपोर्ट करता है। `get_detail` को दो बार कॉल करने की तुलना में प्राथमिकता दी जाती है।
 
 राइट ऐक्शन वापस ले लिए गए हैं। `manage_flow_designer` फ़्लो को पढ़ता और विश्लेषित करता है, बदलता नहीं — संपादन Flow Designer UI में करें। फ़्लो संपादन पूरा processflow पेलोड वापस PUT करता है, और यह टूल उस आंतरिक फ़ॉर्मैट को केवल आंशिक रूप से मॉडल करता है: `label_cache` से छूटे एक pill ने ऐसी कंडीशन बनाई जो API से सही पढ़ी जाती थी और **स्क्रीन पर खाली** थी, और हर सेव एक अपडेट-सेट प्रविष्टि बन जाता है जो आगे भेजी जाती है। हैंडलर भी हटा दिए गए; कारण `flow_tools.py` के `git log` में दर्ज है।

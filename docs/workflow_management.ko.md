@@ -220,10 +220,10 @@ Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입�
 
 읽기 액션 (`standard` 포함):
 - `action="read"` (v1.18.6) — **화면 충실도** 읽기: 실행 순서로 병합된 하나의 If/Else 중첩 스텝 트리(액션+로직+서브플로우), 조건을 **사람이 읽는 텍스트로 디코드**, 데이터 pill을 생산 스텝 라벨로 해석, 커스텀 Action 타입의 Script 본문까지. 사이클/누락 uid 가드. 142노드 플로우 ~18K 토큰(이전 ~130K) — 플로우 이해는 여기서 시작.
-- `action="read_action"` — 단일 커스텀 Action 정의의 Script 본문 읽기.
+- `action="read_action"` — 단일 커스텀 Action 정의의 Script 본문 읽기. 주요 파라미터: `flow_id` 또는 `action_ref`(sys_id 또는 정확한 name/internal_name).
 - `action="list"` — 플로우/서브플로우 검색. 주요 파라미터: `limit`, `offset`, `include_inactive`, `flow_status`, `scope`, `name_filter`.
 - `action="get_detail"` — 단일 플로우 메타데이터 + 선택적 heavy 섹션. 주요 파라미터: `flow_id`(필수), `include_structure`, `include_triggers`, `include_executions_summary`, `trace_pill`, `include_subflow_tree`, `summary_format`.
-- `action="get_executions"` — 실행 이력(필터) 또는 단일 실행 상세. 주요 파라미터: `context_id`(단일 모드), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
+- `action="get_executions"` — 실행 이력(필터) 또는 단일 실행 상세. 주요 파라미터: `context_id`(단일 모드), `flow_id`, `flow_name`, `exec_state`, `source_record`(sys_id 또는 레코드 번호), `source_table`(기본 `task`, task 를 상속하지 않는 커스텀 테이블은 필수), `errors_only`, `limit`/`offset`. 필터 하나면 충분하며 `flow_id`는 필수가 아닙니다.
 - `action="compare"` — 두 플로우 diff. `flow_id_a`/`flow_id_b` 또는 `name_a`/`name_b`. 구조/서브플로우/트리거 차이 리포트. `get_detail` 두 번 호출보다 권장.
 
 쓰기 액션은 철회되었습니다. `manage_flow_designer`는 플로우를 읽고 분석할 뿐 변경하지 않습니다 — 편집은 Flow Designer UI에서 하세요. 플로우 편집은 processflow 페이로드를 통째로 PUT하는데 이 툴은 그 내부 포맷을 부분적으로만 모델링합니다. `label_cache`에서 빠진 pill 하나 때문에 API로는 정상으로 읽히고 **화면에서는 빈 칸**인 조건이 만들어졌고, 저장은 매번 배포되는 업데이트셋 항목이 됩니다. 핸들러도 함께 제거했습니다. 이유는 `flow_tools.py`의 `git log`에 남아 있습니다.

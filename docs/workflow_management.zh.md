@@ -220,10 +220,10 @@ Flow Designer（`sys_hub_flow`）是旧版工作流的现代继任者。MCP 服�
 
 读取操作（在 `standard` 中可用）：
 - `action="read"`（v1.18.6）—— **屏幕保真**级的读取：一棵有序的、If/Else 嵌套的步骤树（action + 逻辑 + subflow 按执行顺序合并），条件**解码为人类可读文本**，data pill 解析到其生成步骤的标签，并附带自定义 Action 类型及其 Script 正文。已对环路/缺失 uid 加守卫。一个 142 节点的 flow 约 18K token（此前约 130K）—— 从这里开始理解一个 flow。
-- `action="read_action"` —— 读取单个自定义 Action 定义的 Script 正文。
+- `action="read_action"` —— 读取单个自定义 Action 定义的 Script 正文。关键参数：`flow_id` 或 `action_ref`（sys_id 或精确的 name/internal_name）。
 - `action="list"` —— 搜索 flow/subflow。关键参数：`limit`、`offset`、`include_inactive`、`flow_status`、`scope`、`name_filter`。
 - `action="get_detail"` —— flow 元数据 + 可选的重型区段。关键参数：`flow_id`（必填）、`include_structure`、`include_triggers`、`include_executions_summary`、`trace_pill`、`include_subflow_tree`、`summary_format`。
-- `action="get_executions"` —— 运行时历史（过滤器）或单次执行详情。关键参数：`context_id`（单次模式）、`flow_id`、`flow_name`、`exec_state`、`source_record`、`errors_only`、`limit`/`offset`。
+- `action="get_executions"` —— 运行时历史（过滤器）或单次执行详情。关键参数：`context_id`（单次模式）、`flow_id`、`flow_name`、`exec_state`、`source_record`（sys_id 或记录编号）、`source_table`（默认 `task`；不继承 task 的自定义表必须指定）、`errors_only`、`limit`/`offset`。
 - `action="compare"` —— 按 `flow_id_a`/`flow_id_b` 或 `name_a`/`name_b` 比对两个 flow。报告结构差异、subflow 绑定、触发器差异。优于两次调用 `get_detail`。
 
 写入操作已撤销。`manage_flow_designer` 只读取和分析流程，不会修改它们 — 请在 Flow Designer 界面中编辑。流程编辑会将整个 processflow 负载 PUT 回去，而本工具只是部分建模了该内部格式：`label_cache` 中缺失的一个 pill 会产生通过 API 读取正常、**在界面上为空**的条件，并且每次保存都会成为随之发布的更新集条目。处理函数也一并删除；原因记录在 `flow_tools.py` 的 `git log` 中。

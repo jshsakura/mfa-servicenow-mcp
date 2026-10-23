@@ -224,10 +224,10 @@ Single composite tool with action dispatch. Replaces the previous 6 standalone f
 
 Read actions (available in `standard`):
 - `action="read"` (v1.18.6) — the **screen-fidelity** read: one ordered, If/Else-nested step tree (actions + logic + subflows merged by execution order), conditions **decoded to human-readable text**, data pills resolved to their producing-step labels, and custom Action types with their Script bodies. Cycle/missing-uid guarded. ~18K tokens for a 142-node flow (vs ~130K before) — start here to understand a flow.
-- `action="read_action"` — read a single custom Action definition's Script body.
+- `action="read_action"` — read a single custom Action definition's Script body. Key params: `flow_id` or `action_ref` (sys_id or exact name/internal_name).
 - `action="list"` — search flows/subflows. Key params: `limit`, `offset`, `include_inactive`, `flow_status`, `scope`, `name_filter`.
 - `action="get_detail"` — flow metadata + optional heavy sections. Key params: `flow_id` (required), `include_structure`, `include_triggers`, `include_executions_summary`, `trace_pill`, `include_subflow_tree`, `summary_format`.
-- `action="get_executions"` — runtime history (filters) or single execution detail. Key params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record`, `errors_only`, `limit`/`offset`.
+- `action="get_executions"` — runtime history (filters) or single execution detail. Key params: `context_id` (single mode), `flow_id`, `flow_name`, `exec_state`, `source_record` (sys_id or record number), `source_table` (default `task`; needed for custom tables outside task), `errors_only`, `limit`/`offset`. Any one filter is enough; `flow_id` is not required.
 - `action="compare"` — diff two flows by `flow_id_a`/`flow_id_b` or `name_a`/`name_b`. Reports structural diff, subflow bindings, trigger differences. Preferred over calling `get_detail` twice.
 
 Write actions are withdrawn. `manage_flow_designer` reads and analyses flows; it does not change them — edit in the Flow Designer UI. A flow edit PUTs the whole processflow payload back, and this tool models that internal format only partially: a pill missing from `label_cache` gave a condition that read correctly over the API and was **empty on screen**, and every save becomes an update-set entry that ships. The handlers were removed with them; `git log` on `flow_tools.py` carries the reasoning.

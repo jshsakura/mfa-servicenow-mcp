@@ -224,10 +224,10 @@ Flow Designer（`sys_hub_flow`）は、レガシーワークフローのモダ�
 
 読み取りアクション（`standard` で利用可能）:
 - `action="read"`（v1.18.6）— **画面忠実度の高い** 読み取り: 1 つの順序付けされた If/Else ネストのステップツリー（アクション + ロジック + サブフローを実行順にマージ）、条件を **人間が読めるテキストにデコード**、データピルを生成元ステップのラベルに解決、カスタム Action タイプとそのスクリプト本文を含む。サイクル/欠落 uid をガード。142 ノードのフローで約 18K トークン（以前は約 130K）— フローを理解するにはここから始める。
-- `action="read_action"` — 単一のカスタム Action 定義のスクリプト本文を読む。
+- `action="read_action"` — 単一のカスタム Action 定義のスクリプト本文を読む。主なパラメータ: `flow_id` または `action_ref`（sys_id または正確な name/internal_name）。
 - `action="list"` — フロー/サブフローを検索する。主なパラメータ: `limit`、`offset`、`include_inactive`、`flow_status`、`scope`、`name_filter`。
 - `action="get_detail"` — フローのメタデータ + 任意の重いセクション。主なパラメータ: `flow_id`（必須）、`include_structure`、`include_triggers`、`include_executions_summary`、`trace_pill`、`include_subflow_tree`、`summary_format`。
-- `action="get_executions"` — 実行履歴（フィルタ）または単一実行の詳細。主なパラメータ: `context_id`（単一モード）、`flow_id`、`flow_name`、`exec_state`、`source_record`、`errors_only`、`limit`/`offset`。
+- `action="get_executions"` — 実行履歴（フィルタ）または単一実行の詳細。主なパラメータ: `context_id`（単一モード）、`flow_id`、`flow_name`、`exec_state`、`source_record`（sys_id またはレコード番号）、`source_table`（既定は `task`。task を継承しないカスタムテーブルでは必須）、`errors_only`、`limit`/`offset`。
 - `action="compare"` — `flow_id_a`/`flow_id_b` または `name_a`/`name_b` で 2 つのフローを差分する。構造差分、サブフローバインディング、トリガーの差異を報告する。`get_detail` を 2 回呼び出すより優先される。
 
 書き込みアクションは取り下げられました。`manage_flow_designer` はフローの読み取りと解析のみを行い、変更はしません — 編集は Flow Designer の UI で行ってください。フロー編集は processflow ペイロード全体を PUT しますが、本ツールはその内部フォーマットを部分的にしかモデル化していません。`label_cache` から漏れたピルにより、API では正しく読めて**画面では空**になる条件が生まれ、保存は毎回そのまま配布される更新セット項目になります。ハンドラも併せて削除しました。理由は `flow_tools.py` の `git log` に残っています。
