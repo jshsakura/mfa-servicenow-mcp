@@ -455,6 +455,56 @@ class TestGetLogsSafetyAndEdgeCases(unittest.TestCase):
         self.assertIn("Connection refused", result["error"])
 
     @patch("servicenow_mcp.tools.log_tools.sn_query_page")
+    def test_a_timed_out_all_time_search_falls_back_to_7_days_and_says_so(self, mock_qp):
+        timeout = Exception("curl: (28) Operation timed out after 40002 milliseconds")
+        mock_qp.side_effect = [timeout, ([{"message": "hit"}], 1)]
+
+        result = get_logs(
+            self.config,
+            self.auth,
+            GetLogsParams(log_type="system", timeframe="all", contains="needle"),
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["timeframe_applied"], "last_7d")
+        self.assertIn("NOT searched", result["warning"])
+        retry_query = mock_qp.call_args_list[1][1]["query"]
+        self.assertIn("daysAgoStart(7)", retry_query)
+        self.assertIn("messageLIKEneedle", retry_query)
+
+    @patch("servicenow_mcp.tools.log_tools.sn_query_page")
+    def test_a_non_timeout_error_is_not_retried(self, mock_qp):
+        mock_qp.side_effect = Exception("HTTP Error 403: Forbidden")
+
+        result = get_logs(self.config, self.auth, GetLogsParams(log_type="system", timeframe="all"))
+
+        self.assertFalse(result["success"])
+        self.assertEqual(mock_qp.call_count, 1)
+
+    @patch("servicenow_mcp.tools.log_tools.sn_query_page")
+    def test_when_the_narrower_read_also_fails_the_original_error_is_reported(self, mock_qp):
+        mock_qp.side_effect = [Exception("Read timed out"), Exception("Read timed out again")]
+
+        result = get_logs(
+            self.config, self.auth, GetLogsParams(log_type="system", timeframe="last_7d")
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "Read timed out")
+        self.assertIn("hoursAgoStart(24)", mock_qp.call_args_list[1][1]["query"])
+
+    @patch("servicenow_mcp.tools.log_tools.sn_query_page")
+    def test_the_narrowest_timeframe_has_nowhere_to_fall_back_to(self, mock_qp):
+        mock_qp.side_effect = Exception("Read timed out")
+
+        result = get_logs(
+            self.config, self.auth, GetLogsParams(log_type="system", timeframe="last_hour")
+        )
+
+        self.assertFalse(result["success"])
+        self.assertEqual(mock_qp.call_count, 1)
+
+    @patch("servicenow_mcp.tools.log_tools.sn_query_page")
     def test_raw_query_appended(self, mock_qp):
         mock_qp.return_value = ([], 0)
 

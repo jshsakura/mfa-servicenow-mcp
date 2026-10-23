@@ -101,6 +101,17 @@ def _timeframe_query(timeframe: str) -> Optional[str]:
     return "sys_created_on>=javascript:gs.hoursAgoStart(24)"
 
 
+# One step narrower per timeframe. A text search (LIKE) cannot use an index, so
+# on a large log table "all" can outlast the read timeout where a bounded window
+# answers in a second; the narrower read is the fallback, never a silent one.
+_NARROWER_TIMEFRAME = {"all": "last_7d", "last_7d": "last_24h", "last_24h": "last_hour"}
+
+
+def _is_timeout(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "timed out" in text or "timeout" in text or "curl: (28)" in text
+
+
 def _truncate_results(results: List[Dict[str, Any]], max_text_length: int) -> List[Dict[str, Any]]:
     truncated_rows: List[Dict[str, Any]] = []
     for row in results:
@@ -131,19 +142,17 @@ def _fetch_logs(
     clamped_limit = _clamp_limit(limit)
     safe_offset = max(0, offset)
 
-    timeframe_part = _timeframe_query(timeframe)
-    all_parts: List[str] = []
-    if timeframe_part:
-        all_parts.append(timeframe_part)
-    all_parts.extend(part for part in query_parts if part)
-    query_str = "^".join(all_parts)
-
-    try:
+    def _read(window: str) -> Dict[str, Any]:
+        timeframe_part = _timeframe_query(window)
+        all_parts: List[str] = []
+        if timeframe_part:
+            all_parts.append(timeframe_part)
+        all_parts.extend(part for part in query_parts if part)
         rows, total_count = sn_query_page(
             config,
             auth_manager,
             table=table,
-            query=query_str,
+            query="^".join(all_parts),
             fields=fields,
             limit=clamped_limit,
             offset=safe_offset,
@@ -151,7 +160,6 @@ def _fetch_logs(
             orderby="-sys_created_on",
             fail_silently=False,
         )
-
         return {
             "success": True,
             "table": table,
@@ -161,8 +169,25 @@ def _fetch_logs(
             "fields": fields.split(","),
             "results": _truncate_results(rows, _clamp_text_length(text_preview_length)),
         }
+
+    try:
+        return _read(timeframe)
     except Exception as exc:
         logger.error("Error querying log table %s: %s", table, exc)
+        narrower = _NARROWER_TIMEFRAME.get((timeframe or "").strip().lower())
+        if _is_timeout(exc) and narrower:
+            try:
+                result = _read(narrower)
+            except Exception as retry_exc:  # noqa: BLE001 - reported below
+                logger.error("Narrower read of %s also failed: %s", table, retry_exc)
+            else:
+                result["timeframe_applied"] = narrower
+                result["warning"] = (
+                    f"timeframe='{timeframe}' timed out on {table}; these results "
+                    f"cover {narrower} ONLY. Older entries were NOT searched — "
+                    "add level/source to narrow the text search before widening again."
+                )
+                return result
         return {
             "success": False,
             "table": table,
