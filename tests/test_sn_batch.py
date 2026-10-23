@@ -274,3 +274,110 @@ class TestBatchRows:
         # None and [] must stay distinguishable: "did not come back" is not
         # "came back empty", and only the first one earns a second request.
         assert batch_rows(served) is None
+
+
+def _cut_sub(rid):
+    """A sub-request the server was streaming when the POST hit its output cap.
+
+    Shape copied from a live response: the rows stop mid-value and the error
+    object is appended after them, under a 500 — so the body is not JSON.
+    """
+    partial = (
+        '{"result":[{"sys_id":"a","script":"var x = Float(list[0][[[_m"'
+        ',"error":{"message":"Transaction cancelled: Max output size reached for '
+        'current BatchRest transaction","detail":"Transaction cancelled: Max output '
+        'size reached for current BatchRest transaction"},"status":"failure"}'
+    )
+    return {
+        "id": rid,
+        "status_code": 500,
+        "body": base64.b64encode(partial.encode()).decode(),
+        "headers": [],
+    }
+
+
+class TestOutputCap:
+    """One batch POST has an output cap (~10MB of base64). Each sub-request is
+    fine alone, so the ones it cut go into the NEXT post, not a per-id GET."""
+
+    def test_cut_sub_requests_ride_a_second_post(self, mock_config):
+        auth = MagicMock()
+        auth.make_request.side_effect = [
+            _batch_response([_sub("0", {"result": [{"sys_id": "a"}]}), _cut_sub("1")]),
+            _batch_response([_sub("1", {"result": [{"sys_id": "b"}]})]),
+        ]
+        out = batch_get(mock_config, auth, [("0", "/u0"), ("1", "/u1")])
+
+        assert batch_rows(out["0"]) == [{"sys_id": "a"}]
+        assert batch_rows(out["1"]) == [{"sys_id": "b"}]
+        second = auth.make_request.call_args_list[1][1]["json"]["rest_requests"]
+        assert [r["id"] for r in second] == ["1"]
+
+    def test_ids_never_serviced_after_the_cut_are_re_batched_too(self, mock_config):
+        auth = MagicMock()
+        auth.make_request.side_effect = [
+            # "0" fit, "1" was cut, "2" never came back at all.
+            _batch_response([_sub("0", {"result": []}), _cut_sub("1")]),
+            _batch_response([_sub("1", {"result": []}), _sub("2", {"result": []})]),
+        ]
+        out = batch_get(mock_config, auth, [("0", "/u0"), ("1", "/u1"), ("2", "/u2")])
+
+        second = auth.make_request.call_args_list[1][1]["json"]["rest_requests"]
+        assert sorted(r["id"] for r in second) == ["1", "2"]
+        assert batch_rows(out["2"]) == []
+
+    def test_a_sub_request_over_the_cap_alone_is_left_to_the_direct_get(self, mock_config):
+        auth = MagicMock()
+        auth.make_request.side_effect = [
+            _batch_response([_sub("0", {"result": []}), _cut_sub("1")]),
+            _batch_response([_cut_sub("1")]),  # no progress
+        ]
+        out = batch_get(mock_config, auth, [("0", "/u0"), ("1", "/u1")])
+
+        assert auth.make_request.call_count == 2
+        # Still reported as failed, so the caller's per-id fallback runs.
+        assert batch_rows(out["1"]) is None
+
+    def test_a_failed_re_batch_keeps_what_the_first_post_returned(self, mock_config):
+        auth = MagicMock()
+        auth.make_request.side_effect = [
+            _batch_response([_sub("0", {"result": [{"sys_id": "a"}]}), _cut_sub("1")]),
+            RuntimeError("network"),
+        ]
+        out = batch_get(mock_config, auth, [("0", "/u0"), ("1", "/u1")])
+
+        assert batch_rows(out["0"]) == [{"sys_id": "a"}]
+        assert batch_rows(out["1"]) is None
+
+    def test_an_ordinary_bad_body_is_not_mistaken_for_the_cap(self, mock_config):
+        auth = MagicMock()
+        bad = {"id": "0", "status_code": 200, "body": base64.b64encode(b"<html>").decode()}
+        auth.make_request.return_value = _batch_response([bad])
+
+        out = batch_get(mock_config, auth, [("0", "/u0")])
+
+        auth.make_request.assert_called_once()
+        assert batch_rows(out["0"]) is None
+
+
+def test_a_cut_with_no_error_text_is_recognised_by_the_unserviced_list(mock_config):
+    # The other live shape: the cut body just stops (no error appended), and
+    # every later sub-request is listed as unserviced.
+    stopped = {
+        "id": "1",
+        "status_code": 500,
+        "body": base64.b64encode(b'{"result":[{"sys_id":"a","script":"var j""],""}').decode(),
+    }
+    first = _batch_response([_sub("0", {"result": []}), stopped])
+    first.json.return_value["unserviced_requests"] = ["2", "3"]
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        first,
+        _batch_response([_sub(r, {"result": [{"sys_id": r}]}) for r in ("1", "2", "3")]),
+    ]
+
+    out = batch_get(mock_config, auth, [(r, f"/u{r}") for r in ("0", "1", "2", "3")])
+
+    second = auth.make_request.call_args_list[1][1]["json"]["rest_requests"]
+    assert sorted(r["id"] for r in second) == ["1", "2", "3"]
+    assert all(batch_rows(out[r]) for r in ("1", "2", "3"))

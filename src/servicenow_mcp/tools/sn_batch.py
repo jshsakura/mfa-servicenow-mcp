@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlencode
 
 from servicenow_mcp.auth.auth_manager import AuthManager
@@ -35,6 +35,15 @@ _BATCH_PATH = "/api/now/v1/batch"
 _batch_unsupported: Dict[str, bool] = {}
 
 _STRUCTURAL_REJECTIONS = {400, 404, 405, 501}
+
+# What the server appends to the sub-request it was streaming when a batch POST
+# hit its output cap. Measured live: five 50-record source chunks (~7.9MB of
+# JSON, 10.5MB as base64) — the fifth came back 500 with this tail, and alone it
+# was a clean 200.
+_OUTPUT_CAP_MARKER = "Max output size reached"
+# POSTs per batch_get. Each re-batch carries only the cut ids, so this bounds a
+# scan of roughly 4x the cap before the remainder falls back per id.
+_MAX_OUTPUT_ROUNDS = 4
 
 
 def reset_batch_support_cache() -> None:
@@ -117,6 +126,44 @@ def batch_get(
     if _batch_unsupported.get(instance):
         return None
 
+    out: Dict[str, Dict[str, Any]] = {}
+    pending = list(requests_by_id)
+    for round_no in range(_MAX_OUTPUT_ROUNDS):
+        posted = _post_batch(auth_manager, instance, pending, timeout)
+        if posted is None:
+            # The first POST failing means no batch at all; a later one only
+            # loses the re-batch — what already came back stands, and the cut
+            # ids stay in `out` as failures so callers fall back per id.
+            return None if round_no == 0 else out
+        served, cut = posted
+        out.update(served)
+        if not cut or len(cut) == len(pending):
+            # Done, or no progress: a sub-request over the cap on its own will
+            # not fit in any batch — it is left to the caller's direct GET.
+            break
+        logger.info(
+            "batch_get: output cap reached; re-batching %d of %d sub-request(s)",
+            len(cut),
+            len(pending),
+        )
+        pending = [spec for spec in pending if spec[0] in cut]
+    return out
+
+
+def _post_batch(
+    auth_manager: AuthManager,
+    instance: str,
+    requests_by_id: List[Tuple[str, str]],
+    timeout: int,
+) -> Optional[Tuple[Dict[str, Dict[str, Any]], Set[str]]]:
+    """One batch POST. Returns (serviced, cut) or None when the API is unusable.
+
+    ``cut`` holds the ids the server stopped on because the transaction hit its
+    output cap ("Max output size reached for current BatchRest transaction"),
+    and every id it lists as unserviced. Each sub-request is fine on its own; the
+    cap is per POST (~10MB of base64, so ~7.5MB of JSON), so they belong in
+    the next POST, not in a per-id fallback.
+    """
     payload = {
         "batch_request_id": "1",
         "rest_requests": [
@@ -147,12 +194,18 @@ def batch_get(
         return None
 
     try:
-        serviced = json_object(response, "batch API").get("serviced_requests") or []
+        envelope = json_object(response, "batch API")
     except ValueError as exc:
         logger.warning("batch_get: unparsable response (falling back): %s", exc)
         return None
+    serviced = envelope.get("serviced_requests") or []
+    # Ids the server never got to. Measured live: when the cap is hit, the
+    # sub-request being streamed is cut — sometimes with the error appended,
+    # sometimes just stopped — and everything after it lands here.
+    unserviced = {str(rid) for rid in envelope.get("unserviced_requests") or []}
 
     out: Dict[str, Dict[str, Any]] = {}
+    cut: Set[str] = set(unserviced)
     for item in serviced:
         rid = str(item.get("id") or "")
         if not rid:
@@ -163,17 +216,26 @@ def batch_get(
             try:
                 body = json_fast.loads(base64.b64decode(raw))
             except (ValueError, TypeError) as exc:
-                logger.warning("batch_get: sub-request %s body unparsable: %s", rid, exc)
-                # Decode the raw body (usually an HTML error page) and log a
-                # snippet at DEBUG so the cause (login bounce, 5xx, WAF block)
-                # is identifiable from the log alone, without leaking it at WARN.
                 try:
                     decoded = base64.b64decode(raw).decode("utf-8", "replace")
-                    logger.debug("batch_get: sub-request %s raw body[:200]=%r", rid, decoded[:200])
                 except Exception:  # noqa: BLE001 — diagnostics must never raise
-                    pass
+                    decoded = ""
+                status_code = int(item.get("status_code") or 0)
+                if _OUTPUT_CAP_MARKER in decoded[-600:] or (status_code == 500 and unserviced):
+                    # Not a bad body: the rows were streamed until the cap and
+                    # then stopped. Re-batched by the caller.
+                    cut.add(rid)
+                else:
+                    logger.warning("batch_get: sub-request %s body unparsable: %s", rid, exc)
+                    # The raw body (usually an HTML error page) at DEBUG, so the
+                    # cause (login bounce, 5xx, WAF block) is identifiable from
+                    # the log alone, without leaking it at WARN.
+                    logger.debug("batch_get: sub-request %s raw body[:200]=%r", rid, decoded[:200])
         out[rid] = {
             "status_code": int(item.get("status_code") or 0),
             "body": body,
         }
-    return out
+    if cut:
+        # Whatever the server dropped after the cut belongs to the next POST too.
+        cut |= {rid for rid, _url in requests_by_id if rid not in out}
+    return out, cut
