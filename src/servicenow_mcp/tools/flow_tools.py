@@ -465,8 +465,8 @@ def _do_read_action(
     if not action_id:
         assert p.action_ref is not None  # guaranteed by _validate_per_action
         action_id, problem = _resolve_action_ref(config, auth_manager, p.action_ref)
-        if problem:
-            return {"success": False, "error": problem}
+        if problem or not action_id:
+            return {"success": False, "error": problem or "action_ref did not resolve."}
     pf = _try_processflow_action(config, auth_manager, action_id)
     if pf.get("_error"):
         return {"success": False, "error": pf["_error"]}
