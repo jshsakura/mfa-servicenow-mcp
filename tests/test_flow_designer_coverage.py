@@ -1083,15 +1083,24 @@ class TestGetFlowExecutionsAdvanced(unittest.TestCase):
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_list_mode_with_source_record(self, mock_qp):
-        mock_qp.return_value = ([], 0)
+        # source_record is a document_id: a number is resolved to the sys_id it
+        # holds, never LIKE-matched against it (that matched nothing, ever).
+        mock_qp.side_effect = [
+            ([{"sys_id": "aaaa1111bbbb2222cccc3333dddd4444", "number": "INC001"}], 1),
+            ([], 0),
+        ]
         result = get_flow_executions(
             self.config,
             self.auth_manager,
             GetFlowExecutionsParams(source_record="INC001"),
         )
         self.assertTrue(result["success"])
+        lookup = mock_qp.call_args_list[0][1]
+        self.assertEqual(lookup["table"], "task")
+        self.assertEqual(lookup["query"], "number=INC001")
         query = mock_qp.call_args[1]["query"]
-        self.assertIn("source_recordLIKEINC001", query)
+        self.assertIn("source_recordINaaaa1111bbbb2222cccc3333dddd4444", query)
+        self.assertNotIn("LIKE", query)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_list_mode_error(self, mock_qp):

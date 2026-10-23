@@ -11,7 +11,7 @@ Backed by existing implementations in:
 """
 
 import logging
-from typing import Any, ClassVar, Dict, Literal, Optional
+from typing import Any, ClassVar, Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -22,12 +22,14 @@ from servicenow_mcp.utils.registry import register_tool
 
 from .flow_action_read import _compact_action_summary, _try_processflow_action
 from .flow_designer_tools import (
+    ACTION_DEF_TABLE,
     FLOW_TABLE,
     CompareFlowsParams,
     GetActionSourceParams,
     GetFlowDetailsParams,
     GetFlowExecutionsParams,
     ListFlowsParams,
+    _looks_like_sys_id,
     compare_flows,
     get_action_source,
     get_flow_details,
@@ -49,13 +51,16 @@ _READ_ACTIONS = frozenset(
         "read_action",
     }
 )
-_NEEDS_FLOW_ID = frozenset(
-    {
-        # get_detail is intentionally NOT here — it accepts flow_id OR flow_name
-        # (see _validate_per_action + _resolve_flow_id_by_name).
-        "get_executions",
-        "read_action",
-    }
+# get_executions filters on any of these — the underlying read takes each one
+# alone. Requiring flow_id here rejected a context_id or source_record lookup
+# that the reader itself supports.
+_EXECUTION_FILTERS = (
+    "flow_id",
+    "context_id",
+    "flow_name",
+    "source_record",
+    "exec_state",
+    "errors_only",
 )
 
 
@@ -66,10 +71,10 @@ class ManageFlowDesignerParams(BaseModel):
     Required per action:
       list:              (none — all optional; flow_type=action|playbook|decision lists those tabs)
       get_detail:        flow_id OR flow_name
-      get_executions:    flow_id (or context_id for single execution)
+      get_executions:    any filter: flow_id, context_id, flow_name, source_record, exec_state, errors_only
       compare:           flow_id_a|name_a AND flow_id_b|name_b
       get_action_source: action_ref
-      read_action:       flow_id (the action's sys_id)
+      read_action:       flow_id (the action's sys_id) OR action_ref
     """
 
     action: Literal[
@@ -131,7 +136,12 @@ class ManageFlowDesignerParams(BaseModel):
     exec_state: Optional[str] = Field(
         default=None, description="Complete/Error/Waiting/Cancelled/In Progress"
     )
-    source_record: Optional[str] = Field(default=None, description="Source record display value")
+    source_record: Optional[str] = Field(
+        default=None, description="Triggering record: sys_id, or its number (see source_table)"
+    )
+    source_table: Optional[str] = Field(
+        default=None, description="Table to resolve a source_record number in (default task)"
+    )
     errors_only: bool = Field(default=False, description="Only errored executions")
 
     # ---- compare ----
@@ -192,20 +202,29 @@ class ManageFlowDesignerParams(BaseModel):
                 "flow_name",
                 "exec_state",
                 "source_record",
+                "source_table",
                 "errors_only",
             }
         ),
         "compare": frozenset({"flow_id_a", "flow_id_b", "name_a", "name_b", "include_label_cache"}),
         "get_action_source": frozenset({"action_ref", "include_versions", "limit"}),
-        "read_action": frozenset({"flow_id"}),
+        "read_action": frozenset({"flow_id", "action_ref"}),
     }
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageFlowDesignerParams":
         action = self.action
 
-        if action in _NEEDS_FLOW_ID and not self.flow_id:
-            raise ValueError(f"flow_id is required for action='{action}'")
+        if action == "get_executions" and not any(
+            getattr(self, name) for name in _EXECUTION_FILTERS
+        ):
+            raise ValueError(
+                "get_executions needs a filter: flow_id, context_id, flow_name, "
+                "source_record, exec_state or errors_only"
+            )
+
+        if action == "read_action" and not (self.flow_id or self.action_ref):
+            raise ValueError("read_action requires flow_id (the action's sys_id) or action_ref")
 
         if action == "get_detail" and not (self.flow_id or self.flow_name):
             raise ValueError("get_detail requires flow_id or flow_name")
@@ -366,6 +385,7 @@ def _do_get_executions(
             flow_id=p.flow_id,
             state=p.exec_state,
             source_record=p.source_record,
+            source_table=p.source_table,
             limit=p.limit,
             offset=p.offset,
             errors_only=p.errors_only,
@@ -404,12 +424,50 @@ def _do_get_action_source(
     )
 
 
+def _resolve_action_ref(
+    config: ServerConfig, auth_manager: AuthManager, ref: str
+) -> Tuple[Optional[str], Optional[str]]:
+    """An action_ref names ONE action: a sys_id, or an exact name/internal_name.
+
+    No contains-match: read_action reports what it read as "the action", and a
+    fuzzy hit would be a different action described under the caller's name.
+    """
+    ref = ref.strip()
+    if _looks_like_sys_id(ref):
+        return ref, None
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=ACTION_DEF_TABLE,
+        query=f"internal_name={ref}^ORname={ref}",
+        fields="sys_id,name,internal_name",
+        limit=5,
+        offset=0,
+    )
+    # Checked here, not trusted to the filter: an unknown column drops its
+    # condition and the read comes back as the whole table.
+    exact = [r for r in rows if ref in (r.get("name"), r.get("internal_name"))]
+    if len(exact) == 1 and exact[0].get("sys_id"):
+        return exact[0]["sys_id"], None
+    if not exact:
+        return None, (
+            f"No action is named '{ref}'. Find it with action='list', flow_type='action'."
+        )
+    names = ", ".join(f"{r.get('name')} ({r.get('sys_id')})" for r in exact)
+    return None, f"'{ref}' names {len(exact)} actions: {names}. Pass one sys_id as flow_id."
+
+
 def _do_read_action(
     config: ServerConfig, auth_manager: AuthManager, p: ManageFlowDesignerParams
 ) -> Dict[str, Any]:
     """A custom Action type reads through its own model, not the flow one."""
-    assert p.flow_id is not None  # guaranteed by _validate_per_action
-    pf = _try_processflow_action(config, auth_manager, p.flow_id)
+    action_id = p.flow_id
+    if not action_id:
+        assert p.action_ref is not None  # guaranteed by _validate_per_action
+        action_id, problem = _resolve_action_ref(config, auth_manager, p.action_ref)
+        if problem:
+            return {"success": False, "error": problem}
+    pf = _try_processflow_action(config, auth_manager, action_id)
     if pf.get("_error"):
         return {"success": False, "error": pf["_error"]}
     return {

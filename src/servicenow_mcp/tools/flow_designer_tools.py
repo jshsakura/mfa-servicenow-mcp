@@ -200,7 +200,10 @@ class GetFlowExecutionsParams(BaseModel):
         description="Filter by state: Complete, Waiting, Error, Cancelled, In Progress",
     )
     source_record: Optional[str] = Field(
-        default=None, description="Filter by source record display value (contains)"
+        default=None, description="Triggering record: sys_id, or its number (see source_table)"
+    )
+    source_table: Optional[str] = Field(
+        default=None, description="Table to resolve a source_record number in (default task)"
     )
     limit: int = Field(default=20, description="Maximum number of records (max 100)")
     offset: int = Field(default=0, description="Pagination offset")
@@ -3442,6 +3445,47 @@ def _fetch_flow_structure(
         return {"success": False, "error": str(e)}
 
 
+def _resolve_source_record(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    value: str,
+    table: Optional[str],
+) -> Tuple[List[str], Optional[str]]:
+    """Turn a triggering-record reference into the sys_id(s) sys_flow_context holds.
+
+    source_record is a document_id: it stores the sys_id, never the number. It
+    used to be filtered with a LIKE on whatever the caller passed, and a number
+    never matches a sys_id — so every lookup by number answered "no executions"
+    for records that had them. An unresolvable number is an error, not an empty
+    list.
+    """
+    ref = value.strip()
+    if _looks_like_sys_id(ref):
+        return [ref.lower()], None
+    lookup_table = table or "task"
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=lookup_table,
+        query=f"number={ref}",
+        fields="sys_id,number",
+        limit=5,
+        offset=0,
+    )
+    # Matched here, not trusted to the filter: on a table with no number column
+    # the condition is dropped and the read returns arbitrary rows.
+    ids = [r["sys_id"] for r in rows if r.get("number") == ref and r.get("sys_id")]
+    if ids:
+        return ids, None
+    if rows:
+        return [], (
+            f"{lookup_table} has no record numbered '{ref}' (it may have no number "
+            "field). Pass the record's sys_id as source_record."
+        )
+    hint = "" if table else " If it is not a task, pass its table as source_table."
+    return [], f"No {lookup_table} record is numbered '{ref}'.{hint} Or pass its sys_id."
+
+
 def get_flow_executions(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -3480,7 +3524,12 @@ def get_flow_executions(
     if params.state:
         query_parts.append(f"state={params.state}")
     if params.source_record:
-        query_parts.append(f"source_recordLIKE{params.source_record}")
+        record_ids, problem = _resolve_source_record(
+            config, auth_manager, params.source_record, params.source_table
+        )
+        if problem:
+            return {"success": False, "error": problem}
+        query_parts.append(f"source_recordIN{','.join(record_ids)}")
     if params.errors_only:
         query_parts.append("stateINError,Cancelled^ORerror_messageISNOTEMPTY")
 
