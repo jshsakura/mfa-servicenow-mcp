@@ -56,40 +56,32 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
-      # The SAME command CI runs. The mypy hook below is scoped to changed files
-      # with --follow-imports=skip, which types every imported symbol as Any — so
-      # it cannot see an error that depends on another module's signature. v1.22.27
-      # was green locally and failed CI on exactly that (a variable bound to both
-      # an int and an Optional[int] return). A local gate weaker than the remote
-      # one does not fail safe: it reports clean and lets the break through.
+      # The SAME command CI runs, at commit AND push. There used to be a second,
+      # commit-only mypy (mirrors-mypy, its own pinned 1.8.0, changed files with
+      # --follow-imports=skip), which types every imported symbol as Any — so it
+      # could not see an error that depends on another module's signature.
+      # v1.22.27 was green locally and failed CI on exactly that, and v1.25.3's
+      # commits passed it while the push gate rejected an Optional passed as str.
+      # A local gate weaker than the remote one does not fail safe: it reports
+      # clean and lets the break through. Whole-tree with the cache is ~1s.
       - id: mypy-all
         name: mypy-all
         entry: ./scripts/hook_python.sh -m mypy src/
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit, pre-push]
+
+      # The project's own ruff — the one CI runs. The pinned ruff-pre-commit
+      # mirror was v0.1.9 against 0.16.x in CI: fifteen minor versions of rules
+      # that could pass here and fail there.
+      - id: ruff
+        name: ruff
+        entry: ./scripts/hook_python.sh -m ruff check --fix --exit-non-zero-on-fix
+        language: system
+        types: [python]
   # isort - import sorting
   - repo: https://github.com/pycqa/isort
     rev: 8.0.1
     hooks:
       - id: isort
         args: ["--profile", "black"]
-
-  # Ruff - linting
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.9
-    hooks:
-      - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
-
-  # MyPy - type checking
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
-    hooks:
-      - id: mypy
-        additional_dependencies:
-          - pydantic>=2.0.0
-          - types-requests
-          - types-PyYAML
-        args: [--config-file=pyproject.toml, --follow-imports=skip]
-        language_version: python
