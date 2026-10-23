@@ -208,7 +208,9 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertIn("browser auth", result["pill_trace"]["note"].lower())
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
-    def test_get_flow_details_not_found_returns_empty_flow(self, mock_qp):
+    def test_get_flow_details_not_found_is_an_error_not_an_empty_flow(self, mock_qp):
+        # A truncated sys_id once came back success=True, flow={}, 0 actions —
+        # "a flow with no steps" for a flow that does not exist.
         mock_qp.return_value = ([], 0)
 
         result = get_flow_details(
@@ -217,8 +219,9 @@ class TestFlowDesignerTools(unittest.TestCase):
             GetFlowDetailsParams(flow_id="missing"),
         )
 
-        self.assertTrue(result["success"])
-        self.assertEqual(result["flow"], {})
+        self.assertFalse(result["success"])
+        self.assertIn("No flow has sys_id 'missing'", result["error"])
+        self.assertNotIn("flow", result)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_get_flow_details_error(self, mock_qp):

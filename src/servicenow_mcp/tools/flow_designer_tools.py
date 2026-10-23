@@ -2501,7 +2501,22 @@ def get_flow_details(
             display_value=True,
             fail_silently=False,
         )
-        flow = flows[0] if flows else {}
+        if not flows:
+            # Not an empty flow — no flow. This used to return success with
+            # flow={} and a structure of zero actions, so a truncated or wrong
+            # sys_id read as "a flow with no steps".
+            missing: Dict[str, Any] = {
+                "success": False,
+                "error": (
+                    f"No flow has sys_id '{flow_id}'. Pass the full 32-char sys_id, "
+                    "or flow_name; action='list' finds both."
+                ),
+                "flow_id": flow_id,
+            }
+            if pf_error:
+                missing["processflow_note"] = pf_error
+            return missing
+        flow = flows[0]
 
         result = {
             "success": True,

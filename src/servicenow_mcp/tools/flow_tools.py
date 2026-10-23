@@ -333,6 +333,10 @@ def _do_get_detail(
     # is given, resolve it to a sys_id here — the cache and the fetch both key on
     # the sys_id, so a name and its sys_id share one cache entry.
     flow_id = p.flow_id
+    # A flow_id that is not a sys_id (a truncated one, seen in real calls) loses
+    # to a flow_name given beside it — the name can still be resolved exactly.
+    if flow_id and p.flow_name and not _looks_like_sys_id(flow_id):
+        flow_id = None
     if not flow_id:
         resolved = _resolve_flow_id_by_name(config, auth_manager, p.flow_name or "")
         if "sys_id" not in resolved:

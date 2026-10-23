@@ -182,3 +182,45 @@ def test_action_ref_with_no_exact_match_is_not_fuzzy_matched():
     assert result["success"] is False
     assert "No action is named" in result["error"]
     pf.assert_not_called()
+
+
+# --- get_detail with a flow_id that is not a sys_id -------------------------
+
+
+def test_a_truncated_flow_id_beside_a_flow_name_resolves_by_name():
+    with (
+        patch(
+            "servicenow_mcp.tools.flow_tools._resolve_flow_id_by_name",
+            return_value={"sys_id": _REC},
+        ) as by_name,
+        patch(
+            "servicenow_mcp.tools.flow_tools.get_flow_details",
+            return_value={"success": True, "flow": {"sys_id": _REC}},
+        ) as details,
+    ):
+        manage_flow_designer(
+            _cfg(),
+            MagicMock(),
+            ManageFlowDesignerParams(action="get_detail", flow_id="aaaa1111", flow_name="My Flow"),
+        )
+    by_name.assert_called_once()
+    assert details.call_args[0][2].flow_id == _REC
+
+
+def test_a_full_sys_id_is_used_as_given_even_with_a_name():
+    # _ACT, not _REC: a successful get_detail is cached per sys_id, and the test
+    # above already cached _REC.
+    with (
+        patch("servicenow_mcp.tools.flow_tools._resolve_flow_id_by_name") as by_name,
+        patch(
+            "servicenow_mcp.tools.flow_tools.get_flow_details",
+            return_value={"success": True, "flow": {"sys_id": _ACT}},
+        ) as details,
+    ):
+        manage_flow_designer(
+            _cfg(),
+            MagicMock(),
+            ManageFlowDesignerParams(action="get_detail", flow_id=_ACT, flow_name="My Flow"),
+        )
+    by_name.assert_not_called()
+    assert details.call_args[0][2].flow_id == _ACT
