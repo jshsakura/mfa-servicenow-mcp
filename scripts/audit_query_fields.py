@@ -403,7 +403,11 @@ def _client():
             browser=BrowserAuthConfig(username=os.environ.get("SERVICENOW_USERNAME", "")),
         )
     config = ServerConfig(instance_url=url, auth=auth_cfg)
-    return config, AuthManager(config.auth, config.instance_url)
+    # The server keys its browser session by the active instance alias. Without
+    # the same label this script read a session file the server never refreshes
+    # — it expired mid-sweep and left a dozen tables UNCHECKED.
+    profile = (os.environ.get("SERVICENOW_ACTIVE_INSTANCE") or "").strip() or None
+    return config, AuthManager(config.auth, config.instance_url, profile_label=profile)
 
 
 def live_columns(config, auth, table: str) -> Optional[Set[str]]:
@@ -556,8 +560,17 @@ def main() -> int:
 
     for table in sorted(per_table):
         used = per_table[table]
-        # Dot-walked references are resolved by the server against another table.
-        asked = {f for f in (used["query"] | used["fields"]) if f and "." not in f}
+        # A dot-walk is resolved against another table from its SECOND segment
+        # on — but its first segment is a reference column on THIS table and is
+        # dropped like any other unknown name. Skipping dotted names outright
+        # let `kb_knowledge_base.sys_id=` on kb_category (no such column; every
+        # category came back for any KB) through as clean.
+        used = {
+            "query": {f.split(".", 1)[0] for f in used["query"] if f},
+            "fields": {f.split(".", 1)[0] for f in used["fields"] if f},
+            **{k: v for k, v in used.items() if k not in ("query", "fields")},
+        }
+        asked = used["query"] | used["fields"]
         if not asked:
             continue
         cols, sampled = live_columns_with_provenance(config, auth, table)
