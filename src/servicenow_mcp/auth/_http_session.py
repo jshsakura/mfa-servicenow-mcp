@@ -89,6 +89,8 @@ def _resolve_tls_impersonate_profile():
 # host. Both leak without this. Lowercased for case-insensitive matching.
 _CROSS_ORIGIN_STRIP_HEADERS = frozenset({"cookie", "authorization", "x-usertoken", "x-csrf-token"})
 _MAX_MANUAL_REDIRECTS = 10
+# The timeout curl_cffi.Session applies when a call names none.
+_REQUESTS_DEFAULT_TIMEOUT_S = 30
 
 
 def _same_origin(from_url: str, to_url: str) -> bool:
@@ -133,9 +135,10 @@ class _SafeRedirectSession:
     (already session-dead) path this protects.
     """
 
-    def __init__(self, inner):
+    def __init__(self, inner, default_timeout=None):
         self._inner = inner
         self._extra_sensitive: set = set()
+        self._default_timeout = default_timeout
 
     def __getattr__(self, name):
         # Non-verb attributes (headers, cookies, close, impersonate, ...) delegate
@@ -177,6 +180,8 @@ class _SafeRedirectSession:
 
     def request(self, method, url, **kwargs):
         follow = kwargs.pop("allow_redirects", True)
+        if self._default_timeout is not None:
+            kwargs.setdefault("timeout", self._default_timeout)
         history = []
         cur_method, cur_url = method, url
         while True:
@@ -310,4 +315,7 @@ def _build_http_session():
     )
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    return _SafeRedirectSession(session)
+    # curl_cffi times out a call that names no timeout at 30s; requests waits
+    # forever. Most call sites name none, so without this the same call that
+    # fails fast on the default backend hangs the tool on this one.
+    return _SafeRedirectSession(session, default_timeout=_REQUESTS_DEFAULT_TIMEOUT_S)

@@ -151,3 +151,38 @@ class TestSafeRedirectSessionRequest:
         assert sess.request.call_args_list[1].args[0] == "POST"
         # inner.request never called directly — everything funnels through wrapper.
         inner.request.assert_not_called()
+
+
+class TestDefaultTimeout:
+    """curl_cffi times out an unnamed timeout at 30s; stock requests never does.
+
+    Most call sites name no timeout, so the requests fallback carries the same
+    default rather than letting one slow call hang the tool.
+    """
+
+    def test_a_call_naming_no_timeout_gets_the_default(self):
+        inner = MagicMock()
+        inner.request.return_value = _resp(200)
+        _SafeRedirectSession(inner, default_timeout=30).request("GET", "https://x/api")
+        assert inner.request.call_args[1]["timeout"] == 30
+
+    def test_a_named_timeout_is_kept(self):
+        inner = MagicMock()
+        inner.request.return_value = _resp(200)
+        _SafeRedirectSession(inner, default_timeout=30).request(
+            "GET", "https://x/api", timeout=(10, 120)
+        )
+        assert inner.request.call_args[1]["timeout"] == (10, 120)
+
+    def test_without_a_default_nothing_is_added(self):
+        # The curl_cffi path: its own session default applies.
+        inner = MagicMock()
+        inner.request.return_value = _resp(200)
+        _SafeRedirectSession(inner).request("GET", "https://x/api")
+        assert "timeout" not in inner.request.call_args[1]
+
+    def test_the_requests_fallback_session_carries_the_default(self, monkeypatch):
+        from servicenow_mcp.auth._http_session import _build_http_session
+
+        monkeypatch.setenv("SERVICENOW_TLS_IMPERSONATE", "off")
+        assert _build_http_session()._default_timeout == 30
