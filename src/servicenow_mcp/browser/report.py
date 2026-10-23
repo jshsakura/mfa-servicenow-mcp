@@ -284,6 +284,14 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         "new_events": len(events),
     }
 
+    if raw.get("events_unread"):
+        # An unread buffer has no errors in it for the same reason it has no
+        # anything: the clean verdict above would be a claim about events
+        # nobody saw.
+        report["verdict"] = "Events UNREAD — the page was navigating; nothing is known yet."
+    if raw.get("events_note"):
+        report["events_note"] = raw["events_note"]
+
     dropped = _whole(raw.get("dropped"))
     if dropped:
         # Never let truncation pass for completeness.

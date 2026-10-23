@@ -21,6 +21,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -854,6 +855,7 @@ def launch_window(
                 caller_url=launched_for,
             )
             write_window_state(auth_manager, state)
+            _reap_when_done(process)
             return state
         if process.poll() is not None:
             raise RuntimeError(
@@ -867,6 +869,22 @@ def launch_window(
         f"The debug browser did not open its debugging port within "
         f"{_PORT_READY_TIMEOUT_S:.0f}s (port {port})."
     )
+
+
+def _reap_when_done(process: subprocess.Popen) -> None:
+    """Collect the window's exit status the moment it exits, from any cause.
+
+    The window outlives the call that launched it, and it is usually closed by
+    someone else — the user, a peer server retiring an empty window, the
+    reaper. Until its parent collects the exit status the dead process is a
+    zombie, and a zombie answers ``kill(pid, 0)``: every liveness check in this
+    package then reads it as a live window holding the profile, and
+    launch_window refuses with "lost track of its debugging port" until the
+    launching server itself exits.
+    """
+    threading.Thread(
+        target=process.wait, name=f"debug-window-reaper-{process.pid}", daemon=True
+    ).start()
 
 
 def _terminate(pid: int) -> None:

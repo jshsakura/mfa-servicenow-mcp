@@ -5395,3 +5395,87 @@ def test_a_plain_step_does_not_report_idle_sessions(monkeypatch, tmp_path):
     result = _act_call([{"action": "click", "selector": "#x"}])
 
     assert "idle_sessions_overridden" not in result
+
+
+# ---------------------------------------------------------------------------
+# capture._drain — a step that navigates must not take the batch down with it
+# ---------------------------------------------------------------------------
+
+
+class _NavigatingPage:
+    """evaluate raises the way Playwright does while a document is replaced."""
+
+    def __init__(self, failures, drained=None):
+        self.failures = failures
+        self.drained = drained or {"seq": 3, "tabId": "t1", "events": []}
+        self.waited = 0
+
+    def evaluate(self, script):
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError(
+                "Page.evaluate: Execution context was destroyed, most likely because of a navigation"
+            )
+        return self.drained
+
+    def wait_for_load_state(self, state, timeout=None):
+        self.waited += 1
+
+    def title(self):
+        raise RuntimeError("navigating")
+
+
+def test_a_drain_that_collides_with_a_navigation_waits_and_reads_again():
+    page = _NavigatingPage(failures=1)
+
+    drained = capture_module._drain(page, {})
+
+    assert page.waited == 1
+    assert drained["seq"] == 3
+    assert not drained.get("events_unread")
+
+
+def test_a_drain_that_never_reads_is_unread_not_empty():
+    drained = capture_module._drain(_NavigatingPage(failures=2), {})
+
+    assert drained["events_unread"] is True
+    assert "UNREAD" in drained["events_note"]
+
+
+def test_an_unread_buffer_never_gets_the_all_clear_verdict():
+    raw = {"url": "u", "events": [], "events_unread": True, "events_note": "n"}
+
+    result = report.compact(raw, artifacts_dir="")
+
+    assert "No errors" not in result["verdict"]
+    assert "UNREAD" in result["verdict"]
+    assert result["events_note"] == "n"
+
+
+def test_a_title_read_mid_navigation_is_empty_not_a_crash():
+    assert capture_module._page_title(_NavigatingPage(failures=0)) == ""
+
+
+# ---------------------------------------------------------------------------
+# window._reap_when_done — a closed window must stop counting as alive
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(os.name == "nt", reason="zombies are a POSIX thing")
+def test_a_window_killed_by_someone_else_stops_reading_as_alive():
+    import signal
+    import subprocess
+
+    from servicenow_mcp.auth._process import _is_pid_alive
+
+    process = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    window._reap_when_done(process)
+    os.kill(process.pid, signal.SIGKILL)  # what a peer server's retire does
+
+    deadline = time.time() + 5
+    while _is_pid_alive(process.pid) and time.time() < deadline:
+        time.sleep(0.05)
+    # Unreaped, the dead window is a zombie that answers kill(pid, 0) — and
+    # launch_window refused with "lost track of its debugging port" until the
+    # launching server exited.
+    assert not _is_pid_alive(process.pid)

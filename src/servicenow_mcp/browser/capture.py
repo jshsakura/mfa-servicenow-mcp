@@ -609,6 +609,46 @@ def _show_badge(page: Any) -> None:
         pass
 
 
+# How long a drain waits for a navigation it collided with to land a document.
+DRAIN_SETTLE_MS = 10_000
+
+
+def _drain(page: Any, marks: Any) -> Dict[str, Any]:
+    """Read the probe's buffer, surviving a navigation that is still in flight.
+
+    A step that navigates — an eval of ``location.href``, a submit — destroys
+    the document, and a read that lands on the gap raises "Execution context was
+    destroyed". The steps had already run; losing their results to the event
+    read is the wrong trade, so the read waits for the new document and asks
+    again. The buffer itself is safe: the probe mirrors it to sessionStorage on
+    ``pagehide``. Only a read that never came back is reported, and it is
+    reported as UNREAD — an empty event list from it would read as "no errors".
+    """
+    try:
+        return page.evaluate(drain_script(marks)) or {}
+    except Exception as exc:  # noqa: BLE001 - Playwright raises a wide family here
+        logger.debug("Event read hit a navigation, retrying once it lands: %s", exc)
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=DRAIN_SETTLE_MS)
+        return page.evaluate(drain_script(marks)) or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Event read failed after the navigation: %s", exc)
+        return {
+            "events_unread": True,
+            "events_note": (
+                "The page was navigating and its events could not be read "
+                f"({str(exc)[:120]}). They are UNREAD, not empty — inspect again."
+            ),
+        }
+
+
+def _page_title(page: Any) -> str:
+    try:
+        return str(page.title())
+    except Exception:  # noqa: BLE001 - a document mid-navigation has no title
+        return ""
+
+
 def _effective_user(page: Any) -> Optional[Dict[str, Any]]:
     # Frame-aware: the Next Experience shell names nobody, and reporting that as
     # "could not read a signed-in user — the window may still need a login" sent
@@ -659,7 +699,7 @@ def capture(
                     # window during which the user drives.
                     time.sleep(wait_s)
 
-                drained = page.evaluate(drain_script(marks)) or {}
+                drained = _drain(page, marks)
                 # Evaluated AFTER the drain so a question about the page's
                 # state is answered from the same moment the events describe,
                 # and before the screenshot so the picture matches the answer.
@@ -677,7 +717,7 @@ def capture(
                 return {
                     "evaluation": evaluation,
                     "url": str(page.url),
-                    "title": str(drained.get("title") or page.title()),
+                    "title": str(drained.get("title") or _page_title(page)),
                     "seq": int(drained.get("seq") or 0),
                     "tab_id": str(drained.get("tabId") or ""),
                     # Reported, never claimed: reading a tab does not make it
@@ -691,6 +731,8 @@ def capture(
                     "screenshot_note": shot_note,
                     "effective_user": _effective_user(page),
                     "watched_seconds": wait_s,
+                    "events_unread": bool(drained.get("events_unread")),
+                    "events_note": drained.get("events_note"),
                 }
             finally:
                 # Cleared before returning, so the dot never outlives the

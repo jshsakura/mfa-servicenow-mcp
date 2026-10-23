@@ -67,15 +67,16 @@ from .capture import (
     NoPageFound,
     _active_instance_page,
     _arm_tabs,
+    _drain,
     _effective_user,
     _install_probe,
+    _page_title,
     _screenshot,
     _set_activity,
     no_page_message,
 )
 from .evaluate import run_in_page
 from .impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, become, restore
-from .probe import drain_script
 from .server_scripts import ACTIVATING_ACTIONS, ServerScriptBlocked
 from .server_scripts import rejection as script_rejection
 from .server_scripts import surface_for_url
@@ -481,13 +482,13 @@ def act(
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Could not detach the dialog listener: %s", exc)
 
-                drained = page.evaluate(drain_script(marks)) or {}
+                drained = _drain(page, marks)
                 shot, shot_note = _screenshot(
                     page, mode=screenshot, selector=selector, destination=screenshot_path
                 )
                 return {
                     "url": str(page.url),
-                    "title": str(drained.get("title") or page.title()),
+                    "title": str(drained.get("title") or _page_title(page)),
                     "seq": int(drained.get("seq") or 0),
                     "tab_id": str(drained.get("tabId") or ""),
                     # Deliberately NOT pinned here. Driving a tab does not make
@@ -504,6 +505,8 @@ def act(
                     "screenshot_note": shot_note,
                     "effective_user": _effective_user(page),
                     "watched_seconds": settle_s,
+                    "events_unread": bool(drained.get("events_unread")),
+                    "events_note": drained.get("events_note"),
                     "steps": results,
                     "dialogs": dialogs,
                     "failed_step": (failure["step"] if failure else None),
