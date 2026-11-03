@@ -335,7 +335,7 @@ def _list_dependencies(
             "hint": (
                 "Check the widget filter and that the active instance is reachable. "
                 "If the instance is unreachable, answer OFFLINE from a prior download "
-                "(0 API) with query_local_graph(question='used_by'|'uses'|'impact', "
+                "(0 API) with query_local_graph(action='used_by'|'uses'|'impact', "
                 "name=<widget>)."
             ),
             "offline_alternative": "query_local_graph",
