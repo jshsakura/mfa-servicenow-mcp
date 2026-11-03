@@ -13,22 +13,32 @@
 
 | 包 | 工具数 | 最大令牌 | 最大（3 个实例） | 何时使用 |
 | :--- | :---: | :---: | :---: | :--- |
-| `core` | 12 | ~2.0K | ~2.6K | 极简只读：仅健康检查、schema、发现、关键工件查询 |
-| `standard` | 31 | ~7.0K | ~7.9K | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读 |
+| `core` | 12 | ~2.2K | ~2.7K | 极简只读：仅健康检查、schema、发现、关键工件查询 |
+| `standard` | 31 | ~7.4K | ~8.3K | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读 |
+| `asset_manager` | 6 | ~0.8K | ~1.2K | 面向物料、资产和 ITOM 工作的以查询为主的最简组合。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `none` | 0 | 0 | 0 | 有意禁用所有工具（测试、锁定环境） |
+
+附加包 —— 通用，不能单独使用，可用逗号与任何包组合（`MCP_TOOL_PACKAGE=asset_manager,scripting`）；⚠️ 表示可写：
+
+| 附加包 | 工具 | 增加 | 用途 |
+| :--- | :---: | :---: | :--- |
+| `scripting` | 13 | +~4.6K | ⚠️ 服务端逻辑（Script Include、Business Rule、计划任务、REST 消息、流程读取）、更新集、XML 部署 |
+| `office_files` | 2 | +~0.7K | Excel 工作簿（读取、写入、填写表单）和记录附件 |
+| `debug_window` | 3 | +~1.2K | ⚠️ 共享浏览器；`act_in_debug_window` 可以点击保存 |
+| `source_sync` | 3 | +~0.9K | ⚠️ 下载服务端源码、比对并推送回去 |
 
 ⚠️ 具备写入能力 —— 授予创建/更新/删除权限的**高级选项**：
 
 | 包 | 工具数 | 最大令牌 | 最大（3 个实例） | 何时使用 |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.7K | ~8.7K | ⚠️ 需要更新/关闭 incident 和 change 的服务台坐席 |
-| `portal_developer` | 52 | ~15.2K | ~17.0K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
-| `platform_developer` | 46 | ~12.8K | ~14.4K | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
-| `full` | 63 | ~17.6K | ~19.8K | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
+| `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ 需要更新/关闭 incident 和 change 的服务台坐席 |
+| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
+| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
+| `full` | 63 | ~18.3K | ~20.6K | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
 
 > **最大令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）。使用更窄的包可节省上下文与成本。 **这是最大值**，而非常规开销：只有在启动时加载全部工具 schema 的客户端才会付出全部开销。支持工具延迟加载的客户端（如 Claude Code 的工具搜索）只在使用某个工具时才加载其 schema，因此每次请求的实际开销要低得多。 工具数为包成员数；每个包另带 `list_tool_packages`，多实例配置还会增加 `list_instances`、`compare_instances` 以及每个工具上的 `instance` 参数 — 第二个令牌列为 3 个实例时的实测值。数值为 tiktoken 实测而非估算（`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` 可列出每个工具的占比）。
 
-除 `core` 和 `none` 外的所有包都通过 `_extends` 继承 `standard` 的只读工具。完整的继承树见 `config/tool_packages.yaml`。
+除 `core` 和 `none` 外的所有包都通过 `_extends` 继承 `standard` 的只读工具。完整的继承树见 `config/tool_packages.yaml`。 `asset_manager` 及其附加包不继承任何包：会话只为它请求的工具付费。
 
 ---
 

@@ -66,7 +66,7 @@ def tools_payload(server: ServiceNowMCP) -> List[Dict[str, Any]]:
             {
                 "name": t.name,
                 "description": t.description,
-                "inputSchema": t.inputSchema,
+                "inputSchema": t.input_schema,
             }
         )
     return out

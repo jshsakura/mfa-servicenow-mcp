@@ -275,7 +275,7 @@ args = [
 
 ## 第 3 步：安装技能（可选）
 
-技能是 AI 执行蓝图 —— 带安全门控的经验证流水线，把原始 MCP 工具变成可靠的工作流。3 个类别共 4 个技能。
+技能是 AI 执行蓝图 —— 带安全门控的经验证流水线，把原始 MCP 工具变成可靠的工作流。3 个类别共 5 个技能。
 
 ```powershell
 # Claude Code
@@ -360,6 +360,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 |---------|:-----:|-------------|
 | `core` | 12 | 用于健康检查、schema、发现和关键查询的极简只读基础工具 |
 | `standard` | 31 | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读包 |
+| `asset_manager` | 6 | 面向物料、资产和 ITOM 工作的以查询为主的最简组合。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `service_desk` | 33 | standard + 事件与变更的操作性写入 |
 | `portal_developer` | 52 | standard + 门户、变更集、script include 和本地同步交付工作流 |
 | `platform_developer` | 46 | standard + 工作流、Flow Designer、UI policy、incident/change 和脚本写入 |

@@ -230,7 +230,7 @@ class TestSnQueryEmptyResultHint:
         )
         hint = result["hint"]
         # The causes that can still be true survive...
-        assert "encoded query" in hint
+        assert "reference field" in hint.lower()
         assert "ACLs" in hint
         # ...the one that cannot is gone, along with the round trip it invited.
         assert "sn_schema" not in hint

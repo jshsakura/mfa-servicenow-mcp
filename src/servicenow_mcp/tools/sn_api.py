@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple
 from urllib.parse import parse_qs, parse_qsl, unquote, urlparse
 
 import requests
@@ -1216,17 +1216,19 @@ class HealthCheckParams(BaseModel):
 
 
 class GenericQueryParams(BaseModel):
+    # Optional on purpose: a missing table reaches sn_query's guard, which answers
+    # with an example rather than a bare schema rejection. "(REQUIRED)" keeps this
+    # description through the compactor, which strips `table` elsewhere.
     table: Optional[str] = Field(
-        default=None,
-        description="Target table (REQUIRED): incident, kb_knowledge; heavy tables get safety limits.",
+        default=None, description="Target table (REQUIRED), e.g. incident or alm_asset."
     )
     query: Optional[str] = Field(
         default=None,
-        description="Encoded query (sysparm_query), e.g. active=true^priority=1.",
+        description="Encoded query, not SQL: active=true^priority=1^ORpriority=2. Names: ref.name=X.",
     )
     fields: Optional[str] = Field(
         default=None,
-        description="Comma-separated field list; avoid heavy fields like 'script' in list queries.",
+        description="Comma-separated columns, dot-walk allowed: number,company.name. Avoid 'script'.",
     )
     limit: int = Field(default=20, description="Max records (max 100). Default 20.")
     offset: int = Field(
@@ -1245,12 +1247,24 @@ class GenericQueryParams(BaseModel):
     )
 
 
+# A group is ~90 characters, and a group_by on a near-unique column measured
+# 951,870 characters. 200 groups fit in a tool result and are more than anyone
+# reads; asking for more is one explicit argument away.
+DEFAULT_AGGREGATE_GROUPS = 200
+
+
 class AggregateParams(BaseModel):
     table: str = Field(..., description="Target table name")
     aggregate: str = Field(default="COUNT", description="COUNT, SUM, AVG, MIN, MAX")
     field: Optional[str] = Field(default=None, description="Field for SUM/AVG/MIN/MAX")
-    query: Optional[str] = Field(default=None, description="Encoded query")
+    query: Optional[str] = Field(
+        default=None, description="Encoded query, not SQL: active=true^priority=1."
+    )
     group_by: Optional[str] = Field(default=None, description="Group by field")
+    group_limit: int = Field(
+        default=DEFAULT_AGGREGATE_GROUPS,
+        description="Max groups listed, largest first. The rest are counted, not listed.",
+    )
 
 
 class SchemaParams(BaseModel):
@@ -1300,6 +1314,11 @@ def _generate_query_hint(query: str, error_msg: str) -> Optional[str]:
             "401 Unauthorized — if a browser login just opened, the session was already refreshed. "
             "A persistent 401 after re-auth means ACL blocks this table (not a session issue). "
             "Try a different table or use a Flow Designer tool instead."
+        )
+    if "414" in error_lower or "uri too l" in error_lower:
+        hints.append(
+            "414: the encoded query is too long for a URL. Split a long IN list into "
+            "smaller batches, or filter on a parent or date column instead of listing values."
         )
     if "403" in error_lower or "forbidden" in error_lower or "security constraint" in error_lower:
         hints.append(
@@ -1423,6 +1442,65 @@ def _similar_tables(config: ServerConfig, auth_manager: AuthManager, table: str)
     suffixed = [n for n in names if n.endswith(f"_{table}")]
     close = [n for n in near_matches(table, names, limit=5) if n not in suffixed]
     return (suffixed + close)[:5]
+
+
+def _zero_rows_hint(query: Optional[str]) -> str:
+    """Why a read that worked found nothing. Zero rows is not proof of none."""
+    if not query:
+        return (
+            "0 rows with no filter — this table has no rows visible to this account "
+            "(empty, or hidden by ACLs)."
+        )
+    hint = (
+        "0 rows, and the table resolved — the name is not the problem. ACLs may hide rows "
+        "from this account, so this is not proof of none. A reference field compares "
+        "sys_id, so a display value matches nothing: filter as field.name=X."
+    )
+    if re.search(r"\s(AND|OR|WHERE)\s|&&|\|\||==|\s=\s", query):
+        hint += " This query also looks like SQL. Encoded form: a=1^b=2^ORc=3, with no spaces."
+    return hint
+
+
+def _unknown_fields_response(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    query: str,
+    *,
+    also_check: Sequence[str] = (),
+) -> Optional[Dict[str, Any]]:
+    """The refusal for a read naming a column the table does not have, or None.
+
+    `None` covers both "every field exists" and "could not check": only a PROVEN
+    absence stops the call.
+    """
+    probes = [f"{name}ISNOTEMPTY" for name in also_check]
+    checked = "^".join(part for part in [query, *probes] if part)
+    unknown_fields = unknown_query_fields(config, auth_manager, table, checked)
+    if not unknown_fields:
+        return None
+    columns = table_columns(config, auth_manager, table) or set()
+    suggestions = {name: near_matches(name, sorted(columns)) for name in unknown_fields}
+    return {
+        "success": False,
+        "error": "unknown_query_fields",
+        "table": table,
+        "unknown_fields": unknown_fields,
+        "did_you_mean": {k: v for k, v in suggestions.items() if v},
+        "query_echo": query,
+        "message": (
+            f"{table} has no column named "
+            + ", ".join(repr(name) for name in unknown_fields)
+            + ". The query was not sent."
+        ),
+        "hint": (
+            "ServiceNow would not have refused this: it DROPS a condition it cannot "
+            "parse, so the read returns the whole table and reads as an answer — or, "
+            "on a scoped table, returns 403 that looks like a permissions problem. "
+            "Checked against sys_dictionary for this table and everything it extends. "
+            "Use sn_schema to list the real columns."
+        ),
+    }
 
 
 def _unknown_table_response(
@@ -1888,7 +1966,7 @@ def _sn_health_impl(
 @register_tool(
     name="sn_query",
     params=GenericQueryParams,
-    description="Generic table query — last resort. Prefer domain tools: search_server_code, manage_workflow, manage_flow_designer.",
+    description="Query any table by encoded query. Pass fields. Use sn_aggregate to count, and domain tools for code search when enabled.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -1925,30 +2003,9 @@ def sn_query(
     #
     # `None` is "could not check", and is deliberately not treated as clean; it
     # simply does not block. Only a PROVEN absence stops the call.
-    unknown_fields = unknown_query_fields(config, auth_manager, params.table, params.query or "")
-    if unknown_fields:
-        columns = table_columns(config, auth_manager, params.table) or set()
-        suggestions = {name: near_matches(name, sorted(columns)) for name in unknown_fields}
-        return {
-            "success": False,
-            "error": "unknown_query_fields",
-            "table": params.table,
-            "unknown_fields": unknown_fields,
-            "did_you_mean": {k: v for k, v in suggestions.items() if v},
-            "query_echo": params.query,
-            "message": (
-                f"{params.table} has no column named "
-                + ", ".join(repr(name) for name in unknown_fields)
-                + ". The query was not sent."
-            ),
-            "hint": (
-                "ServiceNow would not have refused this: it DROPS a condition it cannot "
-                "parse, so the read returns the whole table and reads as an answer — or, "
-                "on a scoped table, returns 403 that looks like a permissions problem. "
-                "Checked against sys_dictionary for this table and everything it extends. "
-                "Use sn_schema to list the real columns."
-            ),
-        }
+    unknown = _unknown_fields_response(config, auth_manager, params.table, params.query or "")
+    if unknown:
+        return unknown
 
     try:
         result, total_count = sn_query_page(
@@ -1965,10 +2022,9 @@ def sn_query(
             fail_silently=False,
         )
 
-        # Strip empty fields per-record (token saver), then size-truncate.
-        # queried_fields makes the strip unambiguous: LLM sees the full list
-        # that was in scope, so a missing key in a record means "null/empty
-        # for that record" — not "field doesn't exist on this table".
+        # Strip empty fields per-record (token saver), then size-truncate. A key
+        # missing from a record means "empty for that record"; the ambiguous case,
+        # a requested field absent from EVERY row, is named below.
         compact = [strip_empty_fields(row) for row in result]
         # Fingerprint every value the clip below is about to cut, BEFORE it cuts.
         # A clipped body cannot be compared: a real session matched the first
@@ -1982,10 +2038,20 @@ def sn_query(
         response_data: Dict[str, Any] = {
             "success": True,
             "table": params.table,
-            "queried_fields": queried_fields,
             "total_count": total_count if total_count is not None else len(result),
             "count": len(safe_result),
         }
+        # Echoing the whole request cost 6.6% of everything sn_query returned, to say
+        # what the caller had just sent. Only the part it cannot see is reported: an
+        # unknown name in sysparm_fields is silently absent from the payload, so
+        # "all empty here" and "no such column" look the same from the rows alone.
+        if safe_result and queried_fields:
+            # From the rows before the size cut: a field on a row that got cut is not absent.
+            returned = {key for row in compact for key in row}
+            wanted = [name.strip() for name in queried_fields if name.strip()]
+            absent = [name for name in wanted if name not in returned]
+            if absent:
+                response_data["empty_or_unknown_fields"] = absent
         # Columnar re-encode reclaims the repeated per-row field keys on multi-row
         # results (the default above _COLUMNAR_MIN_ROWS). Small results stay as
         # dicts — columnar only pays on many rows.
@@ -2019,14 +2085,7 @@ def sn_query(
             # go verify it with sn_schema/sn_discover was advice this path can
             # already rule out, and it led the hint with the one cause that
             # cannot be true. What remains are the causes that still can be.
-            response_data["hint"] = (
-                "0 rows, and the table resolved — the name is not the problem. "
-                "An unknown field in the encoded query is dropped silently, or ACLs "
-                "hide the rows from this account."
-                if params.query
-                else "0 rows with no filter — this table has no rows visible to this "
-                "account (empty, or hidden by ACLs)."
-            )
+            response_data["hint"] = _zero_rows_hint(params.query)
 
         return response_data
     except Exception as exc:
@@ -2044,6 +2103,59 @@ def sn_query(
         if hint:
             response["hint"] = hint
         return response
+
+
+def _group_metric(group: Any, agg: str) -> Optional[float]:
+    """One group's number, or None when the row does not carry a readable one.
+
+    COUNT is `stats.count`; the others nest by field: `stats.sum.<field>`.
+    """
+    stats = group.get("stats") if isinstance(group, dict) else None
+    if not isinstance(stats, dict):
+        return None
+    raw = stats.get(agg.lower())
+    if isinstance(raw, dict):
+        # Several fields have no single number to rank or total by.
+        raw = next(iter(raw.values())) if len(raw) == 1 else None
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _withhold_excess_groups(result: Any, agg: str, limit: int) -> Optional[Dict[str, Any]]:
+    """Largest groups plus an account of the rest, when there are too many to list.
+
+    A group_by on a near-unique column is a dump, not an aggregate. Dropping rows
+    quietly would make the listed groups read as all of them, so what was held
+    back is always stated, with the total that keeps the answer true.
+    """
+    limit = max(1, limit)
+    if not isinstance(result, list) or len(result) <= limit:
+        return None
+    metrics = [_group_metric(group, agg) for group in result]
+    order = sorted(range(len(result)), key=lambda i: -(metrics[i] or 0.0))
+    summary: Dict[str, Any] = {
+        "total": len(result),
+        "listed": limit,
+        "withheld": len(result) - limit,
+        # MIN/MAX of a date has no number to rank by, and then the order is the server's.
+        "order": "largest first" if any(m is not None for m in metrics) else "as returned",
+    }
+    # Only additive metrics have a total, and only a total of every row is one.
+    if agg in ("COUNT", "SUM") and all(metric is not None for metric in metrics):
+        total = float(sum(m for m in metrics if m is not None))
+        summary["all_groups_total"] = int(total) if total.is_integer() else total
+    return {
+        "result": [result[i] for i in order[:limit]],
+        "groups": summary,
+        "ask_instead": (
+            "Narrow query to the groups you need, or raise group_limit to list more "
+            f"({len(result)} groups would be about {len(result) * 90:,} characters)."
+        ),
+    }
 
 
 @register_tool(
@@ -2074,6 +2186,17 @@ def sn_aggregate(
             }
         query_params[f"sysparm_{agg.lower()}_fields"] = params.field
 
+    # The same check sn_query has, and it matters more here: a dropped condition
+    # hands back a whole-table number, and nothing about a number looks wrong.
+    named = [part.strip() for part in (params.group_by or "").split(",") if part.strip()]
+    named += [part.strip() for part in (params.field or "").split(",") if part.strip()]
+    unknown = _unknown_fields_response(
+        config, auth_manager, params.table, params.query or "", also_check=named
+    )
+    if unknown:
+        unknown["aggregate"] = agg
+        return unknown
+
     try:
         response = auth_manager.make_request(
             "GET",
@@ -2082,23 +2205,35 @@ def sn_aggregate(
             timeout=config.timeout,
         )
         response.raise_for_status()
-        return {
+        result = _safe_json(response).get("result")
+        answer: Dict[str, Any] = {
             "success": True,
             "table": params.table,
             "aggregate": agg,
-            "result": _safe_json(response).get("result"),
+            "result": result,
         }
+        answer.update(_withhold_excess_groups(result, agg, params.group_limit) or {})
+        empty = result == [] or (
+            isinstance(result, dict) and str((result.get("stats") or {}).get("count")) == "0"
+        )
+        if empty:
+            answer["hint"] = _zero_rows_hint(params.query)
+        return answer
     except Exception as exc:
         unknown_table = _unknown_table_response(config, auth_manager, params.table, exc)
         if unknown_table:
             unknown_table["aggregate"] = agg
             return unknown_table
-        return {
+        failed: Dict[str, Any] = {
             "success": False,
             "table": params.table,
             "aggregate": agg,
             "message": f"Aggregate failed: {exc}",
         }
+        hint = _generate_query_hint(params.query or "", str(exc))
+        if hint:
+            failed["hint"] = hint
+        return failed
 
 
 @register_tool(

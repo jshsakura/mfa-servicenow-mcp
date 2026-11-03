@@ -1613,7 +1613,8 @@ class FakeLocator:
 
     def __init__(self, target, selector):
         self.target = target
-        self.selector = selector
+        # Everything `known` here is visible, so the visibility filter narrows nothing.
+        self.selector = selector.removesuffix(" >> visible=true")
 
     def _matches(self):
         return [

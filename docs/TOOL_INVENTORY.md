@@ -20,6 +20,7 @@ It is documented below, but package counts in this file reflect the YAML-defined
 | `portal_developer` | 52 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
 | `platform_developer` | 46 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
 | `full` | 63 | Broadest packaged surface: all manage_* workflows plus advanced operations. |
+| `asset_manager` | 6 | Query-first surface for materials, asset and ITOM work; add-ons combine by comma. |
 
 ## Runtime-Injected Helpers
 
@@ -43,7 +44,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `download_attachment` | R | Download attachments. Use saved_path locally; read the ResourceLink remotely when needed. | standard, portal_developer, platform_developer, service_desk, full |
+| `download_attachment` | R | Download attachments. Use saved_path locally; read the ResourceLink remotely when needed. | standard, portal_developer, platform_developer, service_desk, office_files, full |
 
 ### Audit Tools (1)
 
@@ -55,15 +56,15 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `act_in_debug_window` | W | Drive the open debug window: click, fill, select, wait, eval, impersonate. Reports what steps caused. | portal_developer |
-| `inspect_debug_window` | R | Read the shared debug window: console errors, XHR, duplicates, screenshot, CSS, JS expression. Never opens one. | portal_developer |
-| `open_debug_window` | R | Open a visible browser window on the user's screen for shared debugging. Reuses an open one. | portal_developer |
+| `act_in_debug_window` | W | Drive the open debug window: click, fill, select, wait, eval, impersonate. Reports what steps caused. | portal_developer, debug_window |
+| `inspect_debug_window` | R | Read the shared debug window: console errors, XHR, duplicates, screenshot, CSS, JS expression. Never opens one. | portal_developer, debug_window |
+| `open_debug_window` | R | Open a visible browser window on the user's screen for shared debugging. Reuses an open one. | portal_developer, debug_window |
 
 ### Business Rule Tools (1)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_business_rule` | R/W | List/get/create/update/delete a business rule (sys_script). Names repeat across tables — pass collection. | portal_developer, platform_developer, full |
+| `manage_business_rule` | R/W | List/get/create/update/delete a business rule (sys_script). Names repeat across tables — pass collection. | portal_developer, platform_developer, scripting, full |
 
 ### Catalog Tools (1)
 
@@ -84,13 +85,13 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_changeset` | R/W | Get/create/update/commit/publish/add_file on an update set (table: sys_update_set). | portal_developer, platform_developer, full |
+| `manage_changeset` | R/W | Get/create/update/commit/publish/add_file on an update set (table: sys_update_set). move_file/remove_file take wrong... | portal_developer, platform_developer, scripting, full |
 
 ### Deploy Verify Tools (1)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `verify_deployment_xml` | R | Compare a deploy XML to the live server. preflight=would it revert work, postflight=did it land. | standard, portal_developer, platform_developer, service_desk, full |
+| `verify_deployment_xml` | R | Compare a deploy XML to the live server. preflight=would it revert work, postflight=did it land. | standard, portal_developer, platform_developer, service_desk, scripting, full |
 
 ### Epic Tools (1)
 
@@ -102,7 +103,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_flow_designer` | R/W | Flow Designer read/analyse: structure, conditions, executions, cross-instance compare, action source. Read-only - edi... | core (list), standard (get_action_source, get_detail, get_executions, list), portal_developer, platform_developer, service_desk (get_action_source, get_detail, get_executions, list), full |
+| `manage_flow_designer` | R/W | Flow Designer read/analyse: structure, conditions, executions, cross-instance compare, action source. Read-only - edi... | core (list), standard (get_action_source, get_detail, get_executions, list), portal_developer, platform_developer, service_desk (get_action_source, get_detail, get_executions, list), scripting (get_action_source, get_detail, get_executions, list), full |
 
 ### Incident Management (1)
 
@@ -128,7 +129,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `get_logs` | R | Query ServiceNow logs. log_type: system/journal/transaction/background. Max 20 rows. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `get_logs` | R | Query ServiceNow logs. log_type: system/journal/transaction/background. Max 20 rows. | core, standard, portal_developer, platform_developer, service_desk, scripting, full |
 
 ### Notification Tools (1)
 
@@ -199,19 +200,19 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_rest_message` | R/W | Outbound REST message: read a method's endpoint/query params/headers/variables; edit them. Use list to find sys_id. | portal_developer, platform_developer, full |
+| `manage_rest_message` | R/W | Outbound REST message: read a method's endpoint/query params/headers/variables; edit them. Use list to find sys_id. | portal_developer, platform_developer, scripting, full |
 
 ### Scheduled Job Tools (1)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_scheduled_job` | R/W | Scheduled job schedule (sysauto_script): active, run type/time/day/interval, run-as + next run. Not the script. | portal_developer, platform_developer, full |
+| `manage_scheduled_job` | R/W | Scheduled job schedule (sysauto_script): active, run type/time/day/interval, run-as + next run. Not the script. | portal_developer, platform_developer, scripting, full |
 
 ### Script Include (1)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_script_include` | R/W | List/get/create/update/delete/execute a script include (table: sys_script_include). | core (get, list), standard (get, list), portal_developer, platform_developer, service_desk (get, list), full |
+| `manage_script_include` | R/W | List/get/create/update/delete/execute a script include (table: sys_script_include). | core (get, list), standard (get, list), portal_developer, platform_developer, service_desk (get, list), scripting, full |
 
 ### Scripted Rest Tools (1)
 
@@ -229,18 +230,18 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_session_context` | W | Get/switch current application + update set (browser auth). set_* verifies via read-back. | portal_developer, platform_developer, full |
+| `manage_session_context` | R/W | Get/switch current application + update set (browser auth). set_* verifies via read-back. | portal_developer, platform_developer, scripting, full |
 
 ### Sn Api (7)
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `sn_aggregate` | R | Run COUNT/SUM/AVG/MIN/MAX on any table with optional group_by. Returns stats without fetching records. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_discover` | R | Find tables by name or label keyword. Returns table name, label, scope, and parent class. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_health` | R | Check ServiceNow API connectivity, auth status, Chromium install state (browser auth), and MCP server version. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_query` | R | Generic table query — last resort. Prefer domain tools: search_server_code, manage_workflow, manage_flow_designer. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_resolve_url` | R | Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only. | core, standard, portal_developer, platform_developer, service_desk, full |
-| `sn_schema` | R | Fetch field names, types, labels, and constraints from sys_dictionary for a given table. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `sn_aggregate` | R | Run COUNT/SUM/AVG/MIN/MAX on any table with optional group_by. Returns stats without fetching records. | core, standard, portal_developer, platform_developer, service_desk, asset_manager, full |
+| `sn_discover` | R | Find tables by name or label keyword. Returns table name, label, scope, and parent class. | core, standard, portal_developer, platform_developer, service_desk, asset_manager, full |
+| `sn_health` | R | Check ServiceNow API connectivity, auth status, Chromium install state (browser auth), and MCP server version. | core, standard, portal_developer, platform_developer, service_desk, asset_manager, full |
+| `sn_query` | R | Query any table by encoded query. Pass fields. Use sn_aggregate to count, and domain tools for code search when enabled. | core, standard, portal_developer, platform_developer, service_desk, asset_manager, full |
+| `sn_resolve_url` | R | Parse a ServiceNow URL → table, sys_id, scope, suggested next tool. Read-only. | core, standard, portal_developer, platform_developer, service_desk, asset_manager, full |
+| `sn_schema` | R | Fetch field names, types, labels, and constraints from sys_dictionary for a given table. | core, standard, portal_developer, platform_developer, service_desk, asset_manager, full |
 | `sn_write` | W | LAST RESORT CRUD (no dedicated tool). Prefer manage_*/update_*. ACL/user/group/scope blocked. confirm='approve'. | full |
 
 ### Source Analysis (6)
@@ -248,11 +249,11 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `download_app_sources` | R | FULL/all source of an app scope to disk (all groups+deps). scope REQUIRED — ask user. Step 1, not portal. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_server_sources` | R | Targeted server-side source families (SIs/BRs/UI/api/security/admin). Whole app: download_app_sources. | platform_developer, full |
+| `download_server_sources` | R | Targeted server-side source families (SIs/BRs/UI/api/security/admin). Whole app: download_app_sources. | platform_developer, source_sync, full |
 | `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | platform_developer, full |
-| `extract_table_dependencies` | R | GlideRecord table dependency graph from server scripts (SI/BR/widgets). Pass widget_id for one widget. | standard, portal_developer, platform_developer, service_desk, full |
-| `get_metadata_source` | R | Get one source record (SI/BR/widget) by name/sys_id. Returns body; 'complete' flags if truncated preview. | standard, portal_developer, platform_developer, service_desk, full |
-| `search_server_code` | R | Fast keyword search across 22 server-side code types (SI/BR/ACL). Portal regex+snippets: search_portal_regex_matches. | core, standard, portal_developer, platform_developer, service_desk, full |
+| `extract_table_dependencies` | R | GlideRecord table dependency graph from server scripts (SI/BR/widgets). Pass widget_id for one widget. | standard, portal_developer, platform_developer, service_desk, scripting, full |
+| `get_metadata_source` | R | Get one source record (SI/BR/widget) by name/sys_id. Returns body; 'complete' flags if truncated preview. | standard, portal_developer, platform_developer, service_desk, scripting, full |
+| `search_server_code` | R | Fast keyword search across 22 server-side code types (SI/BR/ACL). Portal regex+snippets: search_portal_regex_matches. | core, standard, portal_developer, platform_developer, service_desk, scripting, full |
 
 ### Source Audit Tools (1)
 
@@ -270,8 +271,8 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `diff_local_component` | R | Diff local edits vs remote (or compare_to root); verdict=True status-only, refresh=True fast-forwards. | standard, portal_developer, platform_developer, service_desk, full |
-| `update_remote_from_local` | W | Push one local edit back to ServiceNow (diff_local_component first). Targeted refresh, not bulk dev→test promotion. | portal_developer, platform_developer, full |
+| `diff_local_component` | R | Diff local edits vs remote (or compare_to root); verdict=True status-only, refresh=True fast-forwards. | standard, portal_developer, platform_developer, service_desk, source_sync, full |
+| `update_remote_from_local` | W | Push one local edit back to ServiceNow (diff_local_component first). Targeted refresh, not bulk dev→test promotion. | portal_developer, platform_developer, source_sync, full |
 
 ### UI Policy (1)
 
@@ -302,7 +303,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_workbook` | W | Excel without boilerplate: list/read/regex-find rows; write styled sheets from a data spec; fill a copy of an existin... | portal_developer, full |
+| `manage_workbook` | W | Excel without boilerplate: list/read/regex-find rows; write styled sheets from a data spec; fill a copy of an existin... | portal_developer, office_files, full |
 
 ### Workflow (1)
 
@@ -314,4 +315,4 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `export_record_xml` | R | Build deploy XML from the LIVE server — the only legal source. Issues an origin cert. Read saved_path. | standard, portal_developer, platform_developer, service_desk, full |
+| `export_record_xml` | R | Build deploy XML from the LIVE server — the only legal source. Issues an origin cert. Read saved_path. | standard, portal_developer, platform_developer, service_desk, scripting, full |

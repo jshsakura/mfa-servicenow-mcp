@@ -18,6 +18,7 @@
 | `none` | 0 | 意図的にツールをオフにするための無効化プロファイル。 |
 | `core` | 12 | 素早いヘルス/スキーマ/テーブル作業のための最小限の読み取り専用エッセンシャル。 |
 | `standard` | 31 | インシデント、変更、ポータル、ログ、ソース分析にわたるデフォルトの読み取り専用パッケージ。 |
+| `asset_manager` | 6 | 資材・資産・ITOM 業務向けのクエリ中心の最小構成。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `service_desk` | 33 | standard に加え、運用サポート向けのインシデントと変更の書き込みワークフロー。 |
 | `portal_developer` | 52 | standard に加え、ポータル、チェンジセット、スクリプトインクルード、ローカル同期デリバリーワークフロー。 |
 | `platform_developer` | 46 | standard に加え、ワークフロー、Flow Designer、UI ポリシー、インシデント/変更、スクリプトの書き込み。 |

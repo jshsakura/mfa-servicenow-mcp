@@ -275,7 +275,7 @@ Config file location: `%USERPROFILE%\.gemini\antigravity\mcp_config.json`
 
 ## Step 3: Install Skills (Optional)
 
-Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 4 skills across 3 categories.
+Skills are AI execution blueprints — verified pipelines with safety gates that turn raw MCP tools into reliable workflows. 5 skills across 3 categories.
 
 ```powershell
 # Claude Code
@@ -360,6 +360,7 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 |---------|:-----:|-------------|
 | `core` | 12 | Minimal read-only essentials for health, schema, discovery, and key lookups |
 | `standard` | 31 | **(Default)** Read-only package across incidents, changes, portal, logs, and source analysis |
+| `asset_manager` | 6 | Query-first surface for materials, asset and ITOM work. Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 33 | standard + incident and change operational writes |
 | `portal_developer` | 52 | standard + portal, changeset, script include, and local-sync delivery workflows |
 | `platform_developer` | 46 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |

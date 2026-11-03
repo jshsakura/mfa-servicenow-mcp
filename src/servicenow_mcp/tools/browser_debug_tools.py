@@ -203,9 +203,12 @@ class DebugAction(BaseModel):
         "uncheck",
         "hover",
         "press",
+        "type",
         "scroll_to",
         "wait_for",
         "wait",
+        "goto",
+        "reload",
         "eval",
         "impersonate",
         "end_impersonation",
@@ -215,13 +218,13 @@ class DebugAction(BaseModel):
     )
     value: Optional[str] = Field(
         default=None,
-        description="fill text, select option, eval JS, or who to impersonate (name works).",
+        description="fill/type text, select option, goto path, eval JS, or who to impersonate.",
     )
     key: Optional[str] = Field(default=None, description="Key for press, e.g. Enter.")
     ms: Optional[int] = Field(default=None, description="Pause length for action='wait'.")
     timeout_ms: Optional[int] = Field(default=None, description="Per-step timeout. Default 10000.")
     state: Optional[str] = Field(
-        default=None, description="For wait_for: visible (default) or hidden."
+        default=None, description="For wait_for: visible (default), hidden, attached, detached."
     )
 
 
@@ -256,7 +259,7 @@ class ActInDebugWindowParams(BaseModel):
     )
     discard_unsaved_input: bool = Field(
         default=False,
-        description="Allow impersonate/end_impersonation to reload a form holding input.",
+        description="Allow goto, reload or impersonation to leave a form holding unsaved input.",
     )
     shared_window_ack: bool = Field(
         default=False,

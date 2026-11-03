@@ -5,6 +5,7 @@ This module provides tools for managing changesets in ServiceNow.
 """
 
 import logging
+import re
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -159,6 +160,7 @@ def get_changeset_details(
 # ---------------------------------------------------------------------------
 
 _CHANGESET_UPDATE_FIELDS = ("name", "description", "state", "developer")
+_SYS_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
 
 class ManageChangesetParams(BaseModel):
@@ -171,11 +173,32 @@ class ManageChangesetParams(BaseModel):
       commit:   changeset_id
       publish:  changeset_id
       add_file: changeset_id, file_path, file_content
+      move_file:   changeset_id, entry_ids, target_changeset_id
+      remove_file: changeset_id, entry_ids, confirm_remove
     """
 
-    action: Literal["get", "create", "update", "commit", "publish", "add_file"] = Field(...)
+    action: Literal[
+        "get", "create", "update", "commit", "publish", "add_file", "move_file", "remove_file"
+    ] = Field(...)
     changeset_id: Optional[str] = Field(
-        default=None, description="sys_id (get/update/commit/publish/add_file)"
+        default=None, description="Update set sys_id. For move_file/remove_file, the source set."
+    )
+
+    # move_file / remove_file
+    entry_ids: Optional[List[str]] = Field(
+        default=None,
+        description=f"sys_update_xml sys_ids from action='get' changes, max {_cs_svc.MAX_ENTRY_BATCH}.",
+    )
+    target_changeset_id: Optional[str] = Field(
+        default=None, description="move_file: sys_id of the in-progress set to move into."
+    )
+    confirm_remove: Optional[str] = Field(
+        default=None,
+        description="remove_file: the source update set's name, after the user agrees.",
+    )
+    confirm_other_author: Optional[str] = Field(
+        default=None,
+        description="Comma list of the other authors the user agreed to; dry_run names them.",
     )
 
     # get (list mode) params
@@ -234,13 +257,41 @@ class ManageChangesetParams(BaseModel):
                 raise ValueError("file_path is required for action='add_file'")
             if not self.file_content:
                 raise ValueError("file_content is required for action='add_file'")
+        elif self.action in ("move_file", "remove_file"):
+            if not self.changeset_id:
+                raise ValueError(f"changeset_id (the source set) is required for '{self.action}'")
+            ids = [str(i).strip() for i in (self.entry_ids or []) if str(i).strip()]
+            if not ids:
+                raise ValueError(
+                    f"entry_ids is required for '{self.action}': the sys_update_xml sys_ids "
+                    "listed under 'changes' by manage_changeset(action='get', changeset_id=...)"
+                )
+            if len(set(ids)) > _cs_svc.MAX_ENTRY_BATCH:
+                raise ValueError(
+                    f"at most {_cs_svc.MAX_ENTRY_BATCH} entries per call; split the batch"
+                )
+            bad = [i for i in ids if not _SYS_ID_RE.match(i)]
+            if bad:
+                raise ValueError(
+                    "entry_ids must be 32-character sys_ids, not names or queries: "
+                    + ", ".join(bad[:5])
+                )
+            self.entry_ids = list(dict.fromkeys(i.lower() for i in ids))
+            if self.action == "move_file":
+                if not self.target_changeset_id:
+                    raise ValueError("target_changeset_id is required for 'move_file'")
+                if self.target_changeset_id.strip() == self.changeset_id.strip():
+                    raise ValueError("target_changeset_id is the same set as changeset_id")
         return self
 
 
 @register_tool(
     name="manage_changeset",
     params=ManageChangesetParams,
-    description="Get/create/update/commit/publish/add_file on an update set (table: sys_update_set).",
+    description=(
+        "Get/create/update/commit/publish/add_file on an update set (table: sys_update_set). "
+        "move_file/remove_file take wrong entries out; dry_run=true first."
+    ),
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -302,6 +353,20 @@ def manage_changeset(
             auth_manager,
             changeset_id=params.changeset_id,
             publish_notes=params.publish_notes,
+        )
+    if params.action in ("move_file", "remove_file"):
+        assert params.changeset_id is not None
+        assert params.entry_ids is not None
+        return _cs_svc.change_entries(
+            config,
+            auth_manager,
+            action=params.action,
+            changeset_id=params.changeset_id.strip(),
+            entry_ids=params.entry_ids,
+            target_changeset_id=(params.target_changeset_id or "").strip() or None,
+            confirm_remove=params.confirm_remove,
+            confirm_other_author=params.confirm_other_author,
+            dry_run=params.dry_run,
         )
     # add_file
     assert params.changeset_id is not None

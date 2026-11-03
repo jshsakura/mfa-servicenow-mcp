@@ -32,9 +32,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from servicenow_mcp.utils import json_fast
 
-# Client single-result ceiling proxy, in UTF-8 BYTES. Claude Code defaults to
-# 25000 output tokens; we stay conservatively under the byte-equivalent so the
-# JSON envelope + our stubs never tip the client into its own truncation.
+# Client single-result ceiling proxy, in UTF-8 BYTES. The client's real ceiling measured
+# about 50,000 characters (largest passed 49,190, smallest refused 51,157), so results
+# between that and this budget overflow to the client's file. That is deliberate. Lowered
+# to fit, one body over the line becomes a stub whose re-fetch can return the same stub,
+# and a complete file the agent can read beats a preview it cannot get past.
 # Override per-deployment to match a tuned MAX_MCP_OUTPUT_TOKENS.
 ENV_BUDGET = "SERVICENOW_RESPONSE_BUDGET_CHARS"
 DEFAULT_BUDGET_BYTES = 75_000

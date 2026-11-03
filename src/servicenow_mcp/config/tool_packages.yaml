@@ -7,9 +7,20 @@
 #   service_desk       — standard + operational incident/change writes.
 #   portal_developer   — standard + portal/changeset/script/local-sync writes.
 #   platform_developer — standard + workflow/incident/change/script writes.
+#   asset_manager      — Minimal query surface for materials, asset and ITOM work.
+#   scripting          — Add-on: server-side logic, update sets, XML deployment.
+#   office_files       — Add-on: Excel and attachments.
+#   debug_window       — Add-on: the shared browser.
+#   source_sync        — Add-on: download/diff/push of server-side sources.
 #   full               — Broadest packaged surface, including bundled manage_* flows.
 #
-# All write-capable packages use _extends: standard to avoid duplication.
+# Specialised packages (asset_manager) hold only what that job needs; its domain
+# knowledge lives in config/<package>.rules.md and in skills, not in tools. Add-ons
+# are general-purpose and combine with any package.
+# Write-capable packages use _extends: standard to avoid duplication. asset_manager and
+# its add-ons do not: standard's portal and source-analysis tools would be paid for
+# on every request by a session that never calls them.
+# MCP_TOOL_PACKAGE takes a comma-separated list, so add-ons cost nothing unless asked for.
 # Some registered tools are intentionally left unpackaged; see docs/TOOL_INVENTORY.md.
 
 none: []
@@ -186,6 +197,54 @@ service_desk:
     # Catalog browsing is part of service desk surface
     - manage_catalog:
         actions: [list_items, get_item, list_categories, list_item_variables]
+
+# --- HAM + ITOM: materials and asset management, CMDB, discovery, events ---
+# Deliberately almost nothing. Assets, stockrooms, transfer orders, CIs and discovery
+# runs are all plain tables, so this job is sn_query and sn_aggregate. The domain
+# knowledge is config/asset_manager.rules.md (sent once per session) and the
+# asset-itom-map skill (costs nothing until loaded). Everything else is a
+# general-purpose add-on, combined by comma: asset_manager,scripting,office_files.
+asset_manager:
+  - sn_health
+  - sn_query
+  - sn_aggregate
+  - sn_schema
+  - sn_discover
+  - sn_resolve_url
+
+# --- Add-on (general): server-side logic, update sets, and shipping it. ---
+scripting:
+  - get_logs
+  - search_server_code
+  - get_metadata_source
+  - extract_table_dependencies
+  - manage_session_context
+  - manage_changeset
+  - manage_script_include
+  - manage_business_rule
+  - manage_scheduled_job
+  - manage_rest_message
+  - manage_flow_designer:
+      actions: [list, get_detail, get_executions, get_action_source]
+  - export_record_xml
+  - verify_deployment_xml
+
+# --- Add-on (general): Excel workbooks and record attachments. ---
+office_files:
+  - manage_workbook
+  - download_attachment
+
+# --- Add-on (general): the shared debug browser (~1.2k tokens). ---
+debug_window:
+  - open_debug_window
+  - inspect_debug_window
+  - act_in_debug_window
+
+# --- Add-on (general): edit server-side sources on disk and push them back. ---
+source_sync:
+  - download_server_sources
+  - diff_local_component
+  - update_remote_from_local
 
 # --- Full: all tools ---
 full:

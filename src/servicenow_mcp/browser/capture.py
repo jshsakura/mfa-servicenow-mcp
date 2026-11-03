@@ -224,7 +224,7 @@ def no_page_message(pages: Sequence[Any], instance_host: str) -> str:
             "different configured instances, and driving one of those would act on "
             "somebody else's session. Call open_debug_window with a url to get a tab here."
         )
-    return "The debug window has no open tab. Open a page in it and retry."
+    return "The debug window has no open tab. Call open_debug_window with a url, then retry."
 
 
 def _instance_page(pages: Sequence[Any], instance_host: str) -> Optional[Any]:

@@ -15,6 +15,7 @@
 | `none` | 0 | 비활성화 |
 | `core` | 12 | 최소 읽기 전용 핵심 도구 |
 | `standard` | 31 | 읽기 전용 safe mode **(기본값)** |
+| `asset_manager` | 6 | 자재·자산·ITOM 업무용 조회 중심 최소 구성. 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 33 | standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 52 | standard + 포털/체인지셋/Script Include/로컬 동기화 개발 |
 | `platform_developer` | 46 | standard + 워크플로우/플로우/스크립트/ITSM 쓰기 |

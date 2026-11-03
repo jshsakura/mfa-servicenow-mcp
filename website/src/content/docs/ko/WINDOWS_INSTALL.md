@@ -279,7 +279,7 @@ args = [
 
 ## 3단계: 스킬 설치 (선택사항)
 
-스킬은 AI 실행 블루프린트입니다 — 안전 게이트가 포함된 검증된 파이프라인으로, MCP 도구를 신뢰할 수 있는 워크플로우로 전환합니다. 현재 3개 카테고리에 4개 스킬을 제공합니다.
+스킬은 AI 실행 블루프린트입니다 — 안전 게이트가 포함된 검증된 파이프라인으로, MCP 도구를 신뢰할 수 있는 워크플로우로 전환합니다. 현재 3개 카테고리에 5개 스킬을 제공합니다.
 
 ```powershell
 # Claude Code
@@ -364,6 +364,7 @@ TTL을 변경하려면 `--browser-session-ttl` 옵션을 사용하세요 (단위
 |--------|:------:|------|
 | `core` | 12 | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
 | `standard` | 31 | **(기본값)** 인시던트/변경/포털/로그/소스 분석 전반의 읽기 전용 패키지 |
+| `asset_manager` | 6 | 자재·자산·ITOM 업무용 조회 중심 최소 구성. 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 33 | standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 52 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
 | `platform_developer` | 46 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |

@@ -195,7 +195,7 @@ Los proxies con inspección TLS (Zscaler y compañía) y el acceso bloqueado a P
 - **Autenticación por navegador** para entornos MFA/SSO (Okta, Entra ID, SAML, MFA)
 - **4 modos de autenticación**: Browser, Basic, OAuth, API Key
 - **77 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
-- **4 skills de flujo de trabajo** con compuertas de seguridad, delegación a sub-agentes y pipelines verificados
+- **5 skills de flujo de trabajo** con compuertas de seguridad, delegación a sub-agentes y pipelines verificados
 - **Transporte Streamable HTTP** — mantén stdio como predeterminado, o expón `/mcp` para clientes y puentes con capacidad HTTP
 - **Auditoría de fuentes locales** con informe HTML, grafo de referencias cruzadas, detección de código muerto y conocimiento de dominio autogenerado
 - **Grafos de relaciones autoritativos en disco** — `_graph.json` (widget→Angular Provider, desde el M2M en vivo) y `_page_graph.json` (página→widget, desde `sp_instance`) permiten al LLM responder preguntas de dependencia sin conexión en lugar de volver a consultar la instancia
@@ -490,17 +490,18 @@ Solo lectura (valores predeterminados seguros):
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Descripción |
 | :--- | :---: | :---: | :---: | :--- |
 | `none` | 0 | 0 | 0 | Perfil deshabilitado para desactivar herramientas intencionadamente |
-| `core` | 12 | ~2.0K | ~2.6K | Mínimo de solo lectura para salud, esquema, descubrimiento y búsquedas clave de artefactos |
-| `standard` | 31 | ~7.0K | ~7.9K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de fuentes |
+| `core` | 12 | ~2.2K | ~2.7K | Mínimo de solo lectura para salud, esquema, descubrimiento y búsquedas clave de artefactos |
+| `standard` | 31 | ~7.4K | ~8.3K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de fuentes |
+| `asset_manager` | 6 | ~0.8K | ~1.2K | Superficie centrada en consultas para materiales, activos e ITOM. Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 ⚠️ Con capacidad de escritura (avanzado — otorga create/update/delete):
 
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Descripción |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.7K | ~8.7K | ⚠️ standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 52 | ~15.2K | ~17.0K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
-| `platform_developer` | 46 | ~12.8K | ~14.4K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 63 | ~17.6K | ~19.8K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ standard + escrituras operativas de incidentes y cambios |
+| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
+| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
+| `full` | 63 | ~18.3K | ~20.6K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
 
 > **Tokens máx.** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken `cl100k_base`; el conteo real de Claude varía ligeramente); usar el paquete más reducido ahorra contexto y costo. **Es el máximo**, no el costo típico: solo lo pagan completo los clientes que cargan todas las tool schemas al inicio. Los clientes con carga diferida de herramientas (p. ej. la búsqueda de herramientas de Claude Code) cargan un schema solo cuando se usa esa herramienta, así que su costo real por solicitud es mucho menor. El número de herramientas cuenta los miembros del paquete; todos los paquetes llevan además `list_tool_packages`, y una configuración multi-instancia añade `list_instances`, `compare_instances` y un parámetro `instance` en cada herramienta — la segunda columna lo mide con tres instancias. Las cifras se miden con tiktoken, no se estiman (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <paquete>` lista la parte de cada herramienta).
 
@@ -830,7 +831,7 @@ Todas las descargas escriben la fuente completa en disco sin ningún truncado. S
 
 Las herramientas son llamadas API en crudo. Las skills son lo que hace que tu LLM sea realmente útil — pipelines verificados con compuertas de seguridad, rollback y delegación a sub-agentes consciente del contexto. **El servidor MCP + skills es la configuración completa** para la automatización de ServiceNow impulsada por LLM.
 
-4 skills hoy, más en camino con cada release.
+5 skills hoy, más en camino con cada release.
 
 | | Solo herramientas | Herramientas + Skills |
 |---|---|---|

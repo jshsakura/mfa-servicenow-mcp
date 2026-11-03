@@ -22,6 +22,7 @@ slug: hi/TOOL_INVENTORY
 | `none` | 0 | जानबूझकर टूल बंद करने के लिए अक्षम प्रोफ़ाइल। |
 | `core` | 12 | त्वरित health/schema/table कार्य के लिए न्यूनतम read-only आवश्यक टूल। |
 | `standard` | 31 | incidents, changes, portal, logs, और source analysis में डिफ़ॉल्ट read-only पैकेज। |
+| `asset_manager` | 6 | सामग्री, asset और ITOM कार्य के लिए query-केंद्रित न्यूनतम सतह। Add-on comma से जोड़ें: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 33 | परिचालन समर्थन के लिए standard के साथ incident और change write workflows। |
 | `portal_developer` | 52 | standard के साथ portal, changeset, script include, और local-sync delivery workflows। |
 | `platform_developer` | 46 | standard के साथ workflow, Flow Designer, UI policy, incident/change, और script writes। |

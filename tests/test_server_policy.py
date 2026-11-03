@@ -70,7 +70,9 @@ def test_list_tools_injects_confirm_field_for_mutating_tools(
     # No description: field name + single-value enum + the tool description's
     # "(confirm='approve')" suffix are self-explanatory (token saving).
     assert "description" not in confirm_schema
-    assert "confirm" in manage_incident_schema["required"]
+    # Advertised but not required: this tool also hosts reads, and the schema has no
+    # per-action form. The call-time gate is what stops an unconfirmed write.
+    assert "confirm" not in manage_incident_schema.get("required", [])
     assert "confirm='approve'" in (tools["manage_incident"].description or "")
 
 

@@ -58,7 +58,14 @@ def list_script_includes(
             query_parts.append(f"client_callable={str(params.client_callable).lower()}")
 
         if params.query:
-            query_parts.append(f"nameLIKE{params.query}")
+            name_filter = _si_svc.si_name_filter(params.query)
+            if name_filter == params.query:
+                unknown = _si_svc._unknown_fields_response(
+                    config, auth_manager, "sys_script_include", params.query
+                )
+                if unknown:
+                    return unknown
+            query_parts.append(name_filter)
 
         query_string = "^".join(query_parts) if query_parts else ""
 
@@ -138,11 +145,7 @@ def get_script_include(
     try:
         fields = "sys_id,name,script,description,api_name,client_callable,active,access,sys_created_on,sys_updated_on,sys_created_by,sys_updated_by"
 
-        if params.script_include_id.startswith("sys_id:"):
-            sys_id = params.script_include_id.replace("sys_id:", "")
-            query = f"sys_id={sys_id}"
-        else:
-            query = f"name={params.script_include_id}"
+        query = _si_svc.si_lookup_query(params.script_include_id)
 
         records, _ = sn_query_page(
             config,
@@ -164,7 +167,7 @@ def get_script_include(
             # No-dead-end: for a NAME miss (a sys_id miss has no near-match), offer
             # fuzzy nameLIKE suggestions so the caller can retry in one step.
             # fail_silently so a failed suggestion lookup never worsens the miss.
-            if not params.script_include_id.startswith("sys_id:"):
+            if query.startswith("name="):
                 near, _ = sn_query_page(
                     config,
                     auth_manager,
@@ -262,7 +265,7 @@ class ManageScriptIncludeParams(BaseModel):
     # list/get params
     limit: int = Field(default=10, description="Max records")
     offset: int = Field(default=0, description="Pagination offset")
-    query: Optional[str] = Field(default=None, description="Name search")
+    query: Optional[str] = Field(default=None, description="Name search, or an encoded query")
     client_callable: Optional[bool] = Field(default=None, description="Filter by client_callable")
     count_only: bool = Field(default=False, description="Return count only")
     name: Optional[str] = Field(default=None, description="SI name")

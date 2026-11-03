@@ -15,9 +15,11 @@ The window signs in on its own (see session.py); nothing about the API's
 session is copied into it.
 """
 
+import glob
 import json
 import logging
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -27,7 +29,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from ..auth._browser_dom import _singleton_holder_pid
@@ -50,6 +52,7 @@ DEBUG_WINDOW_ALWAYS_HEADED = True
 # sleep: a warm profile answers in ~300ms, a cold one can take several seconds.
 _PORT_READY_TIMEOUT_S = 30.0
 _PORT_POLL_INTERVAL_S = 0.25
+_ORPHAN_EXIT_GRACE_S = 8.0
 _PORT_PROBE_TIMEOUT_S = 1.0
 
 # Graceful shutdown before escalating to a forced kill.
@@ -800,6 +803,155 @@ def _orphan_window_pid(profile_dir: str) -> Optional[int]:
     return _singleton_holder_pid(profile_dir)
 
 
+def _debugging_port_of(pid: int) -> Optional[int]:
+    """The CDP port a running Chromium was started with, from its command line.
+
+    ``None`` means not found out: on Windows, or a process ``ps`` cannot describe.
+    """
+    if sys.platform == "win32":
+        return None
+    try:
+        command = subprocess.run(  # noqa: S603,S607 - fixed argv, no shell
+            ["ps", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("Could not read the command line of pid %s: %s", pid, exc)
+        return None
+    found = re.search(r"--remote-debugging-port=(\d+)", command)
+    return int(found.group(1)) if found else None
+
+
+def _process_started_at(pid: int) -> Optional[float]:
+    """When a process started, from ``ps``. ``None`` means not found out.
+
+    The same answer every time, unlike "now": the auto-login attempt is keyed on
+    ``started_at``, so a value that moved on each adoption would hand a refused
+    credential another try every time.
+    """
+    try:
+        started = subprocess.run(  # noqa: S603,S607 - fixed argv, no shell
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            env={**os.environ, "LC_ALL": "C"},
+        ).stdout.strip()
+        return time.mktime(time.strptime(started, "%a %b %d %H:%M:%S %Y"))
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        logger.debug("Could not read the start time of pid %s: %s", pid, exc)
+        return None
+
+
+def _window_markers(auth_manager: Any, kind: str) -> List[str]:
+    """Every host's ``<kind>`` marker for this window, e.g. kind="impersonation".
+
+    Matched on the file NAME: the cache root itself is a dot-directory, so
+    anything cut from the full path would glob somewhere else entirely.
+    """
+    folder = _cache_root(auth_manager)
+    name = f"debug_window_{_window_key(auth_manager)}"
+    return glob.glob(os.path.join(glob.escape(folder), glob.escape(name) + f".*{kind}.json"))
+
+
+def _markers_of_this_process(
+    auth_manager: Any, kind: str, process_started_at: float
+) -> Optional[List[Dict[str, Any]]]:
+    """The markers written during this process's lifetime. ``None``: one was unreadable."""
+    found: List[Dict[str, Any]] = []
+    for path in _window_markers(auth_manager, kind):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                recorded = json.load(handle)
+            if float(recorded.get("started_at", 0)) >= process_started_at:
+                found.append(recorded)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            logger.debug("Unreadable %s marker %s: %s", kind, path, exc)
+            return None
+    return found
+
+
+def _impersonation_on_record(auth_manager: Any, process_started_at: float) -> bool:
+    """Whether a marker from this process's lifetime names an impersonated user.
+
+    Every host the window holds has its own marker, so all of them are read. Older
+    markers belong to a closed window and describe nothing. Unreadable counts as yes.
+    """
+    markers = _markers_of_this_process(auth_manager, "impersonation", process_started_at)
+    return markers is None or any(recorded.get("as") for recorded in markers)
+
+
+def _original_started_at(auth_manager: Any, process_started_at: float) -> Optional[float]:
+    """The ``started_at`` the launch recorded, as the window's markers still carry it.
+
+    Launch stamps the moment the port answered, a few seconds after the process
+    began, and the one-attempt auto-login claim is keyed on that exact value. An
+    adopted window keeps it, or a refused password would get another try. With
+    no marker there is no claim to keep and the process start is used. ``None``
+    means a marker could not be read, so the claim is not known.
+    """
+    stamps: List[float] = []
+    for kind in ("login", "impersonation"):
+        markers = _markers_of_this_process(auth_manager, kind, process_started_at)
+        if markers is None:
+            return None
+        stamps.extend(float(recorded["started_at"]) for recorded in markers)
+    return min(stamps) if stamps else process_started_at
+
+
+def _adopt_orphan_window(auth_manager: Any) -> Optional[WindowState]:
+    """Pick a live window back up after its state file went away.
+
+    The state is dropped whenever a call decides the window closed, and that
+    decision can be wrong: the window stays up, holding the profile, and every open
+    then refused with "lost track of its debugging port" although the port was
+    readable all along. Six refusals in one week of logs, each ending with a person
+    closing a window that was fine.
+
+    Adopted only when the process holding OUR profile answers CDP on the port it
+    was started with. Anything less leaves the refusal in place.
+
+    A recorded impersonation also leaves it in place. The marker is keyed on the
+    original ``started_at``, which adoption cannot recover, so an adopted window would
+    report its own account while acting as someone else.
+    """
+    profile_dir = window_profile_dir(auth_manager)
+    pid = _orphan_window_pid(profile_dir)
+    if pid is None:
+        return None
+    port = _debugging_port_of(pid)
+    if port is None or not _cdp_responds(port):
+        return None
+    process_started_at = _process_started_at(pid)
+    if process_started_at is None or _impersonation_on_record(auth_manager, process_started_at):
+        return None
+    started_at = _original_started_at(auth_manager, process_started_at)
+    if started_at is None:
+        return None
+    caller = _caller_url(auth_manager)
+    state = WindowState(
+        pid=pid,
+        port=port,
+        profile_dir=profile_dir,
+        instance_url=caller,
+        started_at=started_at,
+        executable_path=_chromium_executable(),
+        last_used_at=time.time(),
+        caller_url=caller,
+    )
+    write_window_state(auth_manager, state)
+    logger.info("Re-adopted the debug window pid %s on CDP port %s", pid, port)
+    # Through the reader, which stamps what a call needs and the file does not hold:
+    # this session's tab pin. Without it the adopting call would see no claims.
+    return read_window_state(auth_manager) or state
+
+
 def launch_window(
     auth_manager: Any,
     *,
@@ -821,11 +973,18 @@ def launch_window(
     # one that was asked for.
     clear_restore_state(profile_dir)
 
+    # A window on its way out still holds the profile for a few seconds, and a
+    # refusal then is wrong by the time anyone reads it.
     orphan = _orphan_window_pid(profile_dir)
+    grace_ends = time.time() + _ORPHAN_EXIT_GRACE_S
+    while orphan is not None and time.time() < grace_ends:
+        time.sleep(_PORT_POLL_INTERVAL_S)
+        orphan = _orphan_window_pid(profile_dir)
     if orphan is not None:
         raise RuntimeError(
-            f"A debug window for this account is already open (pid {orphan}) but this "
-            "server lost track of its debugging port. Close that window and try again."
+            f"A debug window for this account is already open (pid {orphan}) and could not "
+            "be picked back up: its debugging port did not answer, or it was impersonating "
+            "someone. Close that window and try again."
         )
 
     port = _free_port()
@@ -1021,6 +1180,12 @@ def ensure_window(
                 logger.info("Retiring a debug window with no tabs left (pid %s)", current.pid)
                 terminate_pid(current.pid)
             clear_window_state(auth_manager)
+
+        # Not a window we just retired: that one is on its way out, not lost.
+        retiring = current is not None and liveness.process and liveness.pages == 0
+        adopted = None if retiring else _adopt_orphan_window(auth_manager)
+        if adopted is not None:
+            return adopted, False
 
         history_path = window_history_path(auth_manager)
         check_launch_allowed(history_path)

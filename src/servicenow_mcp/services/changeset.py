@@ -257,7 +257,8 @@ def get(
         query_parts.append(f"state={state}")
     if application:
         query_parts.append(f"application={application}")
-        query_parts.append(f"developer={developer}")
+    # `developer` is not a sys_update_set column (see _CHANGESET_UPDATE_FIELDS):
+    # a condition on it is dropped by the server, so it is accepted and not sent.
     if timeframe:
         if timeframe == "recent":
             query_parts.append(
@@ -292,3 +293,390 @@ def get(
     except Exception as e:
         logger.error("Error listing changesets: %s", e)
         return {"success": False, "message": f"Error listing changesets: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
+# move_file / remove_file — take a captured change out of an update set
+# ---------------------------------------------------------------------------
+#
+# A wrong edit lands in the current update set as a sys_update_xml row, and the
+# only ways out were the ServiceNow UI or sn_write (deliberately unpackaged).
+# These two actions are that missing tool, built so that nothing it reports is a
+# guess:
+#
+#   - entries are named by sys_id only, at most MAX_ENTRY_BATCH; no queries,
+#     because a query whose condition the server drops selects the whole table
+#   - the source set is read live and must be in progress; every entry must
+#     belong to it, or the whole batch is refused before anything is written
+#   - a move needs a target that is in progress, in the same application, and
+#     holds no entry for the same record already (two versions of one record in
+#     one set leave the commit to decide which wins)
+#   - an entry someone else captured needs their name in confirm_other_author;
+#     an author that cannot be read, or a session whose user cannot be resolved,
+#     names nobody, so it needs naming too instead of passing as "yours"
+#   - remove_file is not reversible here, so it needs confirm_remove=<the source
+#     set's name> on top of confirm='approve'
+#   - after writing, every entry is read back; "verified" is printed only when
+#     that read came back and matched
+#
+# Every read here uses fail_silently=False and starts from an invalidated cache:
+# an unread page must stop the call, never pass as "no such entry" or "no clash".
+
+MAX_ENTRY_BATCH = 20
+_IN_PROGRESS = "in progress"
+_ENTRY_FIELDS = (
+    "sys_id,name,target_name,type,action,update_set,application,sys_created_by,sys_updated_by"
+)
+_SET_FIELDS = "sys_id,name,state,application"
+_UNKNOWN_AUTHOR = "unknown"
+
+RECORD_UNCHANGED_NOTE = (
+    "Only the update set changed. The record itself still holds the edit on this "
+    "instance; this decides what the update set carries to the next one. To undo "
+    "the edit itself, change the record back, which captures a new entry."
+)
+
+
+def _refuse(message: str, **extra: Any) -> Dict[str, Any]:
+    return {"success": False, "written": False, "message": message, **extra}
+
+
+def _ref_value(value: Any) -> str:
+    """Raw value of a reference field, whatever shape the read returned."""
+    if isinstance(value, dict):
+        value = value.get("value", "")
+    return str(value or "").strip()
+
+
+def _read_set(config: ServerConfig, auth_manager: AuthManager, sys_id: str) -> Dict[str, Any]:
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table="sys_update_set",
+        query=f"sys_id={sys_id}",
+        fields=_SET_FIELDS,
+        limit=1,
+        offset=0,
+        fail_silently=False,
+    )
+    return rows[0] if rows else {}
+
+
+def _read_entries(
+    config: ServerConfig, auth_manager: AuthManager, entry_ids: List[str], fields: str
+) -> List[Dict[str, Any]]:
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table="sys_update_xml",
+        query="sys_idIN" + ",".join(entry_ids),
+        fields=fields,
+        limit=len(entry_ids) + 1,
+        offset=0,
+        fail_silently=False,
+    )
+    return rows
+
+
+def _entry_authors(entry: Dict[str, Any], me: Optional[str]) -> List[str]:
+    """Authors of this entry that are not provably the current user."""
+    found = []
+    for field in ("sys_created_by", "sys_updated_by"):
+        who = str(entry.get(field) or "").strip()
+        if not who:
+            found.append(_UNKNOWN_AUTHOR)
+        elif me is None or who.lower() != me.lower():
+            found.append(who)
+    return sorted(set(found), key=str.lower)
+
+
+def _approved_names(value: Optional[str]) -> set:
+    return {part.strip().lower() for part in str(value or "").split(",") if part.strip()}
+
+
+def _describe(entry: Dict[str, Any], authors: List[str]) -> Dict[str, Any]:
+    return {
+        "sys_id": entry.get("sys_id"),
+        "record": entry.get("target_name") or entry.get("name"),
+        "type": entry.get("type"),
+        "action": entry.get("action"),
+        "created_by": entry.get("sys_created_by"),
+        "updated_by": entry.get("sys_updated_by"),
+        "other_authors": authors,
+    }
+
+
+def change_entries(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    action: str,
+    changeset_id: str,
+    entry_ids: List[str],
+    target_changeset_id: Optional[str] = None,
+    confirm_remove: Optional[str] = None,
+    confirm_other_author: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Move entries to another in-progress update set, or remove them from this one."""
+    from servicenow_mcp.tools.sn_api import _authenticated_user
+
+    moving = action == "move_file"
+    ids = list(dict.fromkeys(entry_ids))
+    invalidate_query_cache(table="sys_update_set")
+    invalidate_query_cache(table="sys_update_xml")
+
+    # 1. The source set, read live.
+    try:
+        source = _read_set(config, auth_manager, changeset_id)
+    except Exception as exc:
+        return _refuse(f"Could not read update set {changeset_id}, so nothing was changed: {exc}")
+    if not source:
+        return _refuse(f"Update set {changeset_id} was not found. Nothing was changed.")
+    # Compare against the id the server returned, not the one typed in.
+    changeset_id = str(source.get("sys_id") or changeset_id)
+    source_name = str(source.get("name") or "")
+    source_app = _ref_value(source.get("application"))
+    if str(source.get("state") or "").strip().lower() != _IN_PROGRESS:
+        return _refuse(
+            f"Update set '{source_name}' is '{source.get('state')}', not in progress, so its "
+            "entries are left alone. If the user wants to change it anyway, reopen it first: "
+            "manage_changeset(action='update', changeset_id=..., state='in progress')."
+        )
+
+    # 2. The target set (move only), read live.
+    target: Dict[str, Any] = {}
+    if moving:
+        assert target_changeset_id is not None
+        try:
+            target = _read_set(config, auth_manager, target_changeset_id)
+        except Exception as exc:
+            return _refuse(
+                f"Could not read the target update set {target_changeset_id}, so nothing was "
+                f"changed: {exc}"
+            )
+        if not target:
+            return _refuse(f"Target update set {target_changeset_id} was not found.")
+        target_changeset_id = str(target.get("sys_id") or target_changeset_id)
+        if target_changeset_id == changeset_id:
+            return _refuse("The target is the same update set as the source.")
+        if str(target.get("state") or "").strip().lower() != _IN_PROGRESS:
+            return _refuse(
+                f"Target update set '{target.get('name')}' is '{target.get('state')}', not in "
+                "progress. Entries can only move into an open set."
+            )
+        target_app = _ref_value(target.get("application"))
+        if not source_app or not target_app:
+            return _refuse(
+                "The application of the source or the target set could not be read, so it "
+                "cannot be shown they match. Nothing was changed."
+            )
+        if source_app != target_app:
+            return _refuse(
+                f"'{source_name}' and '{target.get('name')}' belong to different applications. "
+                "An entry can only move between sets of the same application."
+            )
+
+    # 3. The entries, read live; every one must belong to the source set.
+    try:
+        entries = _read_entries(config, auth_manager, ids, _ENTRY_FIELDS)
+    except Exception as exc:
+        return _refuse(f"Could not read the entries, so nothing was changed: {exc}")
+    by_id = {str(e.get("sys_id")): e for e in entries}
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        return _refuse(
+            "These entries were not found, so the whole batch was refused: "
+            + ", ".join(missing)
+            + ". Find entry sys_ids with manage_changeset(action='get', changeset_id=...).",
+            missing=missing,
+        )
+    elsewhere = [
+        {"sys_id": i, "update_set": _ref_value(by_id[i].get("update_set"))}
+        for i in ids
+        if _ref_value(by_id[i].get("update_set")) != changeset_id
+    ]
+    if elsewhere:
+        return _refuse(
+            f"Some entries are not in '{source_name}', so the whole batch was refused.",
+            not_in_source=elsewhere,
+        )
+
+    # 4. Move-only checks: same application per entry, and no clash in the target.
+    if moving:
+        foreign = [i for i in ids if _ref_value(by_id[i].get("application")) != target_app]
+        if foreign:
+            return _refuse(
+                "Some entries belong to a different application than the target set (or "
+                "their application could not be read), so the whole batch was refused.",
+                wrong_application=foreign,
+            )
+        names = [str(by_id[i].get("name") or "") for i in ids]
+        if not all(names):
+            return _refuse(
+                "Some entries have no readable name, so a clash in the target set cannot be "
+                "ruled out. Nothing was changed."
+            )
+        try:
+            clashes, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="sys_update_xml",
+                query=f"update_set={target_changeset_id}^nameIN" + ",".join(names),
+                fields="sys_id,name,target_name",
+                limit=len(names) + 1,
+                offset=0,
+                fail_silently=False,
+            )
+        except Exception as exc:
+            return _refuse(
+                "Could not check the target set for entries of the same records, so nothing "
+                f"was changed: {exc}"
+            )
+        if clashes:
+            return _refuse(
+                f"'{target.get('name')}' already holds an entry for some of these records. "
+                "Moving would put two versions of one record in one set, and the commit would "
+                "decide which wins. Resolve that first, for example by removing the one that "
+                "should not ship.",
+                already_in_target=[
+                    {"sys_id": c.get("sys_id"), "record": c.get("target_name") or c.get("name")}
+                    for c in clashes
+                ],
+            )
+
+    # 5. Approvals.
+    me = _authenticated_user(config, auth_manager, allow_live=True)
+    described = []
+    required_authors: set = set()
+    for i in ids:
+        authors = _entry_authors(by_id[i], me)
+        required_authors.update(authors)
+        described.append(_describe(by_id[i], authors))
+    required = sorted(required_authors, key=str.lower)
+    approvals: Dict[str, Any] = {}
+    problems: List[str] = []
+    if required:
+        approvals["confirm_other_author"] = ",".join(required)
+        unapproved = [a for a in required if a.lower() not in _approved_names(confirm_other_author)]
+        if unapproved:
+            who = (
+                "Your own user could not be confirmed, so no author can be treated as you. "
+                if me is None
+                else ""
+            )
+            problems.append(
+                who
+                + "These entries carry changes by "
+                + ", ".join(repr(a) for a in required)
+                + ". Taking someone's work out of a set is their call too: ask the user, then "
+                f"pass confirm_other_author='{approvals['confirm_other_author']}'."
+            )
+    if not moving:
+        approvals["confirm_remove"] = source_name
+        if str(confirm_remove or "").strip().lower() != source_name.strip().lower():
+            problems.append(
+                "Removing an entry cannot be undone through this tool. Moving it to a parking "
+                "update set keeps it recoverable. If the user still wants it removed, pass "
+                f"confirm_remove='{source_name}' (the source set's name)."
+            )
+
+    preview = {
+        "action": action,
+        "source": {"sys_id": changeset_id, "name": source_name},
+        "target": ({"sys_id": target_changeset_id, "name": target.get("name")} if moving else None),
+        "entries": described,
+        "approvals_required": approvals,
+        "note": RECORD_UNCHANGED_NOTE,
+    }
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "written": False,
+            "message": (
+                f"Preview: {len(ids)} entr{'y' if len(ids) == 1 else 'ies'} would be "
+                + (
+                    f"moved to '{target.get('name')}'."
+                    if moving
+                    else f"removed from '{source_name}'."
+                )
+                + (" Still needed: " + " ".join(problems) if problems else "")
+            ),
+            **preview,
+        }
+    if problems:
+        return _refuse(" ".join(problems), **preview)
+
+    # 6. Write, one entry at a time; stop at the first failure.
+    headers = auth_manager.get_headers()
+    headers["Content-Type"] = "application/json"
+    done: List[str] = []
+    failure: Optional[Dict[str, Any]] = None
+    for i in ids:
+        url = f"{config.api_url}/table/sys_update_xml/{i}"
+        try:
+            if moving:
+                response = auth_manager.make_request(
+                    "PATCH", url, json={"update_set": target_changeset_id}, headers=headers
+                )
+            else:
+                response = auth_manager.make_request("DELETE", url, headers=headers)
+            response.raise_for_status()
+            done.append(i)
+        except Exception as exc:
+            failure = {"sys_id": i, "error": str(exc)}
+            break
+    invalidate_query_cache(table="sys_update_xml")
+
+    # 7. Read back what was written.
+    verification: Dict[str, Any] = {"determined": False, "mismatched": []}
+    if done:
+        try:
+            after = {
+                str(r.get("sys_id")): r
+                for r in _read_entries(config, auth_manager, done, "sys_id,update_set")
+            }
+            if moving:
+                mismatched = [
+                    i
+                    for i in done
+                    if i not in after
+                    or _ref_value(after[i].get("update_set")) != target_changeset_id
+                ]
+            else:
+                mismatched = [i for i in done if i in after]
+            verification = {"determined": True, "mismatched": mismatched}
+        except Exception as exc:
+            verification["error"] = f"Could not read the entries back: {exc}"
+
+    verified = verification["determined"] and not verification["mismatched"] and not failure
+    verb = "moved" if moving else "removed"
+    if failure:
+        message = (
+            f"Stopped after {len(done)} of {len(ids)}: entry {failure['sys_id']} failed "
+            f"({failure['error']}). The rest were not touched."
+        )
+    elif not verification["determined"]:
+        message = (
+            f"{len(done)} entries were {verb}, but reading them back failed, so this is not "
+            "verified. Check with manage_changeset(action='get', changeset_id=...)."
+        )
+    elif verification["mismatched"]:
+        message = (
+            f"The write was accepted, but {len(verification['mismatched'])} entries do not "
+            f"read back as {verb}: " + ", ".join(verification["mismatched"])
+        )
+    else:
+        message = f"{len(done)} entr{'y' if len(done) == 1 else 'ies'} {verb} and verified."
+    return {
+        "success": bool(done) and not failure and verified,
+        "written": bool(done),
+        "verified": verified,
+        "message": message,
+        "done": done,
+        "not_done": [i for i in ids if i not in done],
+        "failure": failure,
+        "verification": verification,
+        **preview,
+    }

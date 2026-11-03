@@ -494,17 +494,18 @@ Read-only (safe defaults):
 | Package | Tools | Max tokens | Max (3 instances) | Description |
 | :--- | :---: | :---: | :---: | :--- |
 | `none` | 0 | 0 | 0 | Disabled profile for intentionally turning tools off |
-| `core` | 12 | ~2.0K | ~2.6K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
-| `standard` | 31 | ~7.0K | ~7.9K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `core` | 12 | ~2.2K | ~2.7K | Minimal read-only essentials for health, schema, discovery, and key artifact lookups |
+| `standard` | 31 | ~7.4K | ~8.3K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
+| `asset_manager` | 6 | ~0.8K | ~1.2K | Query-first surface for materials, asset and ITOM work. Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 ⚠️ Write-capable (advanced — grants create/update/delete):
 
 | Package | Tools | Max tokens | Max (3 instances) | Description |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.7K | ~8.7K | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 52 | ~15.2K | ~17.0K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
-| `platform_developer` | 46 | ~12.8K | ~14.4K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 63 | ~17.6K | ~19.8K | ⚠️ **Most advanced** — all write tools across all domains at once |
+| `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ standard + incident and change operational writes |
+| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
+| `full` | 63 | ~18.3K | ~20.6K | ⚠️ **Most advanced** — all write tools across all domains at once |
 
 > **Max tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down. **This is the maximum**, not a typical cost: it is paid in full only by clients that load every tool schema up front. Clients with deferred tool loading (e.g. Claude Code's tool search) load a schema only when that tool is used, so their real per-request cost is far lower. Tool counts are package members; every package also carries `list_tool_packages`, and a multi-instance setup adds `list_instances`, `compare_instances` and an `instance` parameter on every tool — the second token column measures that with three instances. Figures are measured with tiktoken, not estimated (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` lists every tool's share).
 
@@ -847,7 +848,7 @@ All downloads write full source to disk with zero truncation. Only a summary is 
 
 Tools are raw API calls. Skills are what make your LLM actually useful — verified pipelines with safety gates, rollback, and context-aware sub-agent delegation. **MCP server + skills is the complete setup** for LLM-driven ServiceNow automation.
 
-4 skills today, more coming with every release.
+5 skills today, more coming with every release.
 
 | | Tools Only | Tools + Skills |
 |---|---|---|

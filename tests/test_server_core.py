@@ -138,7 +138,8 @@ class TestGetToolSchema:
 
         schema = _get_tool_schema(TestParams)
 
-        assert "description" not in schema["properties"]["query"]
+        # `query` means different things on different tools, so it keeps its description.
+        assert schema["properties"]["query"]["description"] == "Additional query string"
         assert "description" not in schema["properties"]["active"]
         assert "description" not in schema["properties"]["table"]
 

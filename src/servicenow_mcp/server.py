@@ -7,6 +7,7 @@ This module provides the main implementation of the ServiceNow MCP server.
 import base64
 import contextlib
 import contextvars
+import difflib
 import logging
 import os
 from functools import lru_cache
@@ -141,6 +142,7 @@ TOOL_PACKAGE_CONFIG_PATH = os.getenv("TOOL_PACKAGE_CONFIG_PATH", "config/tool_pa
 # copies drifted (get_action_source); see tests/test_write_classification.py.
 from servicenow_mcp.policies.write_guards import (  # noqa: E402
     _PUBLISH_CLASS_TOOLS,
+    ALLOW_DUPLICATE_FIELD,
     CONFIRM_PUBLISH_FIELD,
     CONFIRM_PUBLISH_VALUE,
     MANAGE_READ_ACTIONS,
@@ -262,6 +264,21 @@ def _flatten_package_entries(
     return names, actions
 
 
+def _package_rules(package_name: str) -> List[str]:
+    """The rules documents of the active packages (``a+b`` when combined), in order."""
+    from importlib.resources import files
+
+    found = []
+    for name in (package_name or "").split("+"):
+        try:
+            text = files("servicenow_mcp.config").joinpath(f"{name}.rules.md").read_text("utf-8")
+        except (FileNotFoundError, OSError, ValueError):
+            continue
+        if text.strip():
+            found.append(text.strip())
+    return found
+
+
 @lru_cache(maxsize=1)
 def _load_packaged_package_definitions() -> Dict[str, List[Any]]:
     """Load packaged tool definitions once for installed/default usage.
@@ -300,6 +317,9 @@ _SCHEMA_DETAIL_FULL = "full"
 # Fields whose name is self-explanatory — description is redundant for the LLM.
 # Keep this list VERY conservative: name must be unambiguous across every tool that
 # uses it. Anything domain-specific (e.g. "scope", "name") stays descripted.
+# `query` and `fields` used to be here. They fail the test above: `query` is an encoded
+# query on sn_query and a name search on manage_script_include, and with the description
+# gone a caller guessed. A strong model recovers; a cheap one sends SQL.
 _SELF_EXPLANATORY_FIELDS = frozenset(
     {
         "dry_run",
@@ -311,12 +331,66 @@ _SELF_EXPLANATORY_FIELDS = frozenset(
         "only_active",
         "include_schema",
         "active",
-        "query",
         "table",
-        "fields",
         "order",
     }
 )
+
+
+# The Table API's own parameter names, which a caller who knows ServiceNow reaches for.
+_ARGUMENT_ALIASES = {
+    "sysparm_query": "query",
+    "sysparm_fields": "fields",
+    "sysparm_limit": "limit",
+    "sysparm_offset": "offset",
+    "sysparm_display_value": "display_value",
+}
+
+
+def _normalize_arguments(
+    tool_name: str, arguments: Dict[str, Any], schema: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Map known aliases, and refuse a name the tool does not have.
+
+    Pydantic ignores what it does not recognize, so `sn_query(table=t, filter="a=1")`
+    ran with no filter at all and returned unrelated rows as the answer. A parameter
+    that was never read must not look like one that came back clean.
+
+    Approval fields are left alone: guards read them whether or not this package's
+    schema advertises them, and they have messages of their own.
+    """
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return arguments
+    normalized: Dict[str, Any] = {}
+    for key, value in arguments.items():
+        target = _ARGUMENT_ALIASES.get(key.lower(), key)
+        if target in properties and target not in arguments:
+            normalized[target] = value
+        else:
+            normalized[key] = value
+    unknown = sorted(
+        key
+        for key in normalized
+        # Read by the gates rather than the tool, so no schema lists them. Refusing
+        # one would turn a second approval into a wall.
+        if key not in properties
+        and key not in (INSTANCE_FIELD, ALLOW_DUPLICATE_FIELD)
+        and not key.startswith("confirm")
+    )
+    if not unknown:
+        return normalized
+    valid = sorted(properties)
+    suggestions = {
+        key: found for key in unknown if (found := difflib.get_close_matches(key, valid, 1))
+    }
+    advice = "".join(
+        f" Did you mean '{found[0]}' for '{key}'?" for key, found in suggestions.items()
+    )
+    raise ValueError(
+        f"'{tool_name}' has no parameter named {', '.join(repr(k) for k in unknown)}, and nothing "
+        f"was run.{advice} Valid parameters: {', '.join(valid)}."
+    )
 
 
 def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
@@ -397,6 +471,10 @@ def _strip_field_filler(field_name: str, field_schema: Any) -> Any:
 
 def _is_self_explanatory_field(field_name: str, field_schema: Dict[str, Any]) -> bool:
     """Return True when the field name/type already tells the LLM enough."""
+    # A name says what a field is, not that it must be sent. A field left optional
+    # so a handler can answer its absence helpfully says so in prose, and keeps it.
+    if "(REQUIRED)" in str(field_schema.get("description", "")):
+        return False
     if field_name in _SELF_EXPLANATORY_FIELDS:
         return True
 
@@ -748,6 +826,7 @@ class ServiceNowMCP:
             listed = {tool.name: tool for tool in await self._list_tools_impl()}
             tool = listed.get(name)
             if tool is not None:
+                arguments = _normalize_arguments(name, arguments, tool.input_schema)
                 try:
                     jsonschema.validate(instance=arguments, schema=tool.input_schema)
                 except jsonschema.ValidationError as exc:
@@ -1227,7 +1306,11 @@ class ServiceNowMCP:
             "enum": [CONFIRM_VALUE],
         }
         required = list(schema.get("required", []))
-        if CONFIRM_FIELD not in required:
+        # A tool that also hosts reads cannot require it: the schema has no per-action
+        # form, so "required" rejected `list` before the gate that lets `list` through
+        # ever ran, and taught every caller to stamp approve on plain reads. The
+        # gate still stops an unconfirmed write, with a message naming this field.
+        if CONFIRM_FIELD not in required and tool_name not in MANAGE_READ_ACTIONS:
             required.append(CONFIRM_FIELD)
 
         # G7 demands a SECOND approval on publish-class tools, and no params model
@@ -1684,12 +1767,8 @@ class ServiceNowMCP:
                         f"(active is '{self.active_instance_alias}'). This needs explicit "
                         f"acknowledgement of the target: pass {CONFIRM_INSTANCE_FIELD}="
                         f"'{target_alias}' AND {CONFIRM_FIELD}='{CONFIRM_VALUE}'. Only this one "
-                        "write goes there; the active instance is restored afterwards. Do NOT "
-                        "edit config/env to switch instances. NOTE: a single cross-instance write "
-                        "is a TARGETED edit, not a bulk dev→test promotion — for promoting many "
-                        "records (esp. Service Portal / scoped tables) prefer an Update Set "
-                        "(commit on source, retrieve+commit on target in the UI), which bypasses "
-                        "the per-table/SP ACLs that single Table-API writes hit."
+                        "write goes there. Do NOT edit config/env to switch instances. For "
+                        "promoting many records, prefer an Update Set."
                     )
                 if not ctx["definition"].allow_writes:
                     raise ValueError(
@@ -2398,11 +2477,18 @@ class ServiceNowMCP:
         # Gated to packages that actually expose the push tool — core/standard
         # users never see sync tools, so they shouldn't pay for this hint.
         if "update_remote_from_local" in self.enabled_tool_names:
-            sync_flow = (
-                "Local source edit flow: (1) download the component to disk, "
+            # The widget file list only where widgets can be downloaded; a server-side
+            # sync add-on has script includes and business rules, one body each.
+            edit_step = (
                 "(2) edit the file(s) — a widget has template.html, css.scss, "
                 "client_script.js, link.js AND script.js; change every file the task "
-                "needs, not just script.js, (3) run diff_local_component to review, "
+                "needs, not just script.js, "
+                if "download_portal_sources" in self.enabled_tool_names
+                else "(2) edit the file(s), "
+            )
+            sync_flow = (
+                "Local source edit flow: (1) download the component to disk, "
+                f"{edit_step}(3) run diff_local_component to review, "
                 "(4) update_remote_from_local to push. Never push without diffing first."
             )
             existing = getattr(self.mcp_server, "instructions", None) or ""
@@ -2470,6 +2556,13 @@ class ServiceNowMCP:
             self.mcp_server.instructions = (
                 f"{existing}\n\n{snapshot_note}" if existing else snapshot_note
             )
+
+        # Domain knowledge is a document, not code: a package that needs rules ships
+        # config/<package>.rules.md and it rides the instructions, once per session.
+        # A client without skills, or a model that will not load one, still gets it.
+        for rules in _package_rules(self.current_package_name):
+            existing = getattr(self.mcp_server, "instructions", None) or ""
+            self.mcp_server.instructions = f"{existing}\n\n{rules}" if existing else rules
 
         # Multi-instance only: steer default-to-active reads. The `instance`
         # arg on read tools otherwise reads as an invitation to fan out (e.g.

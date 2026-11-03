@@ -81,7 +81,8 @@ _RUN_VERBS: Dict[str, str] = {
 # Steps that can pull a trigger. `fill` is not one of them: typing a script into
 # a textarea runs nothing, and blocking it would stop the model from showing the
 # user what it wants run — which is the outcome this gate is asking for.
-ACTIVATING_ACTIONS = frozenset({"click", "double_click", "press"})
+# `type` counts: a newline in its text is an Enter key, and that can press a Run button.
+ACTIVATING_ACTIONS = frozenset({"click", "double_click", "press", "type"})
 
 
 class ServerScriptBlocked(RuntimeError):

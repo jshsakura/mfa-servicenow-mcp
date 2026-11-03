@@ -22,6 +22,7 @@ slug: zh/TOOL_INVENTORY
 | `none` | 0 | 用于有意关闭工具的禁用配置。 |
 | `core` | 12 | 用于快速健康检查/schema/表操作的极简只读基础工具。 |
 | `standard` | 31 | 覆盖 incident、change、门户、日志和源码分析的默认只读包。 |
+| `asset_manager` | 6 | 面向物料、资产和 ITOM 工作的以查询为主的最简组合。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `service_desk` | 33 | standard 加上用于运营支持的事件与变更写入工作流。 |
 | `portal_developer` | 52 | standard 加上门户、变更集、script include 和本地同步交付工作流。 |
 | `platform_developer` | 46 | standard 加上工作流、Flow Designer、UI policy、incident/change 和脚本写入。 |

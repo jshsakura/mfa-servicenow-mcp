@@ -61,15 +61,18 @@ one option that helps nobody.
 import logging
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urljoin, urlparse
 
 from ._offload import cdp_browser, require_playwright, run_off_loop
 from .capture import (
     NoPageFound,
     _active_instance_page,
     _arm_tabs,
+    _dirty_fields,
     _drain,
     _effective_user,
     _install_probe,
+    _on_instance,
     _page_title,
     _screenshot,
     _set_activity,
@@ -110,7 +113,13 @@ ACTIONS_NEEDING_SELECTOR = frozenset(
         "wait_for",
     }
 )
-ACTIONS_NEEDING_VALUE = frozenset({"fill", "select", "eval", IMPERSONATE_ACTION})
+ACTIONS_NEEDING_VALUE = frozenset({"fill", "select", "type", "goto", "eval", IMPERSONATE_ACTION})
+
+# Page-level moves. A document load outlasts the element budget, and doing it with
+# eval (`location.href=...`, 215 times in one week of logs) tears down the context
+# the eval is running in, which then reports a navigation that worked as a failure.
+NAVIGATION_ACTIONS = frozenset({"goto", "reload"})
+MIN_NAVIGATION_TIMEOUT_MS = 30_000
 
 # Runs arbitrary JavaScript in the signed-in window. Gated by a second explicit
 # approval at the tool layer (see browser_debug_tools.py) — the tool-level
@@ -132,15 +141,26 @@ SUPPORTED_ACTIONS: Tuple[str, ...] = (
     "uncheck",
     "hover",
     "press",
+    "type",
     "scroll_to",
     "wait_for",
     "wait",
+    "goto",
+    "reload",
     EVAL_ACTION,
     IMPERSONATE_ACTION,
     END_IMPERSONATION_ACTION,
 )
 
 _RESOLVE_POLL_S = 0.15
+
+
+class _OnlyHidden(LookupError):
+    """The selector matched, but no match is visible. Carries how many it matched."""
+
+    def __init__(self, matched: int) -> None:
+        super().__init__(str(matched))
+        self.matched = matched
 
 
 class ActionError(RuntimeError):
@@ -169,21 +189,100 @@ def _has(target: Any, selector: str) -> bool:
         return False
 
 
-def _resolve_target(page: Any, selector: str, timeout_ms: int) -> Any:
-    """The page or frame that contains ``selector``, waiting for it to appear.
+def _first_visible(target: Any, selector: str) -> Any:
+    """The first VISIBLE match in this document, ``None`` if every match is hidden.
+
+    Raises when visibility could not be read, which is not the same as hidden:
+    the caller falls back to the plain first match rather than claim anything.
+    Asked of Playwright as one filter rather than element by element, so no number
+    of hidden copies in front of the visible one can hide it.
+    """
+    visible = target.locator(f"{selector} >> visible=true")
+    return visible.first if visible.count() else None
+
+
+def _any_visible(page: Any, selector: str, *, unreadable: bool) -> bool:
+    """Whether a match is visible now.
+
+    ``unreadable`` is the answer when visibility could not be read. A wait for
+    visible passes False, so it keeps waiting and times out rather than report
+    something it never saw; a wait for hidden passes True, for the same reason.
+    """
+    for target in _targets(page):
+        if not _has(target, selector):
+            continue
+        try:
+            if _first_visible(target, selector) is not None:
+                return True
+        except Exception:  # noqa: BLE001 - torn-down frame, or a selector engine quirk
+            if unreadable:
+                return True
+    return False
+
+
+def _resolve_locator(page: Any, selector: str, timeout_ms: int, *, need_visible: bool) -> Any:
+    """The element a step should act on, waiting for it across page and frames.
+
+    Portal pages keep hidden copies of the same markup (modals, inactive tabs), so
+    "the first match" is routinely an element nobody can click. Taking it meant the
+    step waited out its whole timeout on a hidden node while a visible one sat right
+    there: 187 calls in one week of logs carried ``>> visible=true`` to get round it.
 
     Polling instead of ``wait_for_selector`` because that call is per-document:
     running it on every frame would multiply the timeout by the frame count,
     and running it only on the main frame would miss ``gsft_main`` entirely.
+
+    Raises ``LookupError`` when nothing matches and :class:`_OnlyHidden` when
+    everything that matches is hidden, because those need different fixes.
     """
     deadline = time.time() + max(0.0, timeout_ms / 1000.0)
+    hidden = 0
     while True:
+        hidden = 0
         for target in _targets(page):
-            if _has(target, selector):
-                return target
+            if not _has(target, selector):
+                continue
+            matches = target.locator(selector)
+            if not need_visible:
+                return matches.first
+            try:
+                visible = _first_visible(target, selector)
+            except Exception as exc:  # noqa: BLE001 - unknown is not hidden; do not guess
+                logger.debug("Could not read visibility of %s: %s", selector, exc)
+                return matches.first
+            if visible is not None:
+                return visible
+            hidden += matches.count()
         if time.time() >= deadline:
+            if hidden:
+                raise _OnlyHidden(hidden)
             raise LookupError(selector)
         time.sleep(_RESOLVE_POLL_S)
+
+
+def _same_instance_url(page: Any, destination: str, instance_host: str) -> str:
+    """Resolve a goto target. It stays on this instance; other hosts have their own tab."""
+    # Python reads `https://evil.example\\@host/` as host; a browser reads `\\` as `/`,
+    # which makes it evil.example. Refused rather than resolved one way.
+    if "\\" in destination or any(ord(char) < 32 for char in destination):
+        raise ValueError(f"goto cannot use {destination!r}: backslash or control character.")
+    base = _page_url(page)
+    if not urlparse(base).hostname and instance_host:
+        base = f"https://{instance_host}/"
+    resolved = urljoin(base, destination)
+    parsed = urlparse(resolved)
+    current = (instance_host or urlparse(base).hostname or "").lower()
+    # With no host to compare against, "matches" would mean nothing: refused.
+    if (
+        not current
+        or parsed.scheme not in ("http", "https")
+        or (parsed.hostname or "").lower() != current
+    ):
+        raise ValueError(
+            f"goto stays on {current or 'this instance'}, and '{destination}' does not. "
+            "Use open_debug_window for a page on another instance."
+        )
+    return resolved
 
 
 def normalize(raw_actions: Sequence[Any]) -> List[Dict[str, Any]]:
@@ -239,6 +338,9 @@ def budget_seconds(actions: Sequence[Dict[str, Any]]) -> float:
     """
     total = sum(step["timeout_ms"] + step["ms"] for step in actions)
     total += sum(step["timeout_ms"] for step in actions if step["action"] in SESSION_ACTIONS)
+    total += sum(
+        MIN_NAVIGATION_TIMEOUT_MS for step in actions if step["action"] in NAVIGATION_ACTIONS
+    )
     return total / 1000.0 + 60.0
 
 
@@ -320,7 +422,13 @@ def _run_step(
         # through a selector this layer would have to guess at.
         outcome = run_in_page(page, body=step["value"] or "")
         if not outcome.get("ok"):
-            raise ActionError(f"eval failed: {outcome.get('error')}", index=index)
+            error = str(outcome.get("error"))
+            if "context was destroyed" in error:
+                error += (
+                    " The page navigated while this ran, so the navigation itself probably "
+                    "worked. Use the goto or reload action to navigate."
+                )
+            raise ActionError(f"eval failed: {error}", index=index)
         return {"result": outcome}
 
     if name == "press" and not selector:
@@ -330,11 +438,69 @@ def _run_step(
             raise ActionError(f"Could not press '{step['key']}': {exc}", index=index) from exc
         return {"key": step["key"]}
 
+    if name == "goto" and not allow_server_script:
+        try:
+            surface = surface_for_url(
+                _same_instance_url(
+                    page, step["value"] or "", str(context.get("instance_host") or "")
+                )
+            )
+        except ValueError as exc:
+            raise ActionError(str(exc), index=index) from exc
+        if surface:
+            raise ActionError(script_rejection(surface, steps=index), index=index)
+
+    if name in NAVIGATION_ACTIONS:
+        # The same refusal open_debug_window and impersonate give: this is the
+        # most expensive thing a step can throw away.
+        if not context.get("allow_discard"):
+            dirty, _ = _dirty_fields(page)
+            if dirty:
+                raise ActionError(
+                    f"{name} would discard unsaved input in {', '.join(dirty[:5])}. "
+                    "Pass discard_unsaved_input=true to go ahead.",
+                    index=index,
+                )
+        limit = max(timeout_ms, MIN_NAVIGATION_TIMEOUT_MS)
+        destination = ""
+        try:
+            if name == "goto":
+                host = str(context.get("instance_host") or "")
+                destination = _same_instance_url(page, step["value"] or "", host)
+                page.goto(destination, wait_until="domcontentloaded", timeout=limit)
+            else:
+                page.reload(wait_until="domcontentloaded", timeout=limit)
+        except Exception as exc:  # noqa: BLE001 - Playwright raises a wide family here
+            raise ActionError(f"{name} failed: {str(exc)[:300]}", index=index) from exc
+        landed = _page_url(page)
+        # An expired session answers a goto with its login page, and the load itself
+        # still succeeds. The step is reported, but it must not read as "you are there".
+        if destination and urlparse(landed).path != urlparse(destination).path:
+            return {"url": landed, "redirected_from": destination}
+        return {"url": landed}
+
+    if name == "type" and not selector:
+        try:
+            page.keyboard.type(step["value"] or "")
+        except Exception as exc:  # noqa: BLE001
+            raise ActionError(f"Could not type: {exc}", index=index) from exc
+        return {}
+
     if name == "wait_for":
         deadline = time.time() + timeout_ms / 1000.0
+        # hidden/visible ask about what the user can see, so a node that is in the
+        # DOM but display:none is hidden. It used to count as visible, which made
+        # "wait for the spinner to go" time out and "wait for the dialog" return
+        # before anything was on screen. detached/attached ask about the DOM.
+        by_dom = step["state"] in ("attached", "detached")
         want_hidden = step["state"] in ("hidden", "detached")
         while True:
-            present = any(_has(target, selector) for target in _targets(page))
+            if by_dom:
+                present = any(_has(target, selector) for target in _targets(page))
+            else:
+                # Unreadable never ends the wait: it counts as present for hidden and
+                # as absent for visible, so neither reports what it did not see.
+                present = _any_visible(page, selector, unreadable=want_hidden)
             if present != want_hidden:
                 return {"state": step["state"]}
             if time.time() >= deadline:
@@ -346,7 +512,15 @@ def _run_step(
             time.sleep(_RESOLVE_POLL_S)
 
     try:
-        target = _resolve_target(page, selector, timeout_ms)
+        # A key can go to a focused element nobody can see; the rest need one in view.
+        locator = _resolve_locator(page, selector, timeout_ms, need_visible=name != "press")
+    except _OnlyHidden as exc:
+        raise ActionError(
+            f"'{selector}' matched {exc.matched} element(s) but none became visible within "
+            f"{timeout_ms}ms (searched the page and every frame). Open what reveals it first "
+            "(tab, modal, section).",
+            index=index,
+        ) from exc
     except LookupError as exc:
         raise ActionError(
             f"No element matched '{selector}' within {timeout_ms}ms "
@@ -354,7 +528,6 @@ def _run_step(
             index=index,
         ) from exc
 
-    locator = target.locator(selector).first
     try:
         if name == "click":
             locator.click(timeout=timeout_ms)
@@ -372,6 +545,8 @@ def _run_step(
             locator.hover(timeout=timeout_ms)
         elif name == "press":
             locator.press(step["key"], timeout=timeout_ms)
+        elif name == "type":
+            locator.press_sequentially(step["value"], timeout=timeout_ms)
         elif name == "scroll_to":
             locator.scroll_into_view_if_needed(timeout=timeout_ms)
     except Exception as exc:  # noqa: BLE001 - Playwright raises a wide family here
@@ -417,6 +592,16 @@ def act(
                 if pick is None:
                     raise NoPageFound(no_page_message(context.pages, state.instance_host))
                 page = pick.page
+
+                # open_debug_window opens a new tab in these two cases rather than take
+                # the tab over. A batch has no second tab to go to, so it asks for one.
+                if any(step["action"] in NAVIGATION_ACTIONS for step in steps) and (
+                    pick.claimed_by_other or not _on_instance(page, state.instance_host)
+                ):
+                    raise NoPageFound(
+                        "goto and reload would take over a tab that is not this session's. "
+                        "Call open_debug_window with new_tab=true and a url, then retry."
+                    )
 
                 # The window may already be sitting on Background Scripts, in
                 # which case the whole batch is refused rather than half-run:

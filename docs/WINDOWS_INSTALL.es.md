@@ -275,7 +275,7 @@ Ubicación del archivo de configuración: `%USERPROFILE%\.gemini\antigravity\mcp
 
 ## Paso 3: Instalar Skills (opcional)
 
-Las Skills son planos de ejecución de IA: canalizaciones verificadas con controles de seguridad que convierten las herramientas MCP en bruto en flujos de trabajo fiables. 4 skills en 3 categorías.
+Las Skills son planos de ejecución de IA: canalizaciones verificadas con controles de seguridad que convierten las herramientas MCP en bruto en flujos de trabajo fiables. 5 skills en 3 categorías.
 
 ```powershell
 # Claude Code
@@ -360,6 +360,7 @@ Establece `MCP_TOOL_PACKAGE` para elegir un conjunto de herramientas. Predetermi
 |---------|:-----:|-------------|
 | `core` | 12 | Elementos esenciales mínimos de solo lectura para estado, esquema, descubrimiento y búsquedas clave |
 | `standard` | 31 | **(Predeterminado)** Paquete de solo lectura para incidentes, cambios, portal, registros y análisis de fuentes |
+| `asset_manager` | 6 | Superficie centrada en consultas para materiales, activos e ITOM. Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 33 | standard + escrituras operativas de incidentes y cambios |
 | `portal_developer` | 52 | standard + flujos de trabajo de portal, changeset, script include y entrega de sincronización local |
 | `platform_developer` | 46 | standard + escrituras de flujos de trabajo, Flow Designer, UI policy, incidentes/cambios y scripts |

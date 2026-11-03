@@ -98,6 +98,7 @@ target — or a normal Update Set promotion.
 | Skill | Cost | Delegatable | Trigger Examples |
 |-------|------|-------------|-----------------|
 | [flow-trigger-tracing](explore/flow-trigger-tracing.md) | medium | yes | "트리거 추적", "what runs on this table" |
+| [asset-itom-map](explore/asset-itom-map.md) | low | yes | "자재 재고", "자산 현황", "discovery failed" |
 
 ## Workflow Chains
 

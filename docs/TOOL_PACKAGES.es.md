@@ -13,22 +13,32 @@ Solo lectura — seguro para cualquier entorno, sin herramientas de escritura:
 
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Cuándo usarlo |
 | :--- | :---: | :---: | :---: | :--- |
-| `core` | 12 | ~2.0K | ~2.6K | Solo lectura mínima: salud, esquema, descubrimiento y consultas de artefactos clave únicamente |
-| `standard` | 31 | ~7.0K | ~7.9K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de código fuente |
+| `core` | 12 | ~2.2K | ~2.7K | Solo lectura mínima: salud, esquema, descubrimiento y consultas de artefactos clave únicamente |
+| `standard` | 31 | ~7.4K | ~8.3K | **(Predeterminado)** Solo lectura en incidentes, cambios, portal, registros y análisis de código fuente |
+| `asset_manager` | 6 | ~0.8K | ~1.2K | Superficie centrada en consultas para materiales, activos e ITOM. Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `none` | 0 | 0 | 0 | Deshabilitar intencionadamente todas las herramientas (pruebas, entornos restringidos) |
+
+Complementos — de uso general, no son paquetes por sí solos. Combínalos con cualquier paquete por coma (`MCP_TOOL_PACKAGE=asset_manager,scripting`); ⚠️ indica escritura:
+
+| Complemento | Herramientas | Añade | Para qué sirve |
+| :--- | :---: | :---: | :--- |
+| `scripting` | 13 | +~4.6K | ⚠️ Lógica de servidor (script includes, business rules, trabajos programados, mensajes REST, lectura de flujos), update sets, despliegue XML |
+| `office_files` | 2 | +~0.7K | Libros de Excel (leer, escribir, rellenar formularios) y adjuntos de registros |
+| `debug_window` | 3 | +~1.2K | ⚠️ El navegador compartido; `act_in_debug_window` puede pulsar Guardar |
+| `source_sync` | 3 | +~0.9K | ⚠️ Descargar fuentes de servidor, compararlas y subirlas |
 
 ⚠️ Con capacidad de escritura — **opciones avanzadas** que conceden crear/actualizar/eliminar:
 
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Cuándo usarlo |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 33 | ~7.7K | ~8.7K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
-| `portal_developer` | 52 | ~15.2K | ~17.0K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
-| `platform_developer` | 46 | ~12.8K | ~14.4K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
-| `full` | 63 | ~17.6K | ~19.8K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
+| `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
+| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
+| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
+| `full` | 63 | ~18.3K | ~20.6K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
 
 > **Tokens máx.** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken cl100k_base; el conteo real de Claude varía ligeramente). Usar el paquete más reducido ahorra contexto y costo. **Es el máximo**, no el costo típico: solo lo pagan completo los clientes que cargan todas las tool schemas al inicio. Los clientes con carga diferida de herramientas (p. ej. la búsqueda de herramientas de Claude Code) cargan un schema solo cuando se usa esa herramienta, así que su costo real por solicitud es mucho menor. El número de herramientas cuenta los miembros del paquete; todos los paquetes llevan además `list_tool_packages`, y una configuración multi-instancia añade `list_instances`, `compare_instances` y un parámetro `instance` en cada herramienta — la segunda columna lo mide con tres instancias. Las cifras se miden con tiktoken, no se estiman (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <paquete>` lista la parte de cada herramienta).
 
-Todos los paquetes excepto `core` y `none` heredan las herramientas de solo lectura de `standard` mediante `_extends`. Consulta `config/tool_packages.yaml` para ver el árbol de herencia completo.
+Todos los paquetes excepto `core` y `none` heredan las herramientas de solo lectura de `standard` mediante `_extends`. Consulta `config/tool_packages.yaml` para ver el árbol de herencia completo. `asset_manager` y sus complementos no extienden nada: una sesión solo paga por las herramientas que pidió.
 
 ---
 

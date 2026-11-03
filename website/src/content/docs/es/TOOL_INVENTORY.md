@@ -22,6 +22,7 @@ Está documentado más abajo, pero los recuentos de paquetes en este archivo ref
 | `none` | 0 | Perfil deshabilitado para apagar herramientas intencionadamente. |
 | `core` | 12 | Elementos esenciales mínimos de solo lectura para trabajo rápido de health/schema/table. |
 | `standard` | 31 | Paquete predeterminado de solo lectura para incidentes, cambios, portal, registros y análisis de fuentes. |
+| `asset_manager` | 6 | Superficie centrada en consultas para materiales, activos e ITOM. Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 33 | standard más flujos de escritura de incidentes y cambios para soporte operativo. |
 | `portal_developer` | 52 | standard más flujos de portal, changeset, script include y entrega de sincronización local. |
 | `platform_developer` | 46 | standard más flujos de workflow, Flow Designer, UI policy, incidentes/cambios y escrituras de scripts. |

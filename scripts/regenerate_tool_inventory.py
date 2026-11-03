@@ -35,6 +35,7 @@ PACKAGE_DESCRIPTIONS = {
     "portal_developer": "standard plus portal, changeset, script include, and local-sync delivery workflows.",
     "platform_developer": "standard plus workflow, Flow Designer, UI policy, incident/change, and script writes.",
     "full": "Broadest packaged surface: all manage_* workflows plus advanced operations.",
+    "asset_manager": "Query-first surface for materials, asset and ITOM work; add-ons combine by comma.",
 }
 
 READ_ONLY_OVERRIDES: set[str] = set()
@@ -238,6 +239,7 @@ def build_inventory_markdown() -> str:
         "portal_developer",
         "platform_developer",
         "full",
+        "asset_manager",
     ]:
         lines.append(
             f"| `{package_name}` | {len(packages[package_name])} | {PACKAGE_DESCRIPTIONS[package_name]} |"

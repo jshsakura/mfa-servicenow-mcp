@@ -13,13 +13,19 @@ route through services.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
-from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
+from servicenow_mcp.tools.sn_api import (
+    _unknown_fields_response,
+    count_response,
+    invalidate_query_cache,
+    sn_query_page,
+)
 from servicenow_mcp.utils import json_fast
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -50,16 +56,54 @@ class ScriptIncludeResponse(BaseModel):
     )
 
 
+_BARE_SYS_ID = re.compile(r"^[0-9a-f]{32}$")
+# A field name followed by an operator, a sort, or a joined condition. Case-sensitive,
+# so a plain search like "INvoice" stays a name search. `IN` needs its comma: "mainINFO"
+# is a name.
+_ENCODED_QUERY = re.compile(
+    r"^(?:123TEXTQUERY321|ORDERBY(?:DESC)?[a-z_]|[a-z_][a-z0-9_.]*(?:"
+    r"LIKE|NOT LIKE|STARTSWITH|ENDSWITH|ISEMPTY|ISNOTEMPTY|ANYTHING$|EMPTYSTRING$"
+    r"|NOT IN|IN(?:[0-9a-f]{32}|[^,]*,)|DYNAMIC[0-9a-f]{32}"
+    r"|NOTON[^@]*@|ON[^@]*@|BETWEEN[^@]*@|RELATIVE(?:GT|GE|LT|LE|EE)@"
+    r"|N?SAMEAS[a-z_]|GT_FIELD|LT_FIELD|GT_OR_EQUALS_FIELD|LT_OR_EQUALS_FIELD"
+    r"|VALCHANGES|CHANGESFROM|CHANGESTO|!=|>=|<=|=|>|<))"
+)
+
+
+def si_lookup_query(identifier: str) -> str:
+    """The encoded query that finds one script include from what a caller holds.
+
+    `create` and `update` hand back a bare sys_id as `script_include_id`, and the
+    record carries an `api_name` of `scope.Name`. All of them have to work on the
+    next call: reading a sys_id as a NAME returned "not found" for a record that
+    had just been created, and `update` by that same id then failed.
+    """
+    raw = identifier.strip()
+    if raw.startswith("sys_id:"):
+        return f"sys_id={raw[len('sys_id:'):]}"
+    if _BARE_SYS_ID.match(raw):
+        return f"sys_id={raw}"
+    if "." in raw:
+        return f"api_name={raw}"
+    return f"name={raw}"
+
+
+def si_name_filter(query: str) -> str:
+    """`query` is a name search, but an encoded query must not become a search FOR it.
+
+    `nameLIKEfoo` used to be sent as `nameLIKEnameLIKEfoo`: zero rows, `success:
+    true`, and a record that exists reads as one that does not.
+    """
+    return query if "^" in query or _ENCODED_QUERY.match(query) else f"nameLIKE{query}"
+
+
 def _fetch_si(
     config: ServerConfig,
     auth_manager: AuthManager,
     script_include_id: str,
 ) -> dict | None:
     """Resolve a script include by sys_id or name. Returns the raw record or None."""
-    if script_include_id.startswith("sys_id:"):
-        query = f"sys_id={script_include_id.replace('sys_id:', '')}"
-    else:
-        query = f"name={script_include_id}"
+    query = si_lookup_query(script_include_id)
 
     records, _ = sn_query_page(
         config,
@@ -339,7 +383,14 @@ def list_si(
     if client_callable is not None:
         parts.append(f"client_callable={str(client_callable).lower()}")
     if query:
-        parts.append(f"nameLIKE{query}")
+        # An encoded query can name a column that does not exist, and the server
+        # then drops the condition and returns unrelated rows as the answer.
+        name_filter = si_name_filter(query)
+        if name_filter == query:
+            unknown = _unknown_fields_response(config, auth_manager, "sys_script_include", query)
+            if unknown:
+                return unknown
+        parts.append(name_filter)
     qs = "^".join(parts)
     if count_only:
         return count_response(
@@ -384,10 +435,7 @@ def get_si(
     script_include_id: str,
 ) -> Dict[str, Any]:
     """Get a single script include by sys_id or name."""
-    if script_include_id.startswith("sys_id:"):
-        q = f"sys_id={script_include_id[7:]}"
-    else:
-        q = f"name={script_include_id}"
+    q = si_lookup_query(script_include_id)
     try:
         records, _ = sn_query_page(
             config,

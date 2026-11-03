@@ -113,7 +113,9 @@ def test_get_list_with_all_filters(mock_config, auth):
     q = mock_qp.call_args.kwargs["query"]
     assert "state=complete" in q
     assert "application=x_app" in q
-    assert "developer=user.dev" in q
+    # Not a sys_update_set column: the server would drop the condition, so it
+    # is never sent (and it used to be sent as developer=None).
+    assert "developer" not in q
     assert "active=true" in q
 
 

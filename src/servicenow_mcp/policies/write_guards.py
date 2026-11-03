@@ -92,7 +92,7 @@ _CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
         "sys_script_include",
         "script_include_id",
         frozenset({"update", "delete"}),
-        ("sys_id", "name"),
+        ("sys_id", "name", "api_name"),
     ),
     "manage_user": _EditTarget("sys_user", "user_id", frozenset({"update"})),
     "manage_group": _EditTarget("sys_user_group", "group_id", frozenset({"update"})),
@@ -315,6 +315,7 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_group": frozenset({"list"}),
     "manage_workflow": frozenset({"list", "get", "list_versions", "get_activities"}),
     "manage_script_include": frozenset({"list", "get"}),
+    "manage_session_context": frozenset({"get"}),
     "manage_scripted_rest": frozenset({"list", "get"}),
     "manage_business_rule": frozenset({"list", "get"}),
     "manage_widget_dependency": frozenset({"list", "get"}),
@@ -729,7 +730,9 @@ def _g8_registry_concurrent_edit(ctx: WriteGuardContext) -> None:
         table = target.table_fn(ctx.arguments) if target.table_fn else target.table
         if not table:
             continue
-        query = "^OR".join(f"{col}={value}" for col in target.id_columns)
+        # `sys_id:<id>` is an identifier these tools accept, not a value in any column.
+        plain = str(value).removeprefix("sys_id:")
+        query = "^OR".join(f"{col}={plain}" for col in target.id_columns)
         _check_concurrent_edit(ctx, table, query, f"{table}/{value}", guard="G8")
 
 
