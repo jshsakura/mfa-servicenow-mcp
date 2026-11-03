@@ -2517,6 +2517,17 @@ def get_flow_details(
                 missing["processflow_note"] = pf_error
             return missing
         flow = flows[0]
+        # label_cache is ~95% of a flow record (measured: 17.5 KB average, up to
+        # 37 KB). The processflow path already reduces it to a size in summary
+        # mode; this path handed it over raw. summary_format=False keeps it.
+        if params.summary_format and flow.get("label_cache"):
+            flow = {
+                **flow,
+                "label_cache": (
+                    f"{len(str(flow['label_cache'])):,} characters left out; "
+                    "summary_format=false includes it."
+                ),
+            }
 
         result = {
             "success": True,

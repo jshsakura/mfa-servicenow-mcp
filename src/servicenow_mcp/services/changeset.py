@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 # sys_created_by, which the server sets.
 _CHANGESET_UPDATE_FIELDS = ("name", "description", "state")
 
+# An entry's `payload` is the whole record serialized as XML. Measured on a live
+# set of 100 entries: 13.1 MB read, 89% of it payload, against 37.6 KB for these
+# columns, so the full read was cut by the response budget before the caller saw
+# the entry ids it came for. The listing reads these; include_payload reads all.
+ENTRY_LISTING_FIELDS = (
+    "sys_id,name,target_name,type,table,action,application,category,comments,"
+    "remote_update_set,replace_on_upgrade,sys_created_by,sys_created_on,"
+    "sys_updated_by,sys_updated_on"
+)
+ENTRY_LISTING_LIMIT = 100
+
 
 def create(
     config: ServerConfig,
@@ -183,6 +194,7 @@ def get(
     timeframe: Optional[str] = None,
     query: Optional[str] = None,
     count_only: bool = False,
+    include_payload: bool = False,
 ) -> Dict[str, Any]:
     """Fetch a single changeset (detail) or list with filters."""
     if changeset_id:
@@ -198,21 +210,41 @@ def get(
             )
             if not records:
                 return {"success": False, "message": f"Changeset not found: {changeset_id}"}
-            changes, _ = sn_query_page(
+            # Loud on failure: a silenced read would come back as "0 entries".
+            changes, total = sn_query_page(
                 config,
                 auth_manager,
                 table="sys_update_xml",
                 query=f"update_set={changeset_id}",
-                fields="",
-                limit=100,
+                fields="" if include_payload else ENTRY_LISTING_FIELDS,
+                limit=ENTRY_LISTING_LIMIT,
                 offset=0,
+                orderby="-sys_updated_on",
+                fail_silently=False,
             )
-            return {
+            result: Dict[str, Any] = {
                 "success": True,
                 "changeset": records[0],
                 "changes": changes,
                 "change_count": len(changes),
             }
+            if total is None or total > len(changes):
+                result["change_total"] = total
+                result["complete"] = False
+                result["more"] = (
+                    f"Listed the {len(changes)} most recently updated of "
+                    f"{total if total is not None else 'an unknown number of'} entries. "
+                    f"Read the rest with sn_query(table='sys_update_xml', "
+                    f"query='update_set={changeset_id}', fields='{ENTRY_LISTING_FIELDS}', "
+                    f"offset={len(changes)})."
+                )
+            if not include_payload:
+                result["payload"] = (
+                    "Each entry's payload (the full record XML) is left out. Pass "
+                    "include_payload=true, or read one entry with sn_query(table='sys_update_xml', "
+                    "query='sys_id=<entry>', fields='payload')."
+                )
+            return result
         except Exception as e:
             logger.error("Error getting changeset details: %s", e)
             return {"success": False, "message": f"Error getting changeset details: {str(e)}"}

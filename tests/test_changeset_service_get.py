@@ -69,6 +69,47 @@ def test_get_single_returns_changeset_and_changes(mock_config, auth):
     assert result["change_count"] == 2
 
 
+def test_entries_are_listed_without_their_payload(mock_config, auth):
+    with patch("servicenow_mcp.services.changeset.sn_query_page") as mock_qp:
+        mock_qp.side_effect = [([{"sys_id": "us_001"}], 1), ([{"sys_id": "x1"}], 1)]
+        result = cs_service.get(mock_config, auth, changeset_id="us_001")
+    entries_call = mock_qp.call_args_list[1].kwargs
+    assert entries_call["fields"] == cs_service.ENTRY_LISTING_FIELDS
+    assert "payload" not in entries_call["fields"].split(",")
+    assert "target_name" in entries_call["fields"].split(",")
+    # A silenced read would come back as "0 entries"; this one must raise instead.
+    assert entries_call["fail_silently"] is False
+    assert "include_payload=true" in result["payload"]
+    assert "complete" not in result
+
+
+def test_include_payload_reads_every_column(mock_config, auth):
+    with patch("servicenow_mcp.services.changeset.sn_query_page") as mock_qp:
+        mock_qp.side_effect = [([{"sys_id": "us_001"}], 1), ([{"sys_id": "x1"}], 1)]
+        result = cs_service.get(mock_config, auth, changeset_id="us_001", include_payload=True)
+    assert mock_qp.call_args_list[1].kwargs["fields"] == ""
+    assert "payload" not in result
+
+
+@pytest.mark.parametrize("total", [250, None])
+def test_a_capped_listing_says_so_and_names_the_next_read(mock_config, auth, total):
+    rows = [{"sys_id": f"x{i}"} for i in range(cs_service.ENTRY_LISTING_LIMIT)]
+    with patch("servicenow_mcp.services.changeset.sn_query_page") as mock_qp:
+        mock_qp.side_effect = [([{"sys_id": "us_001"}], 1), (rows, total)]
+        result = cs_service.get(mock_config, auth, changeset_id="us_001")
+    assert result["complete"] is False
+    assert result["change_total"] == total
+    assert f"offset={cs_service.ENTRY_LISTING_LIMIT}" in result["more"]
+
+
+def test_an_unreadable_entry_list_is_an_error_not_zero(mock_config, auth):
+    with patch("servicenow_mcp.services.changeset.sn_query_page") as mock_qp:
+        mock_qp.side_effect = [([{"sys_id": "us_001"}], 1), RuntimeError("HTTP 500")]
+        result = cs_service.get(mock_config, auth, changeset_id="us_001")
+    assert result["success"] is False and "HTTP 500" in result["message"]
+    assert "change_count" not in result
+
+
 def test_get_single_not_found(mock_config, auth):
     with patch("servicenow_mcp.services.changeset.sn_query_page") as mock_qp:
         mock_qp.return_value = ([], 0)

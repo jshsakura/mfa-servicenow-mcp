@@ -19,6 +19,19 @@ from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
 
+# A change task is a full task row (~100 columns, ~2.3 KB like an incident), and
+# a change can carry many. The listing reads these; sn_query reads one in full.
+CHANGE_LISTING_FIELDS = (
+    "sys_id,number,short_description,state,type,category,priority,risk,impact,approval,"
+    "assignment_group,assigned_to,requested_by,start_date,end_date,sys_created_on,"
+    "sys_updated_on"
+)
+TASK_LISTING_FIELDS = (
+    "sys_id,number,short_description,state,change_task_type,assigned_to,"
+    "assignment_group,order,on_hold,planned_start_date,planned_end_date,"
+    "close_code,close_notes,sys_created_on,sys_updated_on"
+)
+
 
 def create(
     config: ServerConfig,
@@ -233,17 +246,32 @@ def get(
             )
             if not rows:
                 return {"success": False, "message": f"Change request {change_id} not found"}
-            tasks, _ = sn_query_page(
+            # Loud on failure: a silenced read would come back as "no tasks".
+            tasks, task_total = sn_query_page(
                 config,
                 auth_manager,
                 table="change_task",
                 query=f"change_request={change_id}",
-                fields="",
+                fields=TASK_LISTING_FIELDS,
                 limit=100,
                 offset=0,
+                orderby="order",
                 display_value=True,
+                fail_silently=False,
             )
-            return {"success": True, "change_request": rows[0], "tasks": tasks}
+            result: Dict[str, Any] = {
+                "success": True,
+                "change_request": rows[0],
+                "tasks": tasks,
+                "full_task": (
+                    "Tasks carry their listing columns. One task in full: "
+                    "sn_query(table='change_task', query='sys_id=<task>')."
+                ),
+            }
+            if task_total is None or task_total > len(tasks):
+                result["tasks_complete"] = False
+                result["task_total"] = task_total
+            return result
         except Exception as e:
             logger.error(f"Error getting change request details: {e}")
             return {"success": False, "message": f"Error getting change request details: {str(e)}"}
@@ -280,16 +308,22 @@ def get(
             auth_manager,
             table="change_request",
             query=query_str,
-            fields="",
+            fields=CHANGE_LISTING_FIELDS,
             limit=min(limit, 100),
             offset=offset,
             display_value=True,
+            # Loud on failure: a silenced read would come back as "0 changes".
+            fail_silently=False,
         )
         return {
             "success": True,
             "change_requests": rows,
             "count": len(rows),
             "total": total if total is not None else len(rows),
+            "full_record": (
+                "A listing carries its summary columns. One change in full, with its "
+                "tasks: manage_change(action='get', change_id=<sys_id>)."
+            ),
         }
     except Exception as e:
         logger.error(f"Error listing change requests: {e}")

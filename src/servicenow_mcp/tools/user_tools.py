@@ -17,6 +17,15 @@ from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
+# sys_user has ~97 columns and a row is ~2.7 KB (measured), so a 100-user listing
+# was ~270 KB of mostly SSO and federation plumbing. action='get' still reads one
+# user in full.
+USER_LISTING_FIELDS = (
+    "sys_id,user_name,name,first_name,last_name,email,active,locked_out,title,"
+    "department,manager,company,location,phone,mobile_phone,employee_number,"
+    "last_login_time,sys_created_on,sys_updated_on"
+)
+
 
 class GetUserParams(BaseModel):
     """Parameters for getting a user."""
@@ -118,7 +127,7 @@ def list_users(
             auth_manager,
             table="sys_user",
             query=query_string,
-            fields="",
+            fields=USER_LISTING_FIELDS,
             limit=min(params.limit, 100),
             offset=params.offset,
             display_value=True,
@@ -130,6 +139,10 @@ def list_users(
             "users": result,
             "count": len(result),
             "total": total or 0,
+            "full_record": (
+                "A listing carries the columns people are looked up by. One user in full: "
+                "manage_user(action='get', user_id=<sys_id>)."
+            ),
         }
     except Exception as e:
         logger.error(f"Failed to list users: {e}")

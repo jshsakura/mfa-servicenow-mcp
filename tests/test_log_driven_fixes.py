@@ -737,3 +737,98 @@ def test_the_rules_carry_what_a_weak_model_gets_wrong_on_these_tables():
     (rules,) = _package_rules("asset_manager")
     for fact in ("aggregate=SUM", "display_value=true", "bound them by date"):
         assert fact in rules
+
+
+# ---------------------------------------------------------------------------
+# Lean reads: leave out the bulk, keep a way to read it in full
+# ---------------------------------------------------------------------------
+
+
+class TestLeanReads:
+    def test_workflow_versions_skip_the_compiled_graph_and_order_by_a_real_column(self):
+        from servicenow_mcp.tools import workflow_tools as wt
+
+        fields = wt.VERSION_LISTING_FIELDS.split(",")
+        for heavy in ("full_sequences", "expected_sequences", "activity_stages"):
+            assert heavy not in fields
+        assert "published" in fields and "sys_id" in fields
+        with patch.object(wt, "sn_query_page", return_value=([], 0)) as qp:
+            wt.list_workflow_versions(MagicMock(), MagicMock(), {"workflow_id": "w1"})
+            wt._fetch_workflow_versions(MagicMock(), MagicMock(), "w1")
+        for call in qp.call_args_list:
+            # wf_workflow_version has no `version` column; ordering by it is ignored.
+            assert call.kwargs["orderby"] == "-sys_created_on"
+            assert call.kwargs["fields"] == wt.VERSION_LISTING_FIELDS
+
+    def test_published_version_lookup_reads_only_the_id(self):
+        from servicenow_mcp.tools import workflow_tools as wt
+
+        with patch.object(
+            wt, "sn_query_page", side_effect=[([{"sys_id": "v1"}], 1), ([], 0)]
+        ) as qp:
+            result = wt._fetch_workflow_activities(MagicMock(), MagicMock(), "w1")
+        lookup = qp.call_args_list[0].kwargs
+        assert lookup["fields"] == "sys_id" and lookup["orderby"] == "-sys_created_on"
+        assert result["version_id"] == "v1"
+
+    @pytest.mark.parametrize("summary", [True, False])
+    def test_flow_label_cache_is_a_size_in_summary_mode_only(self, summary):
+        from servicenow_mcp.tools import flow_designer_tools as fd
+
+        flow = {
+            "sys_id": "aaaa1111bbbb2222cccc3333dddd4444",
+            "name": "F",
+            "label_cache": "x" * 5000,
+        }
+        params = fd.GetFlowDetailsParams(
+            flow_id=flow["sys_id"],
+            summary_format=summary,
+            include_triggers=False,
+            include_structure=False,
+            include_executions_summary=False,
+        )
+        with (
+            patch.object(fd, "_is_browser_auth", return_value=False),
+            patch.object(fd, "sn_query_page", return_value=([dict(flow)], 1)),
+            patch.object(fd, "_flow_runtime_status", return_value={}),
+        ):
+            result = fd.get_flow_details(MagicMock(), MagicMock(), params)
+        if summary:
+            assert "5,000 characters left out" in result["flow"]["label_cache"]
+        else:
+            assert result["flow"]["label_cache"] == "x" * 5000
+
+    def test_user_listing_is_projected_and_points_at_the_full_read(self):
+        from servicenow_mcp.tools import user_tools as ut
+
+        params = ut.ListUsersParams(limit=5)
+        with patch.object(ut, "sn_query_page", return_value=([{"sys_id": "u1"}], 1)) as qp:
+            result = ut.list_users(MagicMock(), MagicMock(), params)
+        assert qp.call_args.kwargs["fields"] == ut.USER_LISTING_FIELDS
+        assert "manage_user(action='get'" in result["full_record"]
+
+    def test_change_tasks_are_projected_and_a_failed_read_is_not_none(self):
+        from servicenow_mcp.services import change as ch
+
+        with patch.object(
+            ch, "sn_query_page", side_effect=[([{"sys_id": "c1"}], 1), ([{"sys_id": "t1"}], 1)]
+        ) as qp:
+            result = ch.get(MagicMock(), MagicMock(), change_id="c1")
+        task_call = qp.call_args_list[1].kwargs
+        assert task_call["fields"] == ch.TASK_LISTING_FIELDS
+        assert task_call["fail_silently"] is False
+        assert "tasks_complete" not in result
+        with patch.object(
+            ch, "sn_query_page", side_effect=[([{"sys_id": "c1"}], 1), RuntimeError("HTTP 500")]
+        ):
+            failed = ch.get(MagicMock(), MagicMock(), change_id="c1")
+        assert failed["success"] is False and "tasks" not in failed
+
+    def test_change_listing_is_projected_and_loud(self):
+        from servicenow_mcp.services import change as ch
+
+        with patch.object(ch, "sn_query_page", return_value=([{"sys_id": "c1"}], 1)) as qp:
+            result = ch.get(MagicMock(), MagicMock())
+        assert qp.call_args.kwargs["fields"] == ch.CHANGE_LISTING_FIELDS
+        assert qp.call_args.kwargs["fail_silently"] is False
+        assert "manage_change(action='get'" in result["full_record"]

@@ -27,6 +27,29 @@ from servicenow_mcp.utils.registry import register_tool
 
 logger = logging.getLogger(__name__)
 
+# full_sequences, expected_sequences and activity_stages are the version's
+# compiled graph: about 70% of a wf_workflow_version row (measured, 2.6 KB
+# average), and nothing a version listing is read for. One version in full is a
+# single sn_query away.
+#
+# Ordered by sys_created_on: this table has no `version` column. ORDERBYDESCversion
+# was accepted and ignored (versionISEMPTY and versionISNOTEMPTY both match every
+# row), so "latest" was whatever the server returned and offset paging could
+# repeat or skip versions.
+VERSION_LISTING_FIELDS = (
+    "sys_id,name,workflow,published,active,checked_out,checked_out_by,validated,table,"
+    "condition,condition_type,description,on_cancel,run_multiple,after_business_rules,"
+    "order,stage_field,stage_order,schedule,timezone,expected_time,expected_time_type,"
+    "relative_duration,pin_type,max_activity_count,requires_ert,not_cacheable,"
+    "column_renderer,start,journal,sys_tags,sys_mod_count,sys_created_on,sys_created_by,"
+    "sys_updated_on,sys_updated_by"
+)
+VERSION_FULL_RECORD_HINT = (
+    "The compiled graph columns (full_sequences, expected_sequences, activity_stages) "
+    "are left out. One version in full: sn_query(table='wf_workflow_version', "
+    "query='sys_id=<version>')."
+)
+
 # Concurrent activity-order PATCHes per reorder — capped to stay within SN rate
 # limits (mirrors sn_api._MAX_PARALLEL_PAGES).
 
@@ -316,6 +339,7 @@ def get_workflow_details(
 
         if params.get("include_versions"):
             result["versions"] = _fetch_workflow_versions(server_config, auth_manager, workflow_id)
+            result["versions_full_record"] = VERSION_FULL_RECORD_HINT
 
         if params.get("include_activities"):
             act_result = _fetch_workflow_activities(
@@ -340,9 +364,10 @@ def _fetch_workflow_versions(
         auth_manager,
         table="wf_workflow_version",
         query=f"workflow={workflow_id}",
-        fields="",
+        fields=VERSION_LISTING_FIELDS,
         limit=20,
         offset=0,
+        orderby="-sys_created_on",
         display_value=False,
         fail_silently=False,
     )
@@ -365,10 +390,10 @@ def _fetch_workflow_activities(
             auth_manager,
             table="wf_workflow_version",
             query=f"workflow={workflow_id}^published=true",
-            fields="",
+            fields="sys_id",
             limit=1,
             offset=0,
-            orderby="-version",
+            orderby="-sys_created_on",
             display_value=False,
             fail_silently=False,
         )
@@ -1116,10 +1141,10 @@ def list_workflow_versions(
             auth_manager,
             table="wf_workflow_version",
             query=query,
-            fields="",
+            fields=VERSION_LISTING_FIELDS,
             limit=params.get("limit", 20),
             offset=params.get("offset", 0),
-            orderby="-version",
+            orderby="-sys_created_on",
             display_value=False,
             fail_silently=False,
         )
@@ -1128,6 +1153,7 @@ def list_workflow_versions(
             "count": len(rows),
             "total": total or 0,
             "workflow_id": workflow_id,
+            "full_record": VERSION_FULL_RECORD_HINT,
         }
     except Exception as e:
         logger.error(f"Error listing workflow versions: {e}")

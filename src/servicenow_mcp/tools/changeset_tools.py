@@ -222,6 +222,9 @@ class ManageChangesetParams(BaseModel):
         default=None, description="Additional query string (get list mode)"
     )
     count_only: bool = Field(default=False, description="Return count only (get list mode)")
+    include_payload: bool = Field(
+        default=False, description="get detail: also return each entry's full record XML (large)."
+    )
 
     # Create + update (application/developer also used as list filters for get)
     name: Optional[str] = Field(default=None)
@@ -320,6 +323,7 @@ def manage_changeset(
             timeframe=params.timeframe,
             query=params.query,
             count_only=params.count_only,
+            include_payload=params.include_payload,
         )
     if params.action == "create":
         # ManageChangesetParams validator guarantees these are present per action.
