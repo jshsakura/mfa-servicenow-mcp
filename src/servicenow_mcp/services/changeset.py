@@ -1,6 +1,6 @@
 """Update set (sys_update_set) service layer.
 
-Business logic for create / update / commit / publish / add_file operations.
+Business logic for create / update / commit / publish / move_file / remove_file.
 ``manage_changeset`` in tools/changeset_tools.py is the sole public entry point.
 """
 
@@ -168,41 +168,6 @@ def publish(
     except Exception as e:
         logger.error("Error publishing changeset: %s", e)
         return {"success": False, "message": f"Error publishing changeset: {str(e)}"}
-
-
-def add_file(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    *,
-    changeset_id: str,
-    file_path: str,
-    file_content: str,
-) -> Dict[str, Any]:
-    """Attach a record (file path + content) to an update set."""
-    data = {
-        "update_set": changeset_id,
-        "name": file_path,
-        "payload": file_content,
-        "type": "file",
-    }
-
-    url = f"{config.api_url}/table/sys_update_xml"
-    headers = auth_manager.get_headers()
-    headers["Content-Type"] = "application/json"
-
-    try:
-        response = auth_manager.make_request("POST", url, json=data, headers=headers)
-        response.raise_for_status()
-        result = response.json()
-        invalidate_query_cache(table="sys_update_xml")
-        return {
-            "success": True,
-            "message": "File added to changeset successfully",
-            "file": result["result"],
-        }
-    except Exception as e:
-        logger.error("Error adding file to changeset: %s", e)
-        return {"success": False, "message": f"Error adding file to changeset: {str(e)}"}
 
 
 def get(

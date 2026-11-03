@@ -47,13 +47,10 @@ class TestValidation:
         with pytest.raises(ValidationError, match="changeset_id"):
             ManageChangesetParams(action="publish")
 
-    def test_add_file_requires_changeset_id_and_path_and_content(self):
-        with pytest.raises(ValidationError, match="changeset_id"):
-            ManageChangesetParams(action="add_file", file_path="x.js", file_content="...")
-        with pytest.raises(ValidationError, match="file_path"):
-            ManageChangesetParams(action="add_file", changeset_id="abc", file_content="...")
-        with pytest.raises(ValidationError, match="file_content"):
-            ManageChangesetParams(action="add_file", changeset_id="abc", file_path="x.js")
+    def test_add_file_is_retired_with_the_way_forward(self):
+        with pytest.raises(ValidationError, match="move_file") as err:
+            ManageChangesetParams(action="add_file", changeset_id="abc")
+        assert "manage_session_context" in str(err.value)
 
     def test_invalid_action_rejected(self):
         with pytest.raises(ValidationError):
@@ -114,23 +111,6 @@ class TestDispatch:
             )
             assert mock_fn.call_args.kwargs["changeset_id"] == "abc"
             assert mock_fn.call_args.kwargs["publish_notes"] == "release v1"
-
-    def test_add_file_dispatches(self):
-        with patch("servicenow_mcp.services.changeset.add_file") as mock_fn:
-            mock_fn.return_value = {"success": True}
-            manage_changeset(
-                _config(),
-                MagicMock(),
-                ManageChangesetParams(
-                    action="add_file",
-                    changeset_id="abc",
-                    file_path="x.js",
-                    file_content="content",
-                ),
-            )
-            assert mock_fn.call_args.kwargs["changeset_id"] == "abc"
-            assert mock_fn.call_args.kwargs["file_path"] == "x.js"
-            assert mock_fn.call_args.kwargs["file_content"] == "content"
 
 
 # ---------------------------------------------------------------------------

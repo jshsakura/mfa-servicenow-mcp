@@ -500,9 +500,9 @@ python -m servicenow_mcp \
 | 패키지명 | 도구 수 | 최대 토큰 | 최대 (인스턴스 3개) | 설명 |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
+| `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
 | `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 63 | ~18.3K | ~20.6K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
+| `full` | 63 | ~18.3K | ~20.5K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 
 > **최대 토큰**은 요청마다 해당 패키지의 툴 스키마가 모델 컨텍스트에 더하는 대략적 토큰량입니다(서버의 컴팩트된 스키마를 tiktoken `cl100k_base`로 측정한 값 — 실제 Claude 토큰수는 약간 다릅니다). 가장 좁은 패키지에 머물수록 컨텍스트 예산과 비용을 아낄 수 있습니다. **이 값은 최대치**이며 평소 비용이 아닙니다. 모든 툴 스키마를 처음부터 싣는 클라이언트만 이 전부를 냅니다. 툴 지연 로딩을 지원하는 클라이언트(예: Claude Code의 툴 검색)는 실제로 쓰는 툴의 스키마만 불러오므로, 요청당 실제 비용은 훨씬 적습니다. 도구 수는 패키지 구성원 수입니다. 모든 패키지에 `list_tool_packages`가 함께 붙고, 멀티 인스턴스 구성에서는 `list_instances`, `compare_instances`와 모든 툴의 `instance` 파라미터가 더해집니다 — 두 번째 토큰 열은 인스턴스 3개 기준 실측값입니다. 수치는 추정이 아니라 tiktoken 실측입니다(`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>`로 툴별 내역 확인).
 

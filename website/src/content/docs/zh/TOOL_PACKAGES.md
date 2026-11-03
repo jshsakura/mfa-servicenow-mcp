@@ -36,9 +36,9 @@ slug: zh/TOOL_PACKAGES
 | 包 | 工具数 | 最大令牌 | 最大（3 个实例） | 何时使用 |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ 需要更新/关闭 incident 和 change 的服务台坐席 |
-| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
+| `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ 部署 widget、变更集和 script include 的门户开发者 |
 | `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ 管理工作流、Flow Designer 和脚本的平台工程师 |
-| `full` | 63 | ~18.3K | ~20.6K | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
+| `full` | 63 | ~18.3K | ~20.5K | ⚠️ 最高级 —— 同时启用所有领域的所有写入工具（见下方警告） |
 
 > **最大令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）。使用更窄的包可节省上下文与成本。 **这是最大值**，而非常规开销：只有在启动时加载全部工具 schema 的客户端才会付出全部开销。支持工具延迟加载的客户端（如 Claude Code 的工具搜索）只在使用某个工具时才加载其 schema，因此每次请求的实际开销要低得多。 工具数为包成员数；每个包另带 `list_tool_packages`，多实例配置还会增加 `list_instances`、`compare_instances` 以及每个工具上的 `instance` 参数 — 第二个令牌列为 3 个实例时的实测值。数值为 tiktoken 实测而非估算（`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` 可列出每个工具的占比）。
 

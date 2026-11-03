@@ -157,44 +157,10 @@ class TestPublish(unittest.TestCase):
         self.assertIn("Publish failed", result["message"])
 
 
-class TestAddFile(unittest.TestCase):
-    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
-    def test_success(self, mock_inv):
-        auth = _auth(
-            {
-                "result": {
-                    "sys_id": "456",
-                    "name": "test.py",
-                    "type": "file",
-                    "update_set": "123",
-                    "payload": "code here",
-                }
-            }
-        )
-        result = cs_svc.add_file(
-            _config(), auth, changeset_id="123", file_path="test.py", file_content="code here"
-        )
-        self.assertTrue(result["success"])
-        self.assertEqual(result["file"]["sys_id"], "456")
-        args, kwargs = auth.make_request.call_args
-        self.assertEqual(args[0], "POST")
-        self.assertIn("/api/now/table/sys_update_xml", args[1])
-        self.assertEqual(kwargs["json"]["update_set"], "123")
-        self.assertEqual(kwargs["json"]["name"], "test.py")
-        self.assertEqual(kwargs["json"]["payload"], "code here")
-        self.assertEqual(kwargs["json"]["type"], "file")
-        mock_inv.assert_called_once_with(table="sys_update_xml")
-
-    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
-    def test_error(self, mock_inv):
-        auth = MagicMock()
-        auth.get_headers.return_value = {}
-        auth.make_request.side_effect = Exception("Add failed")
-        result = cs_svc.add_file(
-            _config(), auth, changeset_id="123", file_path="x.py", file_content="code"
-        )
-        self.assertFalse(result["success"])
-        self.assertIn("Add failed", result["message"])
+class TestAddFileRetired(unittest.TestCase):
+    def test_no_service_writes_a_caller_typed_entry(self):
+        # A caller-typed payload in an update set is a hand-written deploy XML.
+        self.assertFalse(hasattr(cs_svc, "add_file"))
 
 
 if __name__ == "__main__":

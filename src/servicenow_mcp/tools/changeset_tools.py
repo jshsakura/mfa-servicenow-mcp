@@ -162,6 +162,18 @@ def get_changeset_details(
 _CHANGESET_UPDATE_FIELDS = ("name", "description", "state", "developer")
 _SYS_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
+# add_file was inherited from the project this one started from, which modelled
+# an update set as a commit of files. It is not: an entry is ServiceNow's own
+# serialization of a record, and committing the set applies that XML to the next
+# instance. A payload typed by the caller is a hand-written deploy XML with no
+# certificate, and the sys_update_xml create ACL refuses it even for admin.
+_ADD_FILE_RETIRED = (
+    "action='add_file' was removed: an update set entry is ServiceNow's own record of a "
+    "change, never a file you write. To move an entry that already exists, use "
+    "action='move_file'. To capture a record, make the set current with "
+    "manage_session_context(action='set_update_set') and edit the record with its manage_* tool."
+)
+
 
 class ManageChangesetParams(BaseModel):
     """Manage update sets — table: sys_update_set.
@@ -172,14 +184,13 @@ class ManageChangesetParams(BaseModel):
       update:   changeset_id, at least one field
       commit:   changeset_id
       publish:  changeset_id
-      add_file: changeset_id, file_path, file_content
       move_file:   changeset_id, entry_ids, target_changeset_id
       remove_file: changeset_id, entry_ids, confirm_remove
     """
 
-    action: Literal[
-        "get", "create", "update", "commit", "publish", "add_file", "move_file", "remove_file"
-    ] = Field(...)
+    action: Literal["get", "create", "update", "commit", "publish", "move_file", "remove_file"] = (
+        Field(...)
+    )
     changeset_id: Optional[str] = Field(
         default=None, description="Update set sys_id. For move_file/remove_file, the source set."
     )
@@ -227,11 +238,14 @@ class ManageChangesetParams(BaseModel):
     # Publish-specific
     publish_notes: Optional[str] = Field(default=None)
 
-    # add_file-specific
-    file_path: Optional[str] = Field(default=None)
-    file_content: Optional[str] = Field(default=None)
-
     dry_run: bool = Field(default=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _retired_add_file(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data.get("action") == "add_file":
+            raise ValueError(_ADD_FILE_RETIRED)
+        return data
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageChangesetParams":
@@ -250,13 +264,6 @@ class ManageChangesetParams(BaseModel):
         elif self.action in ("commit", "publish"):
             if not self.changeset_id:
                 raise ValueError(f"changeset_id is required for action='{self.action}'")
-        elif self.action == "add_file":
-            if not self.changeset_id:
-                raise ValueError("changeset_id is required for action='add_file'")
-            if not self.file_path:
-                raise ValueError("file_path is required for action='add_file'")
-            if not self.file_content:
-                raise ValueError("file_content is required for action='add_file'")
         elif self.action in ("move_file", "remove_file"):
             if not self.changeset_id:
                 raise ValueError(f"changeset_id (the source set) is required for '{self.action}'")
@@ -289,7 +296,7 @@ class ManageChangesetParams(BaseModel):
     name="manage_changeset",
     params=ManageChangesetParams,
     description=(
-        "Get/create/update/commit/publish/add_file on an update set (table: sys_update_set). "
+        "Get/create/update/commit/publish an update set (table: sys_update_set). "
         "move_file/remove_file take wrong entries out; dry_run=true first."
     ),
     serialization="raw_dict",
@@ -354,28 +361,17 @@ def manage_changeset(
             changeset_id=params.changeset_id,
             publish_notes=params.publish_notes,
         )
-    if params.action in ("move_file", "remove_file"):
-        assert params.changeset_id is not None
-        assert params.entry_ids is not None
-        return _cs_svc.change_entries(
-            config,
-            auth_manager,
-            action=params.action,
-            changeset_id=params.changeset_id.strip(),
-            entry_ids=params.entry_ids,
-            target_changeset_id=(params.target_changeset_id or "").strip() or None,
-            confirm_remove=params.confirm_remove,
-            confirm_other_author=params.confirm_other_author,
-            dry_run=params.dry_run,
-        )
-    # add_file
+    # move_file / remove_file
     assert params.changeset_id is not None
-    assert params.file_path is not None
-    assert params.file_content is not None
-    return _cs_svc.add_file(
+    assert params.entry_ids is not None
+    return _cs_svc.change_entries(
         config,
         auth_manager,
-        changeset_id=params.changeset_id,
-        file_path=params.file_path,
-        file_content=params.file_content,
+        action=params.action,
+        changeset_id=params.changeset_id.strip(),
+        entry_ids=params.entry_ids,
+        target_changeset_id=(params.target_changeset_id or "").strip() or None,
+        confirm_remove=params.confirm_remove,
+        confirm_other_author=params.confirm_other_author,
+        dry_run=params.dry_run,
     )

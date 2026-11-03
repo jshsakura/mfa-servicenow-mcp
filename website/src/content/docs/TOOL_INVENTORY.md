@@ -89,7 +89,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_changeset` | R/W | Get/create/update/commit/publish/add_file on an update set (table: sys_update_set). move_file/remove_file take wrong... | portal_developer, platform_developer, scripting, full |
+| `manage_changeset` | R/W | Get/create/update/commit/publish an update set (table: sys_update_set). move_file/remove_file take wrong entries out;... | portal_developer, platform_developer, scripting, full |
 
 ### Deploy Verify Tools (1)
 

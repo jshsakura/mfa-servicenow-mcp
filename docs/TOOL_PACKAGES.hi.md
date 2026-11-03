@@ -32,9 +32,9 @@ Add-on — सामान्य-उद्देश्य, अपने आप �
 | Package | Tools | अधिकतम टोकन | अधिकतम (3 instances) | कब उपयोग करें |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ सर्विस डेस्क एजेंट जिन्हें incidents और changes को अपडेट/बंद करने की आवश्यकता हो |
-| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
+| `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
 | `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ प्लेटफ़ॉर्म इंजीनियर जो workflows, Flow Designer, और scripts प्रबंधित करते हैं |
-| `full` | 63 | ~18.3K | ~20.6K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
+| `full` | 63 | ~18.3K | ~20.5K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
 
 > **अधिकतम टोकन** = हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens (tiktoken cl100k_base आधार; वास्तविक Claude token संख्या थोड़ी भिन्न)। संकरे package से context और लागत बचती है। **यह अधिकतम है**, सामान्य लागत नहीं: पूरा खर्च केवल वे clients उठाते हैं जो सारी tool schemas शुरुआत में load करते हैं। Deferred tool loading वाले clients (जैसे Claude Code का tool search) किसी tool का schema तभी load करते हैं जब वह उपयोग हो, इसलिए उनकी वास्तविक per-request लागत काफी कम होती है। Tools की संख्या package के सदस्य गिनती है; हर package में `list_tool_packages` भी होता है, और multi-instance setup में `list_instances`, `compare_instances` और हर tool पर एक `instance` parameter जुड़ता है — दूसरा token column इसे तीन instances के साथ मापता है। आंकड़े tiktoken से मापे गए हैं, अनुमानित नहीं (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` हर tool का हिस्सा दिखाता है)।
 

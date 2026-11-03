@@ -503,9 +503,9 @@ Read-only (safe defaults):
 | Package | Tools | Max tokens | Max (3 instances) | Description |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
 | `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 63 | ~18.3K | ~20.6K | ⚠️ **Most advanced** — all write tools across all domains at once |
+| `full` | 63 | ~18.3K | ~20.5K | ⚠️ **Most advanced** — all write tools across all domains at once |
 
 > **Max tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down. **This is the maximum**, not a typical cost: it is paid in full only by clients that load every tool schema up front. Clients with deferred tool loading (e.g. Claude Code's tool search) load a schema only when that tool is used, so their real per-request cost is far lower. Tool counts are package members; every package also carries `list_tool_packages`, and a multi-instance setup adds `list_instances`, `compare_instances` and an `instance` parameter on every tool — the second token column measures that with three instances. Figures are measured with tiktoken, not estimated (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` lists every tool's share).
 

@@ -499,9 +499,9 @@ Solo lectura (valores predeterminados seguros):
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Descripción |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 52 | ~15.9K | ~17.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
+| `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
 | `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 63 | ~18.3K | ~20.6K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| `full` | 63 | ~18.3K | ~20.5K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
 
 > **Tokens máx.** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken `cl100k_base`; el conteo real de Claude varía ligeramente); usar el paquete más reducido ahorra contexto y costo. **Es el máximo**, no el costo típico: solo lo pagan completo los clientes que cargan todas las tool schemas al inicio. Los clientes con carga diferida de herramientas (p. ej. la búsqueda de herramientas de Claude Code) cargan un schema solo cuando se usa esa herramienta, así que su costo real por solicitud es mucho menor. El número de herramientas cuenta los miembros del paquete; todos los paquetes llevan además `list_tool_packages`, y una configuración multi-instancia añade `list_instances`, `compare_instances` y un parámetro `instance` en cada herramienta — la segunda columna lo mide con tres instancias. Las cifras se miden con tiktoken, no se estiman (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <paquete>` lista la parte de cada herramienta).
 
