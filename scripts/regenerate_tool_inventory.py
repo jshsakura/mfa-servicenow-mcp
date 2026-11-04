@@ -35,7 +35,7 @@ PACKAGE_DESCRIPTIONS = {
     "portal_developer": "standard plus portal, changeset, script include, and local-sync delivery workflows.",
     "platform_developer": "standard plus workflow, Flow Designer, UI policy, incident/change, and script writes.",
     "full": "Broadest packaged surface: all manage_* workflows plus advanced operations.",
-    "asset_manager": "Query-first surface for materials, asset and ITOM work; add-ons combine by comma.",
+    "asset_manager": "Materials, asset and ITOM work: queries plus checked asset writes; add-ons combine by comma.",
 }
 
 READ_ONLY_OVERRIDES: set[str] = set()

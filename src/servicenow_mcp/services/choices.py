@@ -15,12 +15,13 @@ write is refused and says why.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.encoded_query import safe_value
+from servicenow_mcp.utils.query_fields import table_ancestry
 
 
 def _normalise(text: Any) -> str:
@@ -34,51 +35,41 @@ def _order(code: str) -> Tuple[bool, int, str]:
         return (True, 0, code)
 
 
-_MAX_PARENT_HOPS = 4
 _NUMBER_PREFIX = re.compile(r"^\s*-?\d+\s*-\s*")
 
 
-def _read(config: ServerConfig, auth_manager: AuthManager, **kw: Any) -> list:
-    rows, _ = sn_query_page(
-        config, auth_manager, offset=0, no_count=True, fail_silently=False, **kw
-    )
-    return rows
+def _choice_rows(
+    config: ServerConfig, auth_manager: AuthManager, table: str, element: str
+) -> List[Dict[str, Any]]:
+    """Choices for ``table.element``, from the nearest table in its ancestry that has any.
 
-
-def _choice_rows(config: ServerConfig, auth_manager: AuthManager, table: str, element: str) -> list:
-    """Choices for ``table.element``, inherited from the nearest parent that has them.
-
-    A child table often declares none of its own: incident.priority's options
-    live on `task`. Stopping at the child would refuse every valid value.
+    A child table often declares none of its own (incident.priority's options can
+    live on `task`); stopping at the child would refuse every valid value. The
+    ancestry is walked by sys_id (``table_ancestry``) and read in one query; the
+    nearest table with rows wins, as it does on the platform.
     """
-    current: Optional[str] = table
-    seen = set()
-    for _hop in range(_MAX_PARENT_HOPS + 1):
-        if not current or current in seen:
-            break
-        seen.add(current)
-        rows = _read(
-            config,
-            auth_manager,
-            table="sys_choice",
-            query=(
-                f"name={safe_value(current).value}^element={safe_value(element).value}"
-                "^inactive=false^language=en"
-            ),
-            fields="value,label",
-            limit=200,
-        )
-        if rows:
-            return rows
-        parent = _read(
-            config,
-            auth_manager,
-            table="sys_db_object",
-            query=f"name={safe_value(current).value}",
-            fields="super_class.name",
-            limit=1,
-        )
-        current = str(parent[0].get("super_class.name") or "") if parent else None
+    ancestry = table_ancestry(config, auth_manager, table)
+    if not ancestry:
+        raise RuntimeError(f"could not read the table hierarchy of {table}")
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table="sys_choice",
+        query=(
+            "nameIN"
+            + ",".join(safe_value(t).value for t in ancestry)
+            + f"^element={safe_value(element).value}^inactive=false^language=en"
+        ),
+        fields="name,value,label,dependent_value",
+        limit=500,
+        offset=0,
+        no_count=True,
+        fail_silently=False,
+    )
+    for name in ancestry:
+        own = [r for r in rows if str(r.get("name") or "") == name]
+        if own:
+            return own
     return []
 
 
@@ -113,8 +104,14 @@ def resolve_choice(
     requested: str,
     unknown_error: str = "UNKNOWN_CHOICE",
     unverified_error: str = "CHOICE_UNVERIFIED",
+    depends_on: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-    """Return ``(value, None)`` for a known value or label, else ``(None, refusal)``."""
+    """Return ``(value, None)`` for a known value or label, else ``(None, refusal)``.
+
+    ``depends_on`` narrows a dependent choice to the options its parent value
+    allows (alm_asset.substatus under install_status): "Disposed" is a substatus
+    of Retired only, and the platform stores it under In stock without a word.
+    """
     column = f"{table}.{element}"
     try:
         rows = _choice_rows(config, auth_manager, table, element)
@@ -125,6 +122,9 @@ def resolve_choice(
             "message": f"Could not read the choices for {column} (sys_choice): {e}. "
             "Nothing was written.",
         }
+    if depends_on is not None:
+        rows = [r for r in rows if str(r.get("dependent_value") or "") == str(depends_on)]
+        column = f"{column} (for {depends_on})"
     choices: Dict[str, str] = {}
     for row in rows:
         value = str(row.get("value") or "").strip()

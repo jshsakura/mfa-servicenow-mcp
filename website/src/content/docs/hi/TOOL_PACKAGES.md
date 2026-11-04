@@ -19,7 +19,6 @@ slug: hi/TOOL_PACKAGES
 | :--- | :---: | :---: | :---: | :--- |
 | `core` | 12 | ~2.2K | ~2.7K | न्यूनतम केवल-पठन: केवल health, schema, discovery, और मुख्य artifact लुकअप |
 | `standard` | 31 | ~7.4K | ~8.3K | **(डिफ़ॉल्ट)** incidents, changes, portal, logs, और source विश्लेषण में केवल-पठन |
-| `asset_manager` | 6 | ~0.8K | ~1.2K | सामग्री, asset और ITOM कार्य के लिए query-केंद्रित न्यूनतम सतह। Add-on comma से जोड़ें: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `none` | 0 | 0 | 0 | जानबूझकर सभी टूल्स अक्षम करें (परीक्षण, प्रतिबंधित वातावरण) |
 
 Add-on — सामान्य-उद्देश्य, अपने आप में पैकेज नहीं। किसी भी पैकेज के साथ comma से जोड़ें (`MCP_TOOL_PACKAGE=asset_manager,scripting`); ⚠️ लेखन-सक्षम दर्शाता है:
@@ -37,8 +36,9 @@ Add-on — सामान्य-उद्देश्य, अपने आप �
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ सर्विस डेस्क एजेंट जिन्हें incidents और changes को अपडेट/बंद करने की आवश्यकता हो |
 | `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
-| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ प्लेटफ़ॉर्म इंजीनियर जो workflows, Flow Designer, और scripts प्रबंधित करते हैं |
-| `full` | 63 | ~18.3K | ~20.5K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
+| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ प्लेटफ़ॉर्म इंजीनियर जो workflows, Flow Designer, और scripts प्रबंधित करते हैं |
+| `full` | 61 | ~18.2K | ~20.4K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
+| `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ सामग्री, asset और ITOM कार्य के लिए न्यूनतम सतह: query, और इंस्टेंस पर पहले जाँचे गए asset write (`manage_asset`)। Add-on comma से जोड़ें: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **अधिकतम टोकन** = हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens (tiktoken cl100k_base आधार; वास्तविक Claude token संख्या थोड़ी भिन्न)। संकरे package से context और लागत बचती है। **यह अधिकतम है**, सामान्य लागत नहीं: पूरा खर्च केवल वे clients उठाते हैं जो सारी tool schemas शुरुआत में load करते हैं। Deferred tool loading वाले clients (जैसे Claude Code का tool search) किसी tool का schema तभी load करते हैं जब वह उपयोग हो, इसलिए उनकी वास्तविक per-request लागत काफी कम होती है। Tools की संख्या package के सदस्य गिनती है; हर package में `list_tool_packages` भी होता है, और multi-instance setup में `list_instances`, `compare_instances` और हर tool पर एक `instance` parameter जुड़ता है — दूसरा token column इसे तीन instances के साथ मापता है। आंकड़े tiktoken से मापे गए हैं, अनुमानित नहीं (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` हर tool का हिस्सा दिखाता है)।
 

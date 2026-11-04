@@ -21,7 +21,7 @@ def _build_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
             [
                 "none: []",
                 "approval_query_only:",
-                "  - approve_change",
+                "  - manage_change",
                 "  - manage_incident",
             ]
         )
@@ -53,7 +53,7 @@ def test_list_tools_shows_enabled_mutating_tools(monkeypatch: pytest.MonkeyPatch
     names = {tool.name for tool in tools}
 
     assert "manage_incident" in names
-    assert "approve_change" in names
+    assert "manage_change" in names
 
 
 def test_list_tools_injects_confirm_field_for_mutating_tools(
@@ -174,7 +174,11 @@ def test_call_tool_blocks_approve_tool_without_confirmation(
     server = _build_server(monkeypatch, tmp_path)
 
     with pytest.raises(ValueError, match="confirm='approve'"):
-        asyncio.run(server._call_tool_impl("approve_change", {"change_id": "CHG0010001"}))
+        asyncio.run(
+            server._call_tool_impl(
+                "manage_change", {"action": "approve", "change_id": "CHG0010001"}
+            )
+        )
 
 
 def test_list_tools_caches_generated_schemas(monkeypatch: pytest.MonkeyPatch, tmp_path):

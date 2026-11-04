@@ -364,11 +364,11 @@ TTL बदलने के लिए, `--browser-session-ttl` विकल्प
 |---------|:-----:|-------------|
 | `core` | 12 | हेल्थ, स्कीमा, डिस्कवरी, और मुख्य लुकअप के लिए न्यूनतम केवल-पढ़ने योग्य आवश्यक चीज़ें |
 | `standard` | 31 | **(डिफ़ॉल्ट)** इंसिडेंट, चेंज, पोर्टल, लॉग, और सोर्स विश्लेषण में केवल-पढ़ने योग्य पैकेज |
-| `asset_manager` | 6 | सामग्री, asset और ITOM कार्य के लिए query-केंद्रित न्यूनतम सतह। Add-on comma से जोड़ें: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
+| `asset_manager` | 7 | ⚠️ सामग्री, asset और ITOM कार्य के लिए न्यूनतम सतह: query, और इंस्टेंस पर पहले जाँचे गए asset write (`manage_asset`)। Add-on comma से जोड़ें: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 33 | standard + इंसिडेंट और चेंज ऑपरेशनल राइट्स |
 | `portal_developer` | 52 | standard + पोर्टल, चेंजसेट, स्क्रिप्ट इंक्लूड, और लोकल-सिंक डिलीवरी वर्कफ़्लो |
-| `platform_developer` | 46 | standard + वर्कफ़्लो, Flow Designer, UI पॉलिसी, इंसिडेंट/चेंज, और स्क्रिप्ट राइट्स |
-| `full` | 63 | सबसे व्यापक पैकेज्ड सतह: सभी `manage_*` वर्कफ़्लो के साथ एडवांस्ड ऑपरेशन्स |
+| `platform_developer` | 45 | standard + वर्कफ़्लो, Flow Designer, UI पॉलिसी, इंसिडेंट/चेंज, और स्क्रिप्ट राइट्स |
+| `full` | 61 | सबसे व्यापक पैकेज्ड सतह: सभी `manage_*` वर्कफ़्लो के साथ एडवांस्ड ऑपरेशन्स |
 
 बदलने के लिए, `MCP_TOOL_PACKAGE` मान अपडेट करें:
 

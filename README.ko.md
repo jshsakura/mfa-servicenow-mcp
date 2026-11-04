@@ -193,7 +193,7 @@ TLS 검사 프록시(Zscaler 등)나 PyPI 차단 환경은 별도 안내가 있�
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **등록 도구 77개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
+- **등록 도구 75개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **5개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **Streamable HTTP transport** — 기본 stdio는 그대로 두고, HTTP 지원 클라이언트/브리지에는 `/mcp` 엔드포인트 제공
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
@@ -493,7 +493,6 @@ python -m servicenow_mcp \
 | `none` | 0 | 0 | 0 | 도구를 의도적으로 비활성화하는 프로필 |
 | `core` | 12 | ~2.2K | ~2.7K | 헬스체크, 스키마, 탐색, 핵심 조회만 담은 최소 읽기 전용 패키지 |
 | `standard` | 31 | ~7.4K | ~8.3K | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
-| `asset_manager` | 6 | ~0.8K | ~1.2K | 자재·자산·ITOM 업무용 조회 중심 최소 구성. 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 ⚠️ 쓰기 가능 (고급 — 생성/수정/삭제 권한 부여):
 
@@ -501,8 +500,9 @@ python -m servicenow_mcp \
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
-| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 63 | ~18.3K | ~20.5K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
+| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
+| `full` | 61 | ~18.2K | ~20.4K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
+| `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 자재·자산·ITOM 업무용 최소 구성: 조회와, 인스턴스에서 먼저 검증하는 자산 쓰기(`manage_asset`). 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **최대 토큰**은 요청마다 해당 패키지의 툴 스키마가 모델 컨텍스트에 더하는 대략적 토큰량입니다(서버의 컴팩트된 스키마를 tiktoken `cl100k_base`로 측정한 값 — 실제 Claude 토큰수는 약간 다릅니다). 가장 좁은 패키지에 머물수록 컨텍스트 예산과 비용을 아낄 수 있습니다. **이 값은 최대치**이며 평소 비용이 아닙니다. 모든 툴 스키마를 처음부터 싣는 클라이언트만 이 전부를 냅니다. 툴 지연 로딩을 지원하는 클라이언트(예: Claude Code의 툴 검색)는 실제로 쓰는 툴의 스키마만 불러오므로, 요청당 실제 비용은 훨씬 적습니다. 도구 수는 패키지 구성원 수입니다. 모든 패키지에 `list_tool_packages`가 함께 붙고, 멀티 인스턴스 구성에서는 `list_instances`, `compare_instances`와 모든 툴의 `instance` 파라미터가 더해집니다 — 두 번째 토큰 열은 인스턴스 3개 기준 실측값입니다. 수치는 추정이 아니라 tiktoken 실측입니다(`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>`로 툴별 내역 확인).
 

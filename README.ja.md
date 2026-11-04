@@ -194,7 +194,7 @@ TLS インスペクションを行うプロキシ（Zscaler など）や PyPI �
 
 - MFA/SSO 環境向けの **ブラウザ認証**（Okta、Entra ID、SAML、MFA）
 - **4 つの認証モード**: Browser、Basic、OAuth、API Key
-- **77 個の登録済みツール** と **6 つのアクティブなパッケージプロファイル**、加えて無効化用の `none` — 最小限の読み取り専用から幅広いバンドル CRUD まで
+- **75 個の登録済みツール** と **6 つのアクティブなパッケージプロファイル**、加えて無効化用の `none` — 最小限の読み取り専用から幅広いバンドル CRUD まで
 - 安全ゲート、サブエージェント委譲、検証済みパイプラインを備えた **4 個のワークフロースキル**
 - **Streamable HTTP トランスポート** — デフォルトとして stdio を維持しつつ、HTTP 対応クライアントやブリッジ向けに `/mcp` を公開可能
 - HTML レポート、相互参照グラフ、デッドコード検出、自動生成されるドメイン知識を備えた **ローカルソース監査**
@@ -492,7 +492,6 @@ python -m servicenow_mcp \
 | `none` | 0 | 0 | 0 | 意図的にツールをオフにするための無効化プロファイル |
 | `core` | 12 | ~2.2K | ~2.7K | ヘルス、スキーマ、ディスカバリ、主要アーティファクトのルックアップ向けの最小限の読み取り専用エッセンシャル |
 | `standard` | 31 | ~7.4K | ~8.3K | **（デフォルト）** インシデント、変更、ポータル、ログ、ソース分析にまたがる読み取り専用 |
-| `asset_manager` | 6 | ~0.8K | ~1.2K | 資材・資産・ITOM 業務向けのクエリ中心の最小構成。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 
 ⚠️ 書き込み可能（上級者向け — 作成/更新/削除を付与）:
 
@@ -500,8 +499,9 @@ python -m servicenow_mcp \
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ standard + インシデントと変更の運用書き込み |
 | `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ standard + ポータル、changeset、script include、ローカル同期配信の書き込み |
-| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ standard + ワークフロー、Flow Designer、UI policy、インシデント/変更、スクリプトの書き込み |
-| `full` | 63 | ~18.3K | ~20.5K | ⚠️ **最も高度** — すべてのドメインにまたがるすべての書き込みツールを一度に |
+| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ standard + ワークフロー、Flow Designer、UI policy、インシデント/変更、スクリプトの書き込み |
+| `full` | 61 | ~18.2K | ~20.4K | ⚠️ **最も高度** — すべてのドメインにまたがるすべての書き込みツールを一度に |
+| `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 資材・資産・ITOM 業務向けの最小構成：クエリと、インスタンスで事前に検証する資産の書き込み（`manage_asset`）。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 
 > **最大トークン** = リクエストごとに各パッケージのツールスキーマがモデルのコンテキストに追加する概算トークン数（tiktoken cl100k_base 基準、実際の Claude のトークン数は多少異なる）。狭いパッケージほどコンテキストとコストを節約。 **これは最大値**であり、通常のコストではありません。全ツールスキーマを最初に読み込むクライアントだけがこの全量を払います。ツールの遅延読み込みに対応したクライアント（例: Claude Code のツール検索）は、使うツールのスキーマだけを読み込むため、実際のリクエストあたりのコストははるかに小さくなります。 ツール数はパッケージのメンバー数です。全パッケージに `list_tool_packages` が加わり、複数インスタンス構成では `list_instances`・`compare_instances` と全ツールの `instance` パラメータが加わります — 2列目はインスタンス3件での実測値です。数値は推定ではなく tiktoken での実測です（`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` で各ツールの内訳を表示）。
 

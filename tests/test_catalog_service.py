@@ -1,5 +1,6 @@
 """Tests for services/catalog.py service layer."""
 
+import contextlib
 import json
 import unittest
 from unittest.mock import MagicMock, patch
@@ -254,12 +255,25 @@ _TYPE_CHOICES = [
 ]
 
 
+@contextlib.contextmanager
 def _choices(rows=None):
-    """Patch the live sys_choice read that resolves item_option_new.type."""
-    return patch(
-        "servicenow_mcp.services.choices.sn_query_page",
-        return_value=(_TYPE_CHOICES if rows is None else rows, None),
-    )
+    """Patch the live sys_choice read that resolves item_option_new.type.
+
+    The read is one query over the table and its parents (``nameIN``); each row
+    carries the table that declared it, so the rows here are declared on question.
+    """
+    rows = _TYPE_CHOICES if rows is None else rows
+    with (
+        patch(
+            "servicenow_mcp.services.choices.table_ancestry",
+            return_value=["item_option_new", "question"],
+        ),
+        patch(
+            "servicenow_mcp.services.choices.sn_query_page",
+            return_value=([{**r, "name": "question"} for r in rows], None),
+        ) as q,
+    ):
+        yield q
 
 
 class TestCreateVariable(unittest.TestCase):
@@ -313,9 +327,8 @@ class TestCreateVariable(unittest.TestCase):
     @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
     def test_unreadable_choice_list_blocks_the_write(self, mock_inv):
         auth = _auth()
-        with patch(
-            "servicenow_mcp.services.choices.sn_query_page", side_effect=RuntimeError("403")
-        ):
+        with _choices() as q:
+            q.side_effect = RuntimeError("403")
             result = svc.create_variable(
                 _config(), auth, catalog_item_id="i1", name="x", variable_type="6", label="X"
             )
@@ -337,7 +350,7 @@ class TestCreateVariable(unittest.TestCase):
             svc.resolve_variable_type(_config(), _auth(), "6")
         kwargs = q.call_args.kwargs
         self.assertEqual(kwargs["table"], "sys_choice")
-        self.assertIn("name=question^element=type^", kwargs["query"])
+        self.assertIn("nameINitem_option_new,question^element=type^", kwargs["query"])
         self.assertFalse(kwargs["fail_silently"])
 
     @patch("servicenow_mcp.services.catalog.invalidate_query_cache")

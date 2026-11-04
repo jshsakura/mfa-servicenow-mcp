@@ -215,7 +215,11 @@ _STATES = [
 
 @pytest.fixture
 def states():
-    with patch("servicenow_mcp.services.choices.sn_query_page", return_value=(_STATES, None)) as q:
+    rows = [{**r, "name": "kb_knowledge"} for r in _STATES]
+    with (
+        patch("servicenow_mcp.services.choices.table_ancestry", return_value=["kb_knowledge"]),
+        patch("servicenow_mcp.services.choices.sn_query_page", return_value=(rows, None)) as q,
+    ):
         yield q
 
 
@@ -264,9 +268,9 @@ def test_publish_unknown_state_writes_nothing(mock_config, auth, states):
     auth.make_request.assert_not_called()
 
 
-def test_publish_unreadable_states_block_the_write(mock_config, auth):
-    with patch("servicenow_mcp.services.choices.sn_query_page", side_effect=RuntimeError("403")):
-        result = kb_article.publish(mock_config, auth, article_id="art1")
+def test_publish_unreadable_states_block_the_write(mock_config, auth, states):
+    states.side_effect = RuntimeError("403")
+    result = kb_article.publish(mock_config, auth, article_id="art1")
     assert result["error"] == "WORKFLOW_STATE_UNVERIFIED"
     auth.make_request.assert_not_called()
 

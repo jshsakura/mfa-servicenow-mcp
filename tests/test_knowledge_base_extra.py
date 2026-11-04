@@ -124,8 +124,8 @@ class TestManageKbArticle:
             workflow_state="published",
         )
         with patch(
-            "servicenow_mcp.services.choices.sn_query_page",
-            return_value=([{"value": "published", "label": "Published"}], None),
+            "servicenow_mcp.services.choices._choice_rows",
+            return_value=[{"value": "published", "label": "Published"}],
         ):
             result = manage_kb_article(config, auth, params)
         assert result.success is True

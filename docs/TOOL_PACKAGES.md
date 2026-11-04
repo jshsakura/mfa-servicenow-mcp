@@ -15,7 +15,6 @@ Read-only — safe for any environment, no write tools:
 | :--- | :---: | :---: | :---: | :--- |
 | `core` | 12 | ~2.2K | ~2.7K | Minimal read-only: health, schema, discovery, key artifact lookups only |
 | `standard` | 31 | ~7.4K | ~8.3K | **(Default)** Read-only across incidents, changes, portal, logs, and source analysis |
-| `asset_manager` | 6 | ~0.8K | ~1.2K | Query-first surface for materials, asset and ITOM work. Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `none` | 0 | 0 | 0 | Intentionally disable all tools (testing, locked-down environments) |
 
 Add-ons — general-purpose, not packages on their own. Combine with any package by comma (`MCP_TOOL_PACKAGE=asset_manager,scripting`); ⚠️ marks a write-capable one:
@@ -33,8 +32,9 @@ Add-ons — general-purpose, not packages on their own. Combine with any package
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ Service desk agents who need to update/close incidents and changes |
 | `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
-| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 63 | ~18.3K | ~20.5K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
+| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
+| `full` | 61 | ~18.2K | ~20.4K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
+| `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materials, asset and ITOM work: queries plus asset writes checked against the instance (`manage_asset`). Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **Max tokens** is the approximate footprint each package's tool schemas add to the model's context per request (tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Prefer the narrowest package to keep context and cost down. **This is the maximum**, not a typical cost: it is paid in full only by clients that load every tool schema up front. Clients with deferred tool loading (e.g. Claude Code's tool search) load a schema only when that tool is used, so their real per-request cost is far lower. Tool counts are package members; every package also carries `list_tool_packages`, and a multi-instance setup adds `list_instances`, `compare_instances` and an `instance` parameter on every tool — the second token column measures that with three instances. Figures are measured with tiktoken, not estimated (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` lists every tool's share).
 
@@ -98,4 +98,4 @@ No silent failures — the LLM knows exactly which package to request.
 
 ## Full tool list
 
-For the complete list of all 77 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).
+For the complete list of all 75 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).

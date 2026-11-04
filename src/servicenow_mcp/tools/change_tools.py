@@ -5,7 +5,7 @@ This module provides tools for managing change requests in ServiceNow.
 """
 
 import logging
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Any, ClassVar, Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -90,13 +90,6 @@ class RejectChangeParams(BaseModel):
     )
 
 
-@register_tool(
-    name="submit_change_for_approval",
-    params=SubmitChangeForApprovalParams,
-    description="Transition a change request to assess state and create an approval record. Requires change_id.",
-    serialization="str",
-    return_type=str,
-)
 def submit_change_for_approval(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -214,13 +207,6 @@ def _find_change_approval(
     return (pending[0] if pending else rows[0]), None
 
 
-@register_tool(
-    name="approve_change",
-    params=ApproveChangeParams,
-    description="Approve a change's approval record (by approver_id); advance the change_request (default: implement).",
-    serialization="str",
-    return_type=str,
-)
 def approve_change(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -314,13 +300,6 @@ def approve_change(
         }
 
 
-@register_tool(
-    name="reject_change",
-    params=RejectChangeParams,
-    description="Reject a change's approval record (by approver_id) with reason; advance the change_request (default: canceled).",
-    serialization="str",
-    return_type=str,
-)
 def reject_change(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -416,11 +395,11 @@ def reject_change(
 
 
 # ---------------------------------------------------------------------------
-# manage_change — bundled CRUD for change_request
+# manage_change — change_request CRUD plus the approval transitions.
 #
-# Note: approve_change, reject_change, submit_change_for_approval are kept as
-# separate tools (state-machine orchestrators with 4+ API calls each), not
-# folded into manage_change.
+# submit/approve/reject were three tools of their own; folded in as actions they
+# reuse state (target state) and work_notes (comment / reject reason) and cost
+# one field, approver_id.
 # ---------------------------------------------------------------------------
 
 _CHANGE_CREATE_FIELDS = (
@@ -448,6 +427,9 @@ _CHANGE_UPDATE_FIELDS = (
 )
 
 
+_APPROVAL_FIELDS = frozenset({"change_id", "state", "work_notes", "dry_run"})
+
+
 class ManageChangeParams(BaseModel):
     """Manage change requests — table: change_request.
 
@@ -456,12 +438,14 @@ class ManageChangeParams(BaseModel):
       create:   short_description, type ('normal' | 'standard' | 'emergency')
       update:   change_id, at least one field
       add_task: change_id, task_short_description
+      submit/approve: change_id
+      reject:   change_id, work_notes (the reason)
     """
 
-    action: Literal["get", "create", "update", "add_task"] = Field(...)
-    change_id: Optional[str] = Field(
-        default=None, description="sys_id or CHG number for get/update/add_task"
+    action: Literal["get", "create", "update", "add_task", "submit", "approve", "reject"] = Field(
+        ...
     )
+    change_id: Optional[str] = Field(default=None, description="sys_id or CHG number")
 
     # get (list mode) params
     limit: int = Field(default=10, description="Max records (get list mode)")
@@ -489,8 +473,16 @@ class ManageChangeParams(BaseModel):
     start_date: Optional[str] = Field(default=None)
     end_date: Optional[str] = Field(default=None)
     requested_by: Optional[str] = Field(default=None, description="Create only")
-    state: Optional[str] = Field(default=None, description="Update only")
-    work_notes: Optional[str] = Field(default=None, description="Update only")
+    state: Optional[str] = Field(
+        default=None,
+        description="Code or label. submit/approve/reject: target (assess/implement/canceled)",
+    )
+    work_notes: Optional[str] = Field(
+        default=None, description="Update note; approval comment; reject reason (required)"
+    )
+    approver_id: Optional[str] = Field(
+        default=None, description="Approver sys_id or name; else first pending (approve/reject)"
+    )
 
     # add_task-specific
     task_short_description: Optional[str] = Field(default=None, description="Required for add_task")
@@ -501,25 +493,39 @@ class ManageChangeParams(BaseModel):
 
     dry_run: bool = Field(default=False)
 
+    _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
+        "get": frozenset(
+            {"change_id", "limit", "offset", "timeframe", "query", "count_only", "state", "type"}
+            | {"category", "assignment_group"}
+        ),
+        "create": frozenset({"type", "dry_run", *_CHANGE_CREATE_FIELDS}),
+        "update": frozenset({"change_id", "dry_run", *_CHANGE_UPDATE_FIELDS}),
+        "add_task": frozenset(
+            {"change_id", "dry_run", "task_short_description", "task_description"}
+            | {"task_assigned_to", "task_planned_start_date", "task_planned_end_date"}
+        ),
+        "submit": _APPROVAL_FIELDS,
+        "approve": _APPROVAL_FIELDS | {"approver_id"},
+        "reject": _APPROVAL_FIELDS | {"approver_id"},
+    }
+
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageChangeParams":
-        if self.action == "get":
-            pass
-        elif self.action == "create":
+        if self.action == "create":
             if not self.short_description:
                 raise ValueError("short_description is required for action='create'")
             if not self.type:
                 raise ValueError("type is required for action='create' (normal/standard/emergency)")
-        elif self.action == "update":
-            if not self.change_id:
-                raise ValueError("change_id is required for action='update'")
+        elif self.action != "get" and not self.change_id:
+            raise ValueError(f"change_id is required for action='{self.action}'")
+        if self.action == "update":
             if not any(getattr(self, f) is not None for f in _CHANGE_UPDATE_FIELDS):
                 raise ValueError("at least one field must be provided for action='update'")
         elif self.action == "add_task":
-            if not self.change_id:
-                raise ValueError("change_id is required for action='add_task'")
             if not self.task_short_description:
                 raise ValueError("task_short_description is required for action='add_task'")
+        elif self.action == "reject" and not self.work_notes:
+            raise ValueError("work_notes (the rejection reason) is required for action='reject'")
         return self
 
 
@@ -530,7 +536,7 @@ def _project_change(params: ManageChangeParams, fields: tuple[str, ...]) -> Dict
 @register_tool(
     name="manage_change",
     params=ManageChangeParams,
-    description="Get/create/update a change request or add a change task (table: change_request).",
+    description="Change requests: get/create/update, add a task, submit/approve/reject approval.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -564,6 +570,43 @@ def manage_change(
             short_description=params.short_description,
             type=params.type,
             **_project_change(params, _CHANGE_CREATE_FIELDS[1:]),
+        )
+    if params.action == "submit":
+        assert params.change_id is not None
+        return submit_change_for_approval(
+            config,
+            auth_manager,
+            SubmitChangeForApprovalParams(
+                change_id=params.change_id,
+                approval_comments=params.work_notes,
+                change_state=params.state,
+            ),
+        )
+    if params.action == "approve":
+        assert params.change_id is not None
+        return approve_change(
+            config,
+            auth_manager,
+            ApproveChangeParams(
+                change_id=params.change_id,
+                approver_id=params.approver_id,
+                approval_comments=params.work_notes,
+                change_state=params.state,
+                dry_run=params.dry_run,
+            ),
+        )
+    if params.action == "reject":
+        assert params.change_id is not None and params.work_notes is not None
+        return reject_change(
+            config,
+            auth_manager,
+            RejectChangeParams(
+                change_id=params.change_id,
+                approver_id=params.approver_id,
+                rejection_reason=params.work_notes,
+                change_state=params.state,
+                dry_run=params.dry_run,
+            ),
         )
     if params.action == "update":
         assert params.change_id is not None

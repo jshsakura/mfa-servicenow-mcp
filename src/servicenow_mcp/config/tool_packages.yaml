@@ -168,7 +168,9 @@ platform_developer:
     - scaffold_page
     # Bundled (Phase 2 + 3)
     - manage_incident
-    - manage_change
+    # submit only: approve/reject are full-package decisions
+    - manage_change:
+        actions: [get, create, update, add_task, submit]
     - manage_workflow
     - manage_script_include
     - manage_business_rule
@@ -180,8 +182,6 @@ platform_developer:
     - manage_portal_layout
     - manage_portal_component
     # Incident writes — manage_incident covers create/update/comment/resolve
-    # Change Management orchestrators (manage_change covers create/update/add_task)
-    - submit_change_for_approval
     # Local Sync writes
     - update_remote_from_local
     # Domain-targeted source dumps (rare, kept for explicit upgrade)
@@ -200,10 +200,11 @@ service_desk:
 
 # --- HAM + ITOM: materials and asset management, CMDB, discovery, events ---
 # Deliberately almost nothing. Assets, stockrooms, transfer orders, CIs and discovery
-# runs are all plain tables, so this job is sn_query and sn_aggregate. The domain
-# knowledge is config/asset_manager.rules.md (sent once per session) and the
-# asset-itom-map skill (costs nothing until loaded). Everything else is a
-# general-purpose add-on, combined by comma: asset_manager,scripting,office_files.
+# runs are all plain tables, so reading them is sn_query and sn_aggregate; the one
+# write tool is manage_asset, which checks every value against the instance before
+# writing. The domain knowledge is config/asset_manager.rules.md (sent once per
+# session) and the asset-itom-map skill (costs nothing until loaded). Everything
+# else is a general-purpose add-on, combined by comma: asset_manager,scripting.
 asset_manager:
   - sn_health
   - sn_query
@@ -211,6 +212,7 @@ asset_manager:
   - sn_schema
   - sn_discover
   - sn_resolve_url
+  - manage_asset
 
 # --- Add-on (general): server-side logic, update sets, and shipping it. ---
 scripting:
@@ -255,6 +257,7 @@ full:
     # Bundled CRUD (Phase 2 + 3 — preferred surface)
     - manage_incident
     - manage_change
+    - manage_asset
     - manage_kb_article
     - manage_changeset
     - manage_script_include
@@ -277,10 +280,6 @@ full:
     # ServiceNow surface at all, but `full` is defined as every manage_*
     # workflow, and it was the one missing from that claim.
     - manage_workbook
-    # Change Management orchestrators (manage_change covers create/update/add_task)
-    - submit_change_for_approval
-    - approve_change
-    - reject_change
     # Flow Designer (Read) — unified tool; it has no write actions any more
     - manage_flow_designer
     # Portal debugging (specialized read — moved out of standard)

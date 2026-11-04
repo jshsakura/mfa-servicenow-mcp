@@ -34,7 +34,6 @@ _NOTHING_TO_NARROW: dict[str, str] = {}
 # which is the thing that had no detector at all before.
 _NOT_YET_MAPPED = frozenset(
     {
-        "manage_change",
         "manage_changeset",
         "manage_epic",
         "manage_group",

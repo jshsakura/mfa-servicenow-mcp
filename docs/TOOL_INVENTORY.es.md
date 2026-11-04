@@ -2,8 +2,8 @@
 
 Para evitar el coste de mantener un inventario traducido fila por fila, este archivo es un **resumen** de la superficie de herramientas actual. Las cifras las actualiza `scripts/regenerate_doc_counts.py`.
 
-Herramientas registradas en el registro activo: **77**
-Recuento de herramientas empaquetadas en `full`: **63**
+Herramientas registradas en el registro activo: **75**
+Recuento de herramientas empaquetadas en `full`: **61**
 Herramientas registradas pero actualmente sin empaquetar: **11**
 
 - Listado completo herramienta por herramienta: [TOOL_INVENTORY.md en inglés](./TOOL_INVENTORY.md)
@@ -18,11 +18,11 @@ Está documentado más abajo, pero los recuentos de paquetes en este archivo ref
 | `none` | 0 | Perfil deshabilitado para apagar herramientas intencionadamente. |
 | `core` | 12 | Elementos esenciales mínimos de solo lectura para trabajo rápido de health/schema/table. |
 | `standard` | 31 | Paquete predeterminado de solo lectura para incidentes, cambios, portal, registros y análisis de fuentes. |
-| `asset_manager` | 6 | Superficie centrada en consultas para materiales, activos e ITOM. Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
+| `asset_manager` | 7 | Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 33 | standard más flujos de escritura de incidentes y cambios para soporte operativo. |
 | `portal_developer` | 52 | standard más flujos de portal, changeset, script include y entrega de sincronización local. |
-| `platform_developer` | 46 | standard más flujos de workflow, Flow Designer, UI policy, incidentes/cambios y escrituras de scripts. |
-| `full` | 63 | La superficie empaquetada más amplia: todos los flujos manage_* más operaciones avanzadas. |
+| `platform_developer` | 45 | standard más flujos de workflow, Flow Designer, UI policy, incidentes/cambios y escrituras de scripts. |
+| `full` | 61 | La superficie empaquetada más amplia: todos los flujos manage_* más operaciones avanzadas. |
 
 ## Auxiliares Inyectados en Tiempo de Ejecución
 

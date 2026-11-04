@@ -15,7 +15,6 @@
 | :--- | :---: | :---: | :---: | :--- |
 | `core` | 12 | ~2.2K | ~2.7K | 최소 읽기 전용: 헬스체크, 스키마, 탐색, 핵심 조회만 |
 | `standard` | 31 | ~7.4K | ~8.3K | **(기본값)** 인시던트/변경/포털/로그/소스 분석 읽기 전용 |
-| `asset_manager` | 6 | ~0.8K | ~1.2K | 자재·자산·ITOM 업무용 조회 중심 최소 구성. 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `none` | 0 | 0 | 0 | 모든 도구를 의도적으로 비활성화 (테스트, 잠금 환경) |
 
 애드온 — 범용이며 단독 패키지가 아닙니다. 어떤 패키지에든 쉼표로 붙여 씁니다 (`MCP_TOOL_PACKAGE=asset_manager,scripting`). ⚠️는 쓰기 가능:
@@ -33,8 +32,9 @@
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ 인시던트/변경 업데이트·종료가 필요한 서비스 데스크 담당자 |
 | `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
-| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
-| `full` | 63 | ~18.3K | ~20.5K | ⚠️ 가장 고급 — 모든 도메인의 쓰기 도구 전체를 동시에 (아래 경고 참고) |
+| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
+| `full` | 61 | ~18.2K | ~20.4K | ⚠️ 가장 고급 — 모든 도메인의 쓰기 도구 전체를 동시에 (아래 경고 참고) |
+| `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 자재·자산·ITOM 업무용 최소 구성: 조회와, 인스턴스에서 먼저 검증하는 자산 쓰기(`manage_asset`). 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **최대 토큰** = 요청마다 해당 패키지의 툴 스키마가 모델 컨텍스트에 더하는 대략적 토큰 수(tiktoken cl100k_base 기준, 실제 Claude 토큰 수는 약간 다름). 좁은 패키지를 쓸수록 컨텍스트와 비용이 절약됩니다. **이 값은 최대치**이며 평소 비용이 아닙니다. 모든 툴 스키마를 처음부터 싣는 클라이언트만 이 전부를 냅니다. 툴 지연 로딩을 지원하는 클라이언트(예: Claude Code의 툴 검색)는 실제로 쓰는 툴의 스키마만 불러오므로, 요청당 실제 비용은 훨씬 적습니다. 도구 수는 패키지 구성원 수입니다. 모든 패키지에 `list_tool_packages`가 함께 붙고, 멀티 인스턴스 구성에서는 `list_instances`, `compare_instances`와 모든 툴의 `instance` 파라미터가 더해집니다 — 두 번째 토큰 열은 인스턴스 3개 기준 실측값입니다. 수치는 추정이 아니라 tiktoken 실측입니다(`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>`로 툴별 내역 확인).
 
@@ -95,4 +95,4 @@ Enable package 'portal_developer' or higher to use this tool.
 
 ## 전체 도구 목록
 
-카테고리와 패키지별 전체 77개 도구 목록은 [도구 목록](TOOL_INVENTORY.ko.md)에서 확인하세요.
+카테고리와 패키지별 전체 75개 도구 목록은 [도구 목록](TOOL_INVENTORY.ko.md)에서 확인하세요.

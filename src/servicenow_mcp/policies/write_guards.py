@@ -83,6 +83,9 @@ _CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
         "change_request", "change_id", frozenset({"update"}), ("sys_id", "number")
     ),
     "manage_changeset": _EditTarget("sys_update_set", "changeset_id", frozenset({"update"})),
+    "manage_asset": _EditTarget(
+        "alm_asset", "asset_id", frozenset({"update"}), ("sys_id", "asset_tag", "serial_number")
+    ),
     "manage_workflow": _EditTarget(
         "wf_workflow",
         "workflow_id",
@@ -220,8 +223,7 @@ CONFIRM_PUBLISH_VALUE = "approve"
 # Otherwise dict of arg matches (all must match).
 _PUBLISH_CLASS_TOOLS: Dict[str, Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]] = {
     "update_remote_from_local": None,
-    "approve_change": None,
-    "submit_change_for_approval": None,
+    "manage_change": {"action": ("submit", "approve")},
     "manage_changeset": {"action": ("commit",)},
 }
 
@@ -308,6 +310,7 @@ READ_ONLY_MANAGE_TOOLS = frozenset({"manage_flow_designer"})
 MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_incident": frozenset({"get"}),
     "manage_change": frozenset({"get"}),
+    "manage_asset": frozenset({"get"}),
     "manage_changeset": frozenset({"get"}),
     "manage_user": frozenset({"get", "list"}),
     "manage_group": frozenset({"list"}),

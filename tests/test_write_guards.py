@@ -102,8 +102,12 @@ def test_is_read_only(tool: str, args: Dict[str, Any], expected_read_only: bool)
         ("publish_changeset", {}, False),
         ("commit_changeset", {}, False),
         ("update_remote_from_local", {}, True),
-        ("approve_change", {}, True),
-        ("submit_change_for_approval", {}, True),
+        # Approvals are manage_change actions; reject and the CRUD actions are not publish-class.
+        ("manage_change", {"action": "approve"}, True),
+        ("manage_change", {"action": "submit"}, True),
+        ("manage_change", {"action": "reject"}, False),
+        ("manage_change", {"action": "update"}, False),
+        ("approve_change", {}, False),
         # Removed: 'published' is not an update set state.
         ("manage_changeset", {"action": "publish"}, False),
         ("manage_changeset", {"action": "commit"}, True),
@@ -175,12 +179,14 @@ def test_g6_allows_sn_write_to_unrelated_table() -> None:
 
 def test_g7_blocks_submit_change_without_confirm_publish() -> None:
     with pytest.raises(PolicyViolation, match=r"\[G7\]"):
-        run_write_guards(_SERVER, "submit_change_for_approval", {"change_id": "abc"})
+        run_write_guards(_SERVER, "manage_change", {"action": "submit", "change_id": "abc"})
 
 
 def test_g7_allows_submit_change_with_confirm_publish() -> None:
     run_write_guards(
-        _SERVER, "submit_change_for_approval", {"change_id": "abc", "confirm_publish": "approve"}
+        _SERVER,
+        "manage_change",
+        {"action": "submit", "change_id": "abc", "confirm_publish": "approve"},
     )
 
 
@@ -200,7 +206,7 @@ def test_g7_push_rejection_points_to_preview_no_dead_end() -> None:
 def test_g7_generic_publish_rejection_has_no_push_hint() -> None:
     # The hint is push-specific; a generic publish-class rejection stays clean.
     with pytest.raises(PolicyViolation) as exc:
-        run_write_guards(_SERVER, "submit_change_for_approval", {"change_id": "abc"})
+        run_write_guards(_SERVER, "manage_change", {"action": "submit", "change_id": "abc"})
     assert "diff_local_component" not in str(exc.value)
 
 

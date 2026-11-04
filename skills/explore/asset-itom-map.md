@@ -11,6 +11,7 @@ tools:
   - sn_schema
   - sn_query
   - sn_aggregate
+  - manage_asset
 triggers:
   - "자재 재고 확인"
   - "자산 현황"
@@ -80,10 +81,32 @@ mean there is no data: the work may sit in a custom table. `install_status` and
 
 ## Writes
 
-`asset_manager` is read-only, and no package has a dedicated tool that updates asset or CI
-records. Do not reach for `sn_write` or hand over a background script: say the gap
-plainly. Configuration writes (script includes, business rules, jobs) are in the
-`scripting` add-on.
+Asset records are written with `manage_asset`, in `asset_manager` and `full`. Before
+any write it reads the instance: the class must extend `alm_asset`, every column must
+exist on it, `install_status` and `substatus` must be on its choice list (a substatus
+only under its own status), and every reference must point at a real record. Values
+can be codes or labels.
+
+| Lifecycle step | Call |
+|---|---|
+| Look one asset up | `manage_asset(action="get", asset_id=<sys_id, tag or serial>)` |
+| Register an asset | `action="create"` with `model`, plus `install_status`, `stockroom`, `asset_tag`, `serial_number`. `model_category` comes from the model when it has one; `asset_class` defaults to `alm_hardware` |
+| Hand it to a user | `action="update"` with `assigned_to` and `install_status` (In use) |
+| Back to stock, repair, retire | `action="update"` with `install_status` and `substatus` |
+| Move between stockrooms | `action="transfer"` with `stockroom` (from), `to_stockroom`, and `asset_ids` or `model` + `quantity`. It creates the transfer order and its lines; the stages after that are the platform's workflow |
+
+1. Run the write with `dry_run=true` first and show the result.
+2. Read `server_changed` in the answer. Business rules on `alm_asset` rewrite fields
+   (status, stockroom, the CI link). A changed field did not take the value you sent:
+   report it, never call it done.
+3. `PARTIAL_TRANSFER` means the order exists with some lines. Name the order number
+   and leave the decision to the user.
+
+Not covered: receiving against a purchase order, inventory audits and disposal. They
+are Hardware Asset Management plugin flows. CI records are not written either. Say the
+gap plainly. Do not reach for `sn_write` or hand over a background script.
+Configuration writes (script includes, business rules, jobs) are in the `scripting`
+add-on.
 
 ## ON ERROR
 
@@ -93,4 +116,4 @@ plainly. Configuration writes (script includes, business rules, jobs) are in the
 
 ## DELEGATE hint
 
-Safe to delegate: read-only, and the result is a short report. Have the agent return counts and differences, not rows.
+Reads are safe to delegate, and the result is a short report. Keep writes in the main session, where the user approves them. Have the agent return counts and differences, not rows.

@@ -1124,8 +1124,6 @@ class TestPublishConfirmIsAdvertisedNotHidden:
         "tool_name",
         [
             "update_remote_from_local",
-            "approve_change",
-            "submit_change_for_approval",
         ],
     )
     def test_always_publish_class_tools_require_it(self, tool_name):
@@ -1133,7 +1131,7 @@ class TestPublishConfirmIsAdvertisedNotHidden:
         assert schema["properties"]["confirm_publish"]["enum"] == ["approve"]
         assert "confirm_publish" in schema["required"]
 
-    @pytest.mark.parametrize("tool_name", ["manage_changeset"])
+    @pytest.mark.parametrize("tool_name", ["manage_changeset", "manage_change"])
     def test_action_dependent_tools_advertise_without_requiring(self, tool_name):
         """These publish on SOME actions; requiring it would block their reads."""
         schema = self._schema(tool_name)

@@ -194,7 +194,7 @@ TLS 检查代理（Zscaler 之类）和被封锁的 PyPI 访问各有对应的�
 
 - 面向 MFA/SSO 环境（Okta、Entra ID、SAML、MFA）的**浏览器认证**
 - **4 种认证模式**：Browser、Basic、OAuth、API Key
-- **77 个已注册工具**，含 **6 个活动工具包配置**外加禁用的 `none`——从最简只读到广泛的捆绑式 CRUD
+- **75 个已注册工具**，含 **6 个活动工具包配置**外加禁用的 `none`——从最简只读到广泛的捆绑式 CRUD
 - **4 个工作流技能**，带安全门、子代理委派和经过验证的流水线
 - **可流式 HTTP 传输**——保留 stdio 作为默认值，或为支持 HTTP 的客户端和桥接器暴露 `/mcp`
 - **本地源代码审计**，带 HTML 报告、交叉引用图、死代码检测和自动生成的领域知识
@@ -492,7 +492,6 @@ python -m servicenow_mcp \
 | `none` | 0 | 0 | 0 | 用于有意关闭工具的禁用配置 |
 | `core` | 12 | ~2.2K | ~2.7K | 用于健康检查、schema、发现和关键工件查找的最简只读必需项 |
 | `standard` | 31 | ~7.4K | ~8.3K | **（默认）** 跨 incidents、changes、portal、logs 和源码分析的只读 |
-| `asset_manager` | 6 | ~0.8K | ~1.2K | 面向物料、资产和 ITOM 工作的以查询为主的最简组合。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 
 ⚠️ 具备写入能力（高级——授予创建/更新/删除）：
 
@@ -500,8 +499,9 @@ python -m servicenow_mcp \
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ standard + incident 和 change 运营写入 |
 | `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
-| `platform_developer` | 46 | ~13.4K | ~15.0K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
-| `full` | 63 | ~18.3K | ~20.5K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
+| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
+| `full` | 61 | ~18.2K | ~20.4K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
+| `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 面向物料、资产和 ITOM 工作的最简组合：查询，以及先在实例上校验的资产写入（`manage_asset`）。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 
 > **最大令牌** = 每次请求该包的工具 schema 向模型上下文增加的大致 token 数（基于 tiktoken cl100k_base，实际 Claude token 数略有差异）；使用更窄的包可节省上下文与成本。 **这是最大值**，而非常规开销：只有在启动时加载全部工具 schema 的客户端才会付出全部开销。支持工具延迟加载的客户端（如 Claude Code 的工具搜索）只在使用某个工具时才加载其 schema，因此每次请求的实际开销要低得多。 工具数为包成员数；每个包另带 `list_tool_packages`，多实例配置还会增加 `list_instances`、`compare_instances` 以及每个工具上的 `instance` 参数 — 第二个令牌列为 3 个实例时的实测值。数值为 tiktoken 实测而非估算（`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` 可列出每个工具的占比）。
 

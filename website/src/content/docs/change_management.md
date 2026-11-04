@@ -1,158 +1,71 @@
 ---
-title: "ServiceNow MCP Change Management Tools"
+title: "Change Management"
 description: "Change management tools available in the ServiceNow MCP server."
 slug: change_management
 ---
 
-This document provides information about the change management tools available in the ServiceNow MCP server.
+One tool, `manage_change`, covers change requests (`change_request`), their
+tasks, and the approval steps.
 
-## Overview
+| Package | Actions |
+|---|---|
+| `platform_developer` | every action except approve and reject |
+| `full` | every action |
 
-The change management tools allow Claude to interact with ServiceNow's change management functionality, enabling users to create, update, and manage change requests through natural language conversations.
+Write actions need `confirm='approve'`, like every write in this server. For
+long or filtered lists, `sn_query` with `table=change_request` also works.
 
-## Available Tools
+## Actions
 
-The ServiceNow MCP server provides the following change management tools:
+| Action | Required | Optional |
+|---|---|---|
+| `action="get"` | `change_id` for one record; nothing for a list | `limit`, `offset`, `timeframe`, `query`, `state`, `type`, `category`, `assignment_group`, `count_only` |
+| `action="create"` | `short_description`, `type` | `description`, `risk`, `impact`, `category`, `requested_by`, `assignment_group`, `start_date`, `end_date` |
+| `action="update"` | `change_id` and one field or more | `short_description`, `description`, `state`, `risk`, `impact`, `category`, `assignment_group`, `start_date`, `end_date`, `work_notes` |
+| `action="add_task"` | `change_id`, `task_short_description` | `task_description`, `task_assigned_to`, `task_planned_start_date`, `task_planned_end_date` |
+| `action="submit"` | `change_id` | `state` (default Assess), `work_notes` (approval comment) |
+| `action="approve"` | `change_id` | `approver_id`, `state` (default Implement), `work_notes` (comment) |
+| `action="reject"` | `change_id`, `work_notes` (the reason) | `approver_id`, `state` (default Canceled) |
 
-### Core Change Request Management
+## Approvals
 
-1. **`manage_change`** - Bundled CRUD for change requests (table: `change_request`)
-   - `action` (required): one of `create` / `update` / `add_task`
-   - For `action="create"`: `short_description`, `type` (`normal`/`standard`/`emergency`), plus optional `description`, `risk`, `impact`, `category`, `requested_by`, `assignment_group`, `start_date`, `end_date`
-   - For `action="update"`: `change_id` plus at least one updatable field (`short_description`, `description`, `state`, `risk`, `impact`, `category`, `assignment_group`, `start_date`, `end_date`, `work_notes`); supports `dry_run=True` for a preview
-   - For `action="add_task"`: `change_id`, `task_short_description`, plus optional `task_description`, `task_assigned_to`, `task_planned_start_date`, `task_planned_end_date`
+- `action="submit"` moves the change to the target state and creates an
+  approval record in the requested state.
+- `action="approve"` and `action="reject"` act on the approval record of
+  `approver_id` (a sys_id or a name). Without it, they act on the first record
+  still pending. Then they move the change to the target state.
+- Submit and approve also need `confirm_publish='approve'`, because they move a
+  change other people act on.
 
-2. **`sn_query`** (with `table=change_request`) - List change requests with arbitrary filters
-   - Use the generic table-query primitive for listing change requests. See [Tool Inventory](../TOOL_INVENTORY/) for `sn_query` parameters.
+## Choice values
 
-3. **`manage_change(action="get")`** - Get detailed information about a specific change request
-   - Parameters:
-     - `change_id` (required): Change request ID or sys_id
+`state`, `type`, `risk` and `impact` store codes, not words: `state` -4 is
+Assess and -1 is Implement. Pass the code or its label. Before writing, the
+tool checks the value against the instance's own choice list (`sys_choice`). A
+value that is not on the list is refused, and the refusal lists every valid
+value.
 
-### Change Approval Workflow
+For approve and reject, the target state is checked before the approval record
+is touched. A bad state cannot leave the approval decided and the change where
+it was.
 
-1. **submit_change_for_approval** - Submit a change request for approval
-   - Parameters:
-     - `change_id` (required): Change request ID or sys_id
-     - `approval_comments`: Comments for the approval request
+## Previews
 
-2. **approve_change** - Approve a change request
-   - Parameters:
-     - `change_id` (required): Change request ID or sys_id
-     - `approver_id`: ID of the approver
-     - `approval_comments`: Comments for the approval
+Pass `dry_run=true` on any write action:
 
-3. **reject_change** - Reject a change request
-   - Parameters:
-     - `change_id` (required): Change request ID or sys_id
-     - `approver_id`: ID of the approver
-     - `rejection_reason` (required): Reason for rejection
+- `action="update"` returns a field-by-field diff.
+- `action="approve"` and `action="reject"` return the approval record and the
+  change state they would set.
+- Every other write action returns `would_send`: the exact request the call
+  would make.
 
-## Example Usage with Claude
+Either way, nothing is written.
 
-Once the ServiceNow MCP server is configured with Claude Desktop, you can ask Claude to perform actions like:
+## Example prompts
 
-### Creating and Managing Change Requests
-
-- "Create a change request for server maintenance to apply security patches tomorrow night"
-- "Schedule a database upgrade for next Tuesday from 2 AM to 4 AM"
-- "Create an emergency change to fix the critical security vulnerability in our web application"
-
-### Adding Tasks and Implementation Details
-
-- "Add a task to the server maintenance change for pre-implementation checks"
-- "Add a task to verify system backups before starting the database upgrade"
-- "Update the implementation plan for the network change to include rollback procedures"
-
-### Approval Workflow
-
-- "Submit the server maintenance change for approval"
-- "Show me all changes waiting for my approval"
-- "Approve the database upgrade change with comment: implementation plan looks thorough"
-- "Reject the network change due to insufficient testing"
-
-### Querying Change Information
-
-- "Show me all emergency changes scheduled for this week"
-- "What's the status of the database upgrade change?"
-- "List all changes assigned to the Network team"
-- "Show me the details of change CHG0010001"
-
-## Example Code
-
-Here's an example of how to use the change management tools programmatically:
-
-```python
-from servicenow_mcp.auth.auth_manager import AuthManager
-from servicenow_mcp.tools.change_tools import ManageChangeParams, manage_change
-from servicenow_mcp.utils.config import ServerConfig
-
-# Create server configuration
-server_config = ServerConfig(
-    instance_url="https://your-instance.service-now.com",
-)
-
-# Create authentication manager
-auth_manager = AuthManager(
-    auth_type="basic",
-    username="your-username",
-    password="your-password",
-    instance_url="https://your-instance.service-now.com",
-)
-
-# Create a change request via the bundled manage_change tool
-params = ManageChangeParams(
-    action="create",
-    short_description="Server maintenance - Apply security patches",
-    description="Apply the latest security patches to the application servers.",
-    type="normal",
-    risk="moderate",
-    impact="medium",
-    category="Hardware",
-    start_date="2023-12-15 01:00:00",
-    end_date="2023-12-15 03:00:00",
-)
-
-result = manage_change(server_config, auth_manager, params)
-print(result)
-```
-
-The sample above shows the programmatic request shape and the key imports needed to integrate change management into your own automation.
-
-## Integration with Claude Desktop
-
-To configure the ServiceNow MCP server with change management tools in Claude Desktop:
-
-1. Edit the Claude Desktop configuration file at `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or the appropriate path for your OS:
-
-```json
-{
-  "mcpServers": {
-    "ServiceNow": {
-      "command": "/Users/yourusername/dev/servicenow-mcp/.venv/bin/python",
-      "args": [
-        "-m",
-        "servicenow_mcp.cli"
-      ],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "your-username",
-        "SERVICENOW_PASSWORD": "your-password",
-        "SERVICENOW_AUTH_TYPE": "basic"
-      }
-    }
-  }
-}
-```
-
-2. Restart Claude Desktop to apply the changes
-
-## Customization
-
-The change management tools can be customized to match your organization's specific ServiceNow configuration:
-
-- State values may need to be adjusted based on your ServiceNow instance configuration
-- Additional fields can be added to the parameter models if needed
-- Approval workflows may need to be modified to match your organization's approval process
-
-To customize the tools, modify the `change_tools.py` file in the `src/servicenow_mcp/tools` directory. 
+- "Create a change request for server maintenance to apply security patches tomorrow night."
+- "Add a task to the server maintenance change for pre-implementation checks."
+- "Submit the server maintenance change for approval."
+- "Approve the database upgrade change with the comment: the implementation plan looks thorough."
+- "Reject the network change: not enough testing."
+- "Show me all emergency changes scheduled for this week."
