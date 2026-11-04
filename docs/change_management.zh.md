@@ -4,8 +4,7 @@
 
 | 工具包 | 操作 |
 |---|---|
-| `platform_developer` | 除批准（approve）和拒绝（reject）以外的全部操作 |
-| `full` | 全部操作 |
+| `platform_developer`、`full` | 全部操作 |
 
 与本服务器的其他写入一样，写入操作需要 `confirm='approve'`。较长或带筛选条件的列表也可以用 `sn_query` 并指定 `table=change_request`。
 

@@ -36,9 +36,14 @@ length:
    that will never call it (~2-3k tokens/request for the portal/source-analysis
    set alone). Move clusters out to opt-in read layers.
 2. **Action multiplex + `_FIELDS_BY_ACTION`.** One `manage_*` tool with narrowed
-   per-action fields beats N tools. Applied to 7 tools; a `manage_*` tool without
-   the map exposes every field on every action. Merging user-facing *getters* is
-   NOT safe — it degrades selection; internal resolver merges are.
+   per-action fields beats N tools. A `manage_*` tool without the map exposes
+   every field on every action; the ones still unmapped are listed in
+   `tests/test_action_field_narrowing_coverage.py::_NOT_YET_MAPPED`. Merging
+   user-facing *getters* is NOT safe — it degrades selection; internal resolver
+   merges are. A package's action allowlist narrows WHICH tools/actions a role
+   sees, never write permission (that is `allow_writes` / `confirm` /
+   `confirm_publish` at call time): reads only, or every write — never some of
+   them (`test_a_package_never_hands_out_some_write_actions_of_a_tool`).
 3. **Output projection.** Read tools defaulting to `fields=""` return whole
    records. This is the largest remaining win and it costs no accuracy.
 

@@ -7,7 +7,7 @@
 #   service_desk       — standard + operational incident/change writes.
 #   portal_developer   — standard + portal/changeset/script/local-sync writes.
 #   platform_developer — standard + workflow/incident/change/script writes.
-#   asset_manager      — Minimal query surface for materials, asset and ITOM work.
+#   asset_manager      — Materials, asset and ITOM work: queries plus manage_asset.
 #   scripting          — Add-on: server-side logic, update sets, XML deployment.
 #   office_files       — Add-on: Excel and attachments.
 #   debug_window       — Add-on: the shared browser.
@@ -168,9 +168,7 @@ platform_developer:
     - scaffold_page
     # Bundled (Phase 2 + 3)
     - manage_incident
-    # submit only: approve/reject are full-package decisions
-    - manage_change:
-        actions: [get, create, update, add_task, submit]
+    - manage_change
     - manage_workflow
     - manage_script_include
     - manage_business_rule

@@ -5,8 +5,7 @@ tasks, and the approval steps.
 
 | Package | Actions |
 |---|---|
-| `platform_developer` | every action except approve and reject |
-| `full` | every action |
+| `platform_developer`, `full` | every action |
 
 Write actions need `confirm='approve'`, like every write in this server. For
 long or filtered lists, `sn_query` with `table=change_request` also works.

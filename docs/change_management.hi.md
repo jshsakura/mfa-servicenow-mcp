@@ -4,8 +4,7 @@
 
 | पैकेज | एक्शन |
 |---|---|
-| `platform_developer` | approve और reject को छोड़कर हर एक्शन |
-| `full` | हर एक्शन |
+| `platform_developer`, `full` | हर एक्शन |
 
 इस सर्वर के हर write की तरह write एक्शन के लिए `confirm='approve'` चाहिए। लंबी या फ़िल्टर की गई सूचियों के लिए `table=change_request` के साथ `sn_query` भी काम करता है।
 

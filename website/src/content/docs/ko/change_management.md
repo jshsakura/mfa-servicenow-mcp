@@ -8,8 +8,7 @@ slug: ko/change_management
 
 | 패키지 | 액션 |
 |---|---|
-| `platform_developer` | 승인(approve)과 반려(reject)를 뺀 모든 액션 |
-| `full` | 모든 액션 |
+| `platform_developer`, `full` | 모든 액션 |
 
 쓰기 액션은 이 서버의 다른 쓰기와 마찬가지로 `confirm='approve'`가 필요합니다. 길거나 조건이 복잡한 목록은 `table=change_request`로 `sn_query`를 써도 됩니다.
 

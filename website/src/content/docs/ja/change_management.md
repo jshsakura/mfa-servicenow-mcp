@@ -8,8 +8,7 @@ slug: ja/change_management
 
 | パッケージ | アクション |
 |---|---|
-| `platform_developer` | 承認（approve）と却下（reject）以外のすべてのアクション |
-| `full` | すべてのアクション |
+| `platform_developer`, `full` | すべてのアクション |
 
 書き込みアクションには、このサーバーの他の書き込みと同じく `confirm='approve'` が必要です。長い一覧や条件付きの一覧には、`table=change_request` を指定した `sn_query` も使えます。
 

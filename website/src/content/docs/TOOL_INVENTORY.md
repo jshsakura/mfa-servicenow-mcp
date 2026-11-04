@@ -86,7 +86,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_change` | R/W | Change requests: get/create/update, add a task, submit/approve/reject approval. | platform_developer (add_task, create, get, submit, update), full |
+| `manage_change` | R/W | Change requests: get/create/update, add a task, submit/approve/reject approval. | platform_developer, full |
 
 ### Changeset Tools (1)
 

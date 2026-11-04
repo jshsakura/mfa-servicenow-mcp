@@ -2,8 +2,8 @@
 name: asset-itom-map
 description: Table map and first queries for HAM, materials management, CMDB and ITOM work
 context_cost: low
-safety_level: none
-delegatable: yes
+safety_level: confirm
+delegatable: false
 required_input: the question (stock, asset lifecycle, CI, discovery run, alert)
 output: report
 tools:

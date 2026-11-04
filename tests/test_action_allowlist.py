@@ -406,3 +406,42 @@ class TestHiddenActionsAreNamed:
                     "manage_workflow", {"action": "create", "confirm": "approve"}
                 )
             )
+
+
+def _package_names():
+    import yaml
+
+    from servicenow_mcp.server import TOOL_PACKAGE_CONFIG_PATH
+
+    with open(TOOL_PACKAGE_CONFIG_PATH, encoding="utf-8") as fh:
+        return [name for name in yaml.safe_load(fh) if name != "none"]
+
+
+@pytest.mark.parametrize("package", _package_names())
+def test_a_package_never_hands_out_some_write_actions_of_a_tool(package):
+    """A package decides WHICH tools a role sees; whether a write may run is the
+    call-time gates' job (allow_writes, confirm, confirm_publish).
+
+    So an action allowlist may show a tool's reads only (the role does not work
+    in that domain) or everything. Keeping some writes and dropping others is
+    the package re-deciding write permission: platform_developer held
+    manage_change submit but not approve/reject, a second gate the confirm
+    triggers already were.
+    """
+    from typing import get_args
+
+    from servicenow_mcp.policies.write_guards import MANAGE_READ_ACTIONS
+
+    server = _server_with_package(package)
+    for tool, allowed in server._active_action_allowlists.items():
+        model = server.tool_definitions[tool][1]
+        if allowed is None or "action" not in model.model_fields:
+            continue  # no restriction: the whole tool is exposed
+        actions = set(get_args(model.model_fields["action"].annotation))
+        reads = set(MANAGE_READ_ACTIONS.get(tool, ()))
+        writes = actions - reads
+        exposed = set(allowed) & writes
+        assert exposed in (set(), writes), (
+            f"{package} exposes {sorted(exposed)} of {tool}'s writes but not "
+            f"{sorted(writes - exposed)}"
+        )

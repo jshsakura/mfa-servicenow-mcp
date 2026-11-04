@@ -4,8 +4,7 @@ Una sola herramienta, `manage_change`, cubre las solicitudes de cambio (`change_
 
 | Paquete | Acciones |
 |---|---|
-| `platform_developer` | todas las acciones menos aprobar (approve) y rechazar (reject) |
-| `full` | todas las acciones |
+| `platform_developer`, `full` | todas las acciones |
 
 Las acciones de escritura necesitan `confirm='approve'`, como cualquier escritura en este servidor. Para listas largas o filtradas también sirve `sn_query` con `table=change_request`.
 
