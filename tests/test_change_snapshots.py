@@ -14,6 +14,9 @@ import pytest
 
 from servicenow_mcp.tools.change_tools import ManageChangeParams, manage_change
 
+# Writes to choice columns resolve against sys_choice first; answered by conftest.
+pytestmark = pytest.mark.usefixtures("live_choices")
+
 SNAPSHOTS_DIR = Path(__file__).parent / "snapshots" / "change"
 
 
@@ -77,7 +80,7 @@ def test_snap_manage_change_update(mock_config, auth):
             ManageChangeParams(
                 action="update",
                 change_id="ch_001",
-                state="2",
+                state="-2",
                 short_description="Patch DB v2",
                 work_notes="approved by CAB",
             ),

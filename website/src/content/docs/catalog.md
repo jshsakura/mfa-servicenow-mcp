@@ -1,193 +1,89 @@
 ---
-title: "ServiceNow Service Catalog Integration"
+title: "Service Catalog"
 description: "ServiceNow Service Catalog integration tools and workflows."
 slug: catalog
 ---
 
-This document provides information about the ServiceNow Service Catalog integration in the ServiceNow MCP server.
+One tool, `manage_catalog`, covers service catalog categories (`sc_category`),
+items (`sc_cat_item`) and item variables (`item_option_new`).
 
-## Overview
+| Package | Actions |
+|---|---|
+| `service_desk` | the four read actions |
+| `portal_developer`, `full` | every action |
 
-The ServiceNow Service Catalog integration allows you to:
+Write actions need `confirm='approve'`, like every write in this server.
 
-- List service catalog categories
-- List service catalog items
-- Get detailed information about specific catalog items, including their variables
-- Filter catalog items by category or search query
+## Read actions
 
-## Tools
+| Action | Arguments | Returns |
+|---|---|---|
+| `action="list_categories"` | `limit`, `offset`, `query`, `active`, `count_only` | categories |
+| `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | items |
+| `action="get_item"` | `item_id` | the item and its variables |
+| `action="list_item_variables"` | `catalog_item_id` | variables: name, label, type code, mandatory, default, order |
 
-The following tools are available for interacting with the ServiceNow Service Catalog:
+The two list actions return:
 
-### `manage_catalog(action="list_categories")`
+- `count`: the rows on this page.
+- `total`: how many rows match on the server.
+- `more`: present when there is another page. It also gives the offset to ask
+  for next.
 
-Lists available service catalog categories.
+If the server sends no match count, the response says `total_unknown` instead
+of guessing one. `count_only=true` returns just the count.
 
-**Parameters:**
-- `limit` (int, default: 10): Maximum number of categories to return
-- `offset` (int, default: 0): Offset for pagination
-- `query` (string, optional): Search query for categories
-- `active` (boolean, default: true): Whether to only return active categories
+## Write actions
 
-**Example:**
-```python
-from servicenow_mcp.tools.catalog_tools import ListCatalogCategoriesParams, list_catalog_categories
+| Action | Required | Optional |
+|---|---|---|
+| `action="create_category"` | `title` | `description`, `parent`, `icon`, `active`, `order` |
+| `action="update_category"` | `category_id` and one field or more | the same fields as create |
+| `action="update_item"` | `item_id` and one field or more | `name`, `short_description`, `description`, `category`, `price`, `active`, `order` |
+| `action="move_items"` | `item_ids`, `target_category_id` | |
+| `action="create_variable"` | `catalog_item_id`, `variable_name`, `variable_type`, `label` | `mandatory`, `help_text`, `default_value`, `description`, `order`, `reference_table`, `reference_qualifier`, `max_length`, `min`, `max` |
+| `action="update_variable"` | `variable_id` and one field or more | `variable_name`, `variable_type`, `reference_table`, and the optional fields of create |
 
-params = ListCatalogCategoriesParams(
-    limit=5,
-    query="hardware"
-)
-result = list_catalog_categories(config, auth_manager, params)
-```
+### Variable types
 
-### `manage_catalog(action="list_items")`
+`item_option_new.type` stores a number, not a word. Pass the number or its label:
 
-Lists available service catalog items.
+| Code | Label |
+|---|---|
+| `6` | Single Line Text |
+| `2` | Multi Line Text |
+| `5` | Select Box |
+| `3` | Multiple Choice |
+| `7` | CheckBox |
+| `8` | Reference |
+| `9` | Date |
+| `10` | Date/Time |
 
-**Parameters:**
-- `limit` (int, default: 10): Maximum number of items to return
-- `offset` (int, default: 0): Offset for pagination
-- `category` (string, optional): Filter by category
-- `query` (string, optional): Search query for items
-- `active` (boolean, default: true): Whether to only return active items
+Before writing, the tool checks the value against the instance's own choice list
+(`sys_choice`), so options added on your instance are accepted too. A value
+that is not on the list is refused, and the refusal lists every valid code.
+If the choice list cannot be read, nothing is written.
 
-**Example:**
-```python
-from servicenow_mcp.tools.catalog_tools import ListCatalogItemsParams, list_catalog_items
+### Length and range
 
-params = ListCatalogItemsParams(
-    limit=5,
-    category="hardware",
-    query="laptop"
-)
-result = list_catalog_items(config, auth_manager, params)
-```
+- `item_option_new` has no `max_length` column. `max_length` is saved in the
+  variable's `attributes` as `max_length=N`, the same way the platform saves it.
+- `min` and `max` set `scale_min` and `scale_max`, the range of a rating scale.
 
-### `manage_catalog(action="get_item")`
+## Previews
 
-Gets detailed information about a specific catalog item.
+Pass `dry_run=true` on any write action:
 
-**Parameters:**
-- `item_id` (string, required): Catalog item ID or sys_id
+- `action="update_category"` and `action="update_item"` return a field-by-field diff.
+- Every other write action returns `would_send`: the exact request the call
+  would make.
 
-**Example:**
-```python
-from servicenow_mcp.tools.catalog_tools import GetCatalogItemParams, get_catalog_item
+Either way, nothing is written. The server enforces this for every tool. A
+preview cannot turn into a write.
 
-params = GetCatalogItemParams(
-    item_id="item123"
-)
-result = get_catalog_item(config, auth_manager, params)
-```
+## Example prompts
 
-## Resources
-
-The following resources are available for accessing the ServiceNow Service Catalog:
-
-### `catalog://items`
-
-Lists service catalog items.
-
-**Example:**
-```
-catalog://items
-```
-
-### `catalog://categories`
-
-Lists service catalog categories.
-
-**Example:**
-```
-catalog://categories
-```
-
-### `catalog://{item_id}`
-
-Gets a specific catalog item by ID.
-
-**Example:**
-```
-catalog://item123
-```
-
-## Integration with Claude Desktop
-
-To use the ServiceNow Service Catalog with Claude Desktop:
-
-1. Configure the ServiceNow MCP server in Claude Desktop
-2. Ask Claude questions about the service catalog
-
-**Example prompts:**
-- "Can you list the available service catalog categories in ServiceNow?"
-- "Can you show me the available items in the ServiceNow service catalog?"
-- "Can you list the catalog items in the Hardware category?"
-- "Can you show me the details of the 'New Laptop' catalog item?"
-- "Can you find catalog items related to 'software' in ServiceNow?"
-- "Can you create a new category called 'Cloud Services' in the service catalog?"
-- "Can you update the 'Hardware' category to rename it to 'IT Equipment'?"
-- "Can you move the 'Virtual Machine' catalog item to the 'Cloud Services' category?"
-- "Can you create a subcategory called 'Monitors' under the 'IT Equipment' category?"
-- "Can you reorganize our catalog by moving all software items to the 'Software' category?"
-
-## Example Scripts
-
-### Integration Test
-
-The `examples/catalog_integration_test.py` script demonstrates how to use the catalog tools directly:
-
-```bash
-python examples/catalog_integration_test.py
-```
-
-### Claude Desktop Demo
-
-The `examples/claude_catalog_demo.py` script demonstrates how to use the catalog functionality with Claude Desktop:
-
-```bash
-python examples/claude_catalog_demo.py
-```
-
-## Data Models
-
-### CatalogItemModel
-
-Represents a ServiceNow catalog item.
-
-**Fields:**
-- `sys_id` (string): Unique identifier for the catalog item
-- `name` (string): Name of the catalog item
-- `short_description` (string, optional): Short description of the catalog item
-- `description` (string, optional): Detailed description of the catalog item
-- `category` (string, optional): Category of the catalog item
-- `price` (string, optional): Price of the catalog item
-- `picture` (string, optional): Picture URL of the catalog item
-- `active` (boolean, optional): Whether the catalog item is active
-- `order` (integer, optional): Order of the catalog item in its category
-
-### CatalogCategoryModel
-
-Represents a ServiceNow catalog category.
-
-**Fields:**
-- `sys_id` (string): Unique identifier for the category
-- `title` (string): Title of the category
-- `description` (string, optional): Description of the category
-- `parent` (string, optional): Parent category ID
-- `icon` (string, optional): Icon of the category
-- `active` (boolean, optional): Whether the category is active
-- `order` (integer, optional): Order of the category
-
-### CatalogItemVariableModel
-
-Represents a ServiceNow catalog item variable.
-
-**Fields:**
-- `sys_id` (string): Unique identifier for the variable
-- `name` (string): Name of the variable
-- `label` (string): Label of the variable
-- `type` (string): Type of the variable
-- `mandatory` (boolean, optional): Whether the variable is mandatory
-- `default_value` (string, optional): Default value of the variable
-- `help_text` (string, optional): Help text for the variable
-- `order` (integer, optional): Order of the variable
+- "List the catalog categories and how many items each one holds."
+- "Show the variables on the 'New Laptop' item."
+- "Add a mandatory Single Line Text variable 'asset_tag' to that item. Preview it first."
+- "Move these three items into the Hardware category."

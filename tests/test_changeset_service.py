@@ -40,9 +40,7 @@ class TestCreate(unittest.TestCase):
     @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
     def test_success_with_optional_fields(self, mock_inv):
         auth = _auth({"result": {"sys_id": "abc", "name": "CS"}})
-        result = cs_svc.create(
-            _config(), auth, name="CS", application="App", description="d", developer="dev"
-        )
+        result = cs_svc.create(_config(), auth, name="CS", application="App", description="d")
         self.assertTrue(result["success"])
         args, kwargs = auth.make_request.call_args
         self.assertEqual(kwargs["json"]["description"], "d")
@@ -129,32 +127,10 @@ class TestCommit(unittest.TestCase):
         self.assertIn("Commit failed", result["message"])
 
 
-class TestPublish(unittest.TestCase):
-    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
-    def test_success(self, mock_inv):
-        auth = _auth({"result": {"sys_id": "123", "state": "published"}})
-        result = cs_svc.publish(_config(), auth, changeset_id="123")
-        self.assertTrue(result["success"])
-        args, kwargs = auth.make_request.call_args
-        self.assertEqual(kwargs["json"]["state"], "published")
-        mock_inv.assert_called_once_with(table="sys_update_set")
-
-    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
-    def test_with_notes(self, mock_inv):
-        auth = _auth({"result": {"sys_id": "123", "state": "published"}})
-        result = cs_svc.publish(_config(), auth, changeset_id="123", publish_notes="release v2")
-        self.assertTrue(result["success"])
-        args, kwargs = auth.make_request.call_args
-        self.assertEqual(kwargs["json"]["description"], "release v2")
-
-    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
-    def test_error(self, mock_inv):
-        auth = MagicMock()
-        auth.get_headers.return_value = {}
-        auth.make_request.side_effect = Exception("Publish failed")
-        result = cs_svc.publish(_config(), auth, changeset_id="123")
-        self.assertFalse(result["success"])
-        self.assertIn("Publish failed", result["message"])
+class TestPublishRetired(unittest.TestCase):
+    def test_no_service_writes_a_state_that_does_not_exist(self):
+        # sys_update_set.state is in progress, complete or ignore; never published.
+        self.assertFalse(hasattr(cs_svc, "publish"))
 
 
 class TestAddFileRetired(unittest.TestCase):

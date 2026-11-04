@@ -153,26 +153,6 @@ class TestJsonFastMigration:
         # Non-string passes through
         assert _json_or_raw_string(42) == 42
 
-    def test_resources_changesets_error_uses_json_fast(self):
-        """Changeset resource error responses must use json_fast."""
-        from servicenow_mcp.resources.changesets import ChangesetResource
-
-        mock_config = MagicMock()
-        mock_config.instance_url = "https://test.service-now.com"
-        mock_auth = MagicMock()
-        mock_auth.get_headers.return_value = {}
-
-        ChangesetResource(mock_config, mock_auth)  # verify instantiation works
-        import servicenow_mcp.resources.changesets as mod
-
-        assert hasattr(mod, "json_fast")
-
-    def test_resources_script_includes_error_uses_json_fast(self):
-        """Script include resource error responses must use json_fast."""
-        import servicenow_mcp.resources.script_includes as mod
-
-        assert hasattr(mod, "json_fast")
-
 
 # ============================================================================
 # 2. Shallow-copy schema injection (replaces copy.deepcopy)

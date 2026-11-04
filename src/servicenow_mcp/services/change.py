@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services.choices import resolve_payload_choices
 from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
@@ -31,6 +32,13 @@ TASK_LISTING_FIELDS = (
     "assignment_group,order,on_hold,planned_start_date,planned_end_date,"
     "close_code,close_notes,sys_created_on,sys_updated_on"
 )
+
+
+# Integer choices on change_request (state -4 = Assess, risk 3 = Moderate, ...).
+# A word is stored as-is, answered 200, and the change never moves. Resolved
+# against the live choice list; `category` is left alone because instances
+# commonly run it as free text.
+CHANGE_CHOICE_FIELDS = ("type", "state", "risk", "impact")
 
 
 def create(
@@ -65,6 +73,12 @@ def create(
     ):
         if value:
             data[field_name] = value
+
+    refusal = resolve_payload_choices(
+        config, auth_manager, table="change_request", data=data, elements=CHANGE_CHOICE_FIELDS
+    )
+    if refusal is not None:
+        return refusal
 
     url = f"{config.api_url}/table/change_request"
 
@@ -126,6 +140,12 @@ def update(
     ):
         if value:
             data[field_name] = value
+
+    refusal = resolve_payload_choices(
+        config, auth_manager, table="change_request", data=data, elements=CHANGE_CHOICE_FIELDS
+    )
+    if refusal is not None:
+        return refusal
 
     url = f"{config.api_url}/table/change_request/{change_id}"
 

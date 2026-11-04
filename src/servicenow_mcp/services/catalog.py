@@ -8,9 +8,10 @@ move_items / create_variable / update_variable operations.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services.choices import resolve_choice
 from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
@@ -288,6 +289,24 @@ def _apply_variable_constraints(
         data["scale_max"] = max
 
 
+# item_option_new.type is an integer choice (6 = Single Line Text, 8 = Reference,
+# ...) declared on its parent table `question`. "string" is not one of them: the
+# record was created with a type the form cannot render, and reported success.
+def resolve_variable_type(
+    config: ServerConfig, auth_manager: AuthManager, requested: str
+) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Return ``(code, None)`` for a known code or label, else ``(None, refusal)``."""
+    return resolve_choice(
+        config,
+        auth_manager,
+        table="question",
+        element="type",
+        requested=requested,
+        unknown_error="UNKNOWN_VARIABLE_TYPE",
+        unverified_error="VARIABLE_TYPE_UNVERIFIED",
+    )
+
+
 def create_variable(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -308,10 +327,13 @@ def create_variable(
     max: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Add a form variable to a catalog item."""
+    type_code, refusal = resolve_variable_type(config, auth_manager, variable_type)
+    if refusal is not None:
+        return refusal
     data: Dict[str, Any] = {
         "cat_item": catalog_item_id,
         "name": name,
-        "type": variable_type,
+        "type": type_code,
         "question_text": label,
         "mandatory": str(mandatory).lower(),
     }
@@ -356,6 +378,9 @@ def update_variable(
     auth_manager: AuthManager,
     *,
     variable_id: str,
+    variable_name: Optional[str] = None,
+    variable_type: Optional[str] = None,
+    reference_table: Optional[str] = None,
     label: Optional[str] = None,
     mandatory: Optional[bool] = None,
     help_text: Optional[str] = None,
@@ -369,6 +394,15 @@ def update_variable(
 ) -> Dict[str, Any]:
     """Update an existing catalog item variable."""
     data: Dict[str, Any] = {}
+    if variable_type is not None:
+        type_code, refusal = resolve_variable_type(config, auth_manager, variable_type)
+        if refusal is not None:
+            return refusal
+        data["type"] = type_code
+    if variable_name is not None:
+        data["name"] = variable_name
+    if reference_table is not None:
+        data["reference"] = reference_table
     if label is not None:
         data["question_text"] = label
     if mandatory is not None:
@@ -410,6 +444,22 @@ def update_variable(
         return {"success": False, "message": f"Failed to update catalog item variable: {str(e)}"}
 
 
+def _page_totals(count: int, server_total: Optional[int], offset: int) -> Dict[str, Any]:
+    """`total` is the server's match count, never the size of this page.
+
+    It used to be ``len(page)``: a page of 10 read as "10 in the catalog".
+    When the server sends no count, `total` is left out rather than guessed.
+    """
+    out: Dict[str, Any] = {"count": count}
+    if server_total is not None:
+        out["total"] = server_total
+        if offset + count < server_total:
+            out["more"] = f"{server_total - offset - count:,} more; offset={offset + count}"
+    else:
+        out["total_unknown"] = True
+    return out
+
+
 def list_items(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -442,7 +492,7 @@ def list_items(
     if count_only:
         return count_response(config, auth_manager, "sc_cat_item", qs, what="catalog items")
     try:
-        records, _ = sn_query_page(
+        records, server_total = sn_query_page(
             config,
             auth_manager,
             table="sc_cat_item",
@@ -469,7 +519,7 @@ def list_items(
             "success": True,
             "message": f"Retrieved {len(items)} catalog items",
             "items": items,
-            "total": len(items),
+            **_page_totals(len(items), server_total, offset),
             "limit": limit,
             "offset": offset,
         }
@@ -545,15 +595,22 @@ def list_categories(
     query: Optional[str] = None,
     limit: int = 10,
     offset: int = 0,
+    count_only: bool = False,
 ) -> Dict[str, Any]:
     filters = []
+    notes = []
     if active:
         filters.append("active=true")
     if query:
-        filters.append(f"titleLIKE{query}^ORdescriptionLIKE{query}")
+        safe_q = safe_value(query)
+        filters.append(f"titleLIKE{safe_q.value}^ORdescriptionLIKE{safe_q.value}")
+        if safe_q.changed:
+            notes.append(safe_q.note(field="query"))
     qs = "^".join(filters)
+    if count_only:
+        return count_response(config, auth_manager, "sc_category", qs, what="catalog categories")
     try:
-        records, _ = sn_query_page(
+        records, server_total = sn_query_page(
             config,
             auth_manager,
             table="sc_category",
@@ -576,14 +633,17 @@ def list_categories(
             }
             for r in records
         ]
-        return {
+        answer: Dict[str, Any] = {
             "success": True,
             "message": f"Retrieved {len(cats)} catalog categories",
             "categories": cats,
-            "total": len(cats),
+            **_page_totals(len(cats), server_total, offset),
             "limit": limit,
             "offset": offset,
         }
+        if notes:
+            answer["filter_notes"] = notes
+        return answer
     except Exception as e:
         return {
             "success": False,

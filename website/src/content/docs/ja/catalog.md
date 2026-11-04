@@ -1,193 +1,80 @@
 ---
-title: "ServiceNow サービスカタログ統合"
+title: "サービスカタログ"
 description: "ServiceNow Service Catalog integration tools and workflows."
 slug: ja/catalog
 ---
 
-このドキュメントは、ServiceNow MCP サーバーにおける ServiceNow サービスカタログ統合に関する情報を提供します。
+1 つのツール `manage_catalog` で、サービスカタログのカテゴリ（`sc_category`）、アイテム（`sc_cat_item`）、アイテム変数（`item_option_new`）を扱います。
 
-## 概要
+| パッケージ | アクション |
+|---|---|
+| `service_desk` | 読み取りアクション 4 つ |
+| `portal_developer`, `full` | すべてのアクション |
 
-ServiceNow サービスカタログ統合により、以下が可能になります:
+書き込みアクションには、このサーバーの他の書き込みと同じく `confirm='approve'` が必要です。
 
-- サービスカタログのカテゴリを一覧表示する
-- サービスカタログのアイテムを一覧表示する
-- 特定のカタログアイテムの詳細情報（変数を含む）を取得する
-- カテゴリまたは検索クエリでカタログアイテムをフィルタする
+## 読み取りアクション
 
-## ツール
+| アクション | 引数 | 戻り値 |
+|---|---|---|
+| `action="list_categories"` | `limit`, `offset`, `query`, `active`, `count_only` | カテゴリ一覧 |
+| `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | アイテム一覧 |
+| `action="get_item"` | `item_id` | アイテムとその変数 |
+| `action="list_item_variables"` | `catalog_item_id` | 変数一覧：名前、ラベル、タイプコード、必須、既定値、順序 |
 
-ServiceNow サービスカタログを操作するために、以下のツールが利用できます:
+2 つの一覧アクションは次の値を返します。
 
-### `manage_catalog(action="list_categories")`
+- `count`：このページの件数。
+- `total`：サーバー上で条件に一致する件数。
+- `more`：次のページがあるときだけ返り、次に指定する offset も示します。
 
-利用可能なサービスカタログのカテゴリを一覧表示します。
+サーバーが件数を返さない場合は推測せず、`total_unknown` と示します。`count_only=true` を指定すると件数だけを返します。
 
-**パラメータ:**
-- `limit` (int, デフォルト: 10): 返すカテゴリの最大数
-- `offset` (int, デフォルト: 0): ページネーション用のオフセット
-- `query` (string, 任意): カテゴリの検索クエリ
-- `active` (boolean, デフォルト: true): アクティブなカテゴリのみを返すかどうか
+## 書き込みアクション
 
-**例:**
-```python
-from servicenow_mcp.tools.catalog_tools import ListCatalogCategoriesParams, list_catalog_categories
+| アクション | 必須 | 任意 |
+|---|---|---|
+| `action="create_category"` | `title` | `description`, `parent`, `icon`, `active`, `order` |
+| `action="update_category"` | `category_id` と 1 つ以上のフィールド | create と同じフィールド |
+| `action="update_item"` | `item_id` と 1 つ以上のフィールド | `name`, `short_description`, `description`, `category`, `price`, `active`, `order` |
+| `action="move_items"` | `item_ids`, `target_category_id` | |
+| `action="create_variable"` | `catalog_item_id`, `variable_name`, `variable_type`, `label` | `mandatory`, `help_text`, `default_value`, `description`, `order`, `reference_table`, `reference_qualifier`, `max_length`, `min`, `max` |
+| `action="update_variable"` | `variable_id` と 1 つ以上のフィールド | `variable_name`, `variable_type`, `reference_table`、create の任意フィールド |
 
-params = ListCatalogCategoriesParams(
-    limit=5,
-    query="hardware"
-)
-result = list_catalog_categories(config, auth_manager, params)
-```
+### 変数タイプ
 
-### `manage_catalog(action="list_items")`
+`item_option_new.type` に保存されるのは単語ではなく数値コードです。コードかラベルのどちらかを渡してください。
 
-利用可能なサービスカタログのアイテムを一覧表示します。
+| コード | ラベル |
+|---|---|
+| `6` | Single Line Text |
+| `2` | Multi Line Text |
+| `5` | Select Box |
+| `3` | Multiple Choice |
+| `7` | CheckBox |
+| `8` | Reference |
+| `9` | Date |
+| `10` | Date/Time |
 
-**パラメータ:**
-- `limit` (int, デフォルト: 10): 返すアイテムの最大数
-- `offset` (int, デフォルト: 0): ページネーション用のオフセット
-- `category` (string, 任意): カテゴリでフィルタ
-- `query` (string, 任意): アイテムの検索クエリ
-- `active` (boolean, デフォルト: true): アクティブなアイテムのみを返すかどうか
+書き込む前に、そのインスタンス自身の選択肢一覧（`sys_choice`）と照合するため、インスタンスで追加した選択肢も受け付けます。一覧にない値は拒否し、有効なコードをすべて示します。選択肢一覧を読めない場合は何も書き込みません。
 
-**例:**
-```python
-from servicenow_mcp.tools.catalog_tools import ListCatalogItemsParams, list_catalog_items
+### 長さと範囲
 
-params = ListCatalogItemsParams(
-    limit=5,
-    category="hardware",
-    query="laptop"
-)
-result = list_catalog_items(config, auth_manager, params)
-```
+- `item_option_new` には `max_length` 列がありません。`max_length` はプラットフォームと同じ方法で、変数の `attributes` に `max_length=N` として保存されます。
+- `min` と `max` は評価スケール（rating scale）の範囲である `scale_min`、`scale_max` を設定します。
 
-### `manage_catalog(action="get_item")`
+## プレビュー
 
-特定のカタログアイテムの詳細情報を取得します。
+どの書き込みアクションにも `dry_run=true` を渡せます。
 
-**パラメータ:**
-- `item_id` (string, 必須): カタログアイテム ID または sys_id
+- `action="update_category"` と `action="update_item"` はフィールドごとの差分を返します。
+- それ以外の書き込みアクションは、送信するはずのリクエストをそのまま `would_send` として返します。
 
-**例:**
-```python
-from servicenow_mcp.tools.catalog_tools import GetCatalogItemParams, get_catalog_item
+どちらの場合も何も書き込みません。このルールはサーバーがすべてのツールに強制しているため、プレビューが実際の書き込みに変わることはありません。
 
-params = GetCatalogItemParams(
-    item_id="item123"
-)
-result = get_catalog_item(config, auth_manager, params)
-```
+## プロンプト例
 
-## リソース
-
-ServiceNow サービスカタログにアクセスするために、以下のリソースが利用できます:
-
-### `catalog://items`
-
-サービスカタログのアイテムを一覧表示します。
-
-**例:**
-```
-catalog://items
-```
-
-### `catalog://categories`
-
-サービスカタログのカテゴリを一覧表示します。
-
-**例:**
-```
-catalog://categories
-```
-
-### `catalog://{item_id}`
-
-ID で特定のカタログアイテムを取得します。
-
-**例:**
-```
-catalog://item123
-```
-
-## Claude Desktop との統合
-
-Claude Desktop で ServiceNow サービスカタログを使用するには:
-
-1. Claude Desktop で ServiceNow MCP サーバーを設定する
-2. サービスカタログについて Claude に質問する
-
-**プロンプト例:**
-- "Can you list the available service catalog categories in ServiceNow?"
-- "Can you show me the available items in the ServiceNow service catalog?"
-- "Can you list the catalog items in the Hardware category?"
-- "Can you show me the details of the 'New Laptop' catalog item?"
-- "Can you find catalog items related to 'software' in ServiceNow?"
-- "Can you create a new category called 'Cloud Services' in the service catalog?"
-- "Can you update the 'Hardware' category to rename it to 'IT Equipment'?"
-- "Can you move the 'Virtual Machine' catalog item to the 'Cloud Services' category?"
-- "Can you create a subcategory called 'Monitors' under the 'IT Equipment' category?"
-- "Can you reorganize our catalog by moving all software items to the 'Software' category?"
-
-## サンプルスクリプト
-
-### 統合テスト
-
-`examples/catalog_integration_test.py` スクリプトは、カタログツールを直接使用する方法を示します:
-
-```bash
-python examples/catalog_integration_test.py
-```
-
-### Claude Desktop デモ
-
-`examples/claude_catalog_demo.py` スクリプトは、Claude Desktop でカタログ機能を使用する方法を示します:
-
-```bash
-python examples/claude_catalog_demo.py
-```
-
-## データモデル
-
-### CatalogItemModel
-
-ServiceNow のカタログアイテムを表します。
-
-**フィールド:**
-- `sys_id` (string): カタログアイテムの一意の識別子
-- `name` (string): カタログアイテムの名前
-- `short_description` (string, 任意): カタログアイテムの短い説明
-- `description` (string, 任意): カタログアイテムの詳細な説明
-- `category` (string, 任意): カタログアイテムのカテゴリ
-- `price` (string, 任意): カタログアイテムの価格
-- `picture` (string, 任意): カタログアイテムの画像 URL
-- `active` (boolean, 任意): カタログアイテムがアクティブかどうか
-- `order` (integer, 任意): カテゴリ内でのカタログアイテムの順序
-
-### CatalogCategoryModel
-
-ServiceNow のカタログカテゴリを表します。
-
-**フィールド:**
-- `sys_id` (string): カテゴリの一意の識別子
-- `title` (string): カテゴリのタイトル
-- `description` (string, 任意): カテゴリの説明
-- `parent` (string, 任意): 親カテゴリの ID
-- `icon` (string, 任意): カテゴリのアイコン
-- `active` (boolean, 任意): カテゴリがアクティブかどうか
-- `order` (integer, 任意): カテゴリの順序
-
-### CatalogItemVariableModel
-
-ServiceNow のカタログアイテム変数を表します。
-
-**フィールド:**
-- `sys_id` (string): 変数の一意の識別子
-- `name` (string): 変数の名前
-- `label` (string): 変数のラベル
-- `type` (string): 変数の型
-- `mandatory` (boolean, 任意): 変数が必須かどうか
-- `default_value` (string, 任意): 変数のデフォルト値
-- `help_text` (string, 任意): 変数のヘルプテキスト
-- `order` (integer, 任意): 変数の順序
+- 「カタログのカテゴリと、カテゴリごとのアイテム数を見せて。」
+- 「'New Laptop' アイテムの変数を見せて。」
+- 「そのアイテムに必須の Single Line Text 変数 'asset_tag' を追加して。まずプレビューで。」
+- 「この 3 つのアイテムを Hardware カテゴリに移して。」

@@ -14,35 +14,9 @@ from servicenow_mcp.services import catalog as _cat_svc
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .sn_api import count_response, sn_query_page
+from .sn_api import sn_query_page
 
 logger = logging.getLogger(__name__)
-
-
-class ListCatalogItemsParams(BaseModel):
-    """Parameters for listing service catalog items."""
-
-    limit: int = Field(default=10, description="Maximum number of items to return")
-    offset: int = Field(default=0, description="Offset for pagination")
-    category: Optional[str] = Field(default=None, description="Filter by category sys_id")
-    active: Optional[bool] = Field(default=None, description="Filter by active status")
-    query: Optional[str] = Field(default=None, description="Search query for items")
-    count_only: bool = Field(default=False, description="Return count only")
-
-
-class GetCatalogItemParams(BaseModel):
-    """Parameters for getting a catalog item."""
-
-    item_id: str = Field(..., description="Catalog item ID or sys_id")
-
-
-class ListCatalogCategoriesParams(BaseModel):
-    """Parameters for listing catalog categories."""
-
-    limit: int = Field(default=10, description="Maximum number of categories to return")
-    offset: int = Field(default=0, description="Offset for pagination")
-    active: Optional[bool] = Field(default=None, description="Filter by active status")
-    query: Optional[str] = Field(default=None, description="Search query")
 
 
 class CatalogResponse(BaseModel):
@@ -51,134 +25,6 @@ class CatalogResponse(BaseModel):
     success: bool = Field(..., description="Whether the operation was successful")
     message: str = Field(..., description="Message describing the result")
     data: Optional[Dict[str, Any]] = Field(default=None, description="Response data")
-
-
-def list_catalog_items(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ListCatalogItemsParams,
-) -> Dict[str, Any]:
-    """List service catalog items from ServiceNow."""
-    filters = []
-    if params.active:
-        filters.append("active=true")
-    if params.category:
-        filters.append(f"category={params.category}")
-    if params.query:
-        filters.append(f"short_descriptionLIKE{params.query}^ORnameLIKE{params.query}")
-
-    query_string = "^".join(filters) if filters else ""
-
-    if params.count_only:
-        return count_response(
-            config, auth_manager, "sc_cat_item", query_string, what="catalog items"
-        )
-
-    try:
-        records, total_count = sn_query_page(
-            config,
-            auth_manager,
-            table="sc_cat_item",
-            query=query_string,
-            fields="sys_id,name,short_description,category,price,picture,active,order",
-            limit=min(params.limit, 100),
-            offset=params.offset,
-            display_value=True,
-            fail_silently=False,
-        )
-
-        formatted_items = []
-        for item in records:
-            formatted_items.append(
-                {
-                    "sys_id": item.get("sys_id", ""),
-                    "name": item.get("name", ""),
-                    "short_description": item.get("short_description", ""),
-                    "category": item.get("category", ""),
-                    "price": item.get("price", ""),
-                    "picture": item.get("picture", ""),
-                    "active": item.get("active", ""),
-                    "order": item.get("order", ""),
-                }
-            )
-
-        return {
-            "success": True,
-            "message": f"Retrieved {len(formatted_items)} catalog items",
-            "items": formatted_items,
-            "total": len(formatted_items),
-            "limit": params.limit,
-            "offset": params.offset,
-        }
-
-    except Exception as e:
-        logger.error(f"Error listing catalog items: {str(e)}")
-        return {
-            "success": False,
-            "message": f"Error listing catalog items: {str(e)}",
-            "items": [],
-            "total": 0,
-            "limit": params.limit,
-            "offset": params.offset,
-        }
-
-
-def get_catalog_item(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetCatalogItemParams,
-) -> CatalogResponse:
-    """Get a specific service catalog item from ServiceNow."""
-    try:
-        records, _ = sn_query_page(
-            config,
-            auth_manager,
-            table="sc_cat_item",
-            query=f"sys_id={params.item_id}",
-            fields="sys_id,name,short_description,description,category,price,picture,active,order,delivery_time,availability",
-            limit=1,
-            offset=0,
-            display_value=True,
-            fail_silently=False,
-        )
-
-        if not records:
-            return CatalogResponse(
-                success=False,
-                message=f"Catalog item not found: {params.item_id}",
-                data=None,
-            )
-
-        item = records[0]
-
-        formatted_item = {
-            "sys_id": item.get("sys_id", ""),
-            "name": item.get("name", ""),
-            "short_description": item.get("short_description", ""),
-            "description": item.get("description", ""),
-            "category": item.get("category", ""),
-            "price": item.get("price", ""),
-            "picture": item.get("picture", ""),
-            "active": item.get("active", ""),
-            "order": item.get("order", ""),
-            "delivery_time": item.get("delivery_time", ""),
-            "availability": item.get("availability", ""),
-            "variables": get_catalog_item_variables(config, auth_manager, params.item_id),
-        }
-
-        return CatalogResponse(
-            success=True,
-            message=f"Retrieved catalog item: {item.get('name', '')}",
-            data=formatted_item,
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting catalog item: {str(e)}")
-        return CatalogResponse(
-            success=False,
-            message=f"Error getting catalog item: {str(e)}",
-            data=None,
-        )
 
 
 def get_catalog_item_variables(
@@ -218,67 +64,6 @@ def get_catalog_item_variables(
         return []
 
 
-def list_catalog_categories(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: ListCatalogCategoriesParams,
-) -> Dict[str, Any]:
-    """List service catalog categories from ServiceNow."""
-    filters = []
-    if params.active:
-        filters.append("active=true")
-    if params.query:
-        filters.append(f"titleLIKE{params.query}^ORdescriptionLIKE{params.query}")
-
-    query_string = "^".join(filters) if filters else ""
-
-    try:
-        records, total_count = sn_query_page(
-            config,
-            auth_manager,
-            table="sc_category",
-            query=query_string,
-            fields="sys_id,title,description,parent,icon,active,order",
-            limit=min(params.limit, 100),
-            offset=params.offset,
-            display_value=True,
-            fail_silently=False,
-        )
-
-        formatted_categories = [
-            {
-                "sys_id": c.get("sys_id", ""),
-                "title": c.get("title", ""),
-                "description": c.get("description", ""),
-                "parent": c.get("parent", ""),
-                "icon": c.get("icon", ""),
-                "active": c.get("active", ""),
-                "order": c.get("order", ""),
-            }
-            for c in records
-        ]
-
-        return {
-            "success": True,
-            "message": f"Retrieved {len(formatted_categories)} catalog categories",
-            "categories": formatted_categories,
-            "total": len(formatted_categories),
-            "limit": params.limit,
-            "offset": params.offset,
-        }
-
-    except Exception as e:
-        logger.error(f"Error listing catalog categories: {str(e)}")
-        return {
-            "success": False,
-            "message": f"Error listing catalog categories: {str(e)}",
-            "categories": [],
-            "total": 0,
-            "limit": params.limit,
-            "offset": params.offset,
-        }
-
-
 # ---------------------------------------------------------------------------
 # manage_catalog — bundled CRUD for categories, items, and variables
 # ---------------------------------------------------------------------------
@@ -294,6 +79,9 @@ _ITEM_UPDATE_FIELDS = (
     "order",
 )
 _VARIABLE_UPDATE_FIELDS = (
+    "variable_name",
+    "variable_type",
+    "reference_table",
     "label",
     "mandatory",
     "help_text",
@@ -365,7 +153,8 @@ class ManageCatalogParams(BaseModel):
         default=None, description="Internal name (create_variable)"
     )
     variable_type: Optional[str] = Field(
-        default=None, description="string/integer/boolean/reference"
+        default=None,
+        description="Type code or label, checked on sys_choice: 6/Single Line Text, 8/Reference",
     )
     label: Optional[str] = Field(default=None)
     mandatory: Optional[bool] = Field(default=None)
@@ -414,6 +203,7 @@ class ManageCatalogParams(BaseModel):
         "move_items": frozenset({"item_ids", "target_category_id", "dry_run"}),
         "create_variable": frozenset(
             {
+                "description",
                 "catalog_item_id",
                 "variable_name",
                 "variable_type",
@@ -432,6 +222,7 @@ class ManageCatalogParams(BaseModel):
         ),
         "update_variable": frozenset(
             {
+                "description",
                 "variable_id",
                 "variable_name",
                 "variable_type",
@@ -519,6 +310,7 @@ def manage_catalog(
             query=params.query,
             limit=params.limit,
             offset=params.offset,
+            count_only=params.count_only,
         )
     if a == "list_item_variables":
         if not params.catalog_item_id:

@@ -1,193 +1,80 @@
 ---
-title: "ServiceNow 서비스 카탈로그 연동"
+title: "서비스 카탈로그"
 description: "ServiceNow Service Catalog integration tools and workflows."
 slug: ko/catalog
 ---
 
-이 문서는 ServiceNow MCP 서버의 ServiceNow 서비스 카탈로그 연동에 대한 정보를 제공합니다.
+도구 하나, `manage_catalog`로 서비스 카탈로그 카테고리(`sc_category`), 항목(`sc_cat_item`), 항목 변수(`item_option_new`)를 다룹니다.
 
-## 개요
+| 패키지 | 액션 |
+|---|---|
+| `service_desk` | 읽기 액션 4개 |
+| `portal_developer`, `full` | 모든 액션 |
 
-ServiceNow 서비스 카탈로그 연동을 통해 다음 작업을 수행할 수 있습니다.
+쓰기 액션은 이 서버의 다른 쓰기와 마찬가지로 `confirm='approve'`가 필요합니다.
 
-- 서비스 카탈로그 카테고리 목록 조회
-- 서비스 카탈로그 항목 목록 조회
-- 특정 카탈로그 항목의 상세 정보(변수 포함) 확인
-- 카테고리 또는 검색어로 카탈로그 항목 필터링
+## 읽기 액션
 
-## 도구
+| 액션 | 인자 | 반환 |
+|---|---|---|
+| `action="list_categories"` | `limit`, `offset`, `query`, `active`, `count_only` | 카테고리 목록 |
+| `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | 항목 목록 |
+| `action="get_item"` | `item_id` | 항목과 그 변수 |
+| `action="list_item_variables"` | `catalog_item_id` | 변수 목록: 이름, 라벨, 타입 코드, 필수 여부, 기본값, 순서 |
 
-ServiceNow 서비스 카탈로그와 상호작용하기 위한 도구는 다음과 같습니다.
+두 목록 액션이 돌려주는 값:
 
-### `manage_catalog(action="list_categories")`
+- `count`: 이번 페이지의 건수입니다.
+- `total`: 서버에서 조건에 맞는 전체 건수입니다.
+- `more`: 다음 페이지가 있을 때만 나오며, 다음에 요청할 offset도 함께 알려 줍니다.
 
-사용 가능한 서비스 카탈로그 카테고리를 조회합니다.
+서버가 전체 건수를 보내지 않으면 추측하지 않고 `total_unknown`으로 표시합니다. `count_only=true`를 주면 건수만 돌려줍니다.
 
-**매개변수:**
-- `limit` (int, 기본값: 10): 반환할 최대 카테고리 수
-- `offset` (int, 기본값: 0): 페이지네이션 오프셋
-- `query` (string, 선택): 카테고리 검색어
-- `active` (boolean, 기본값: true): 활성 카테고리만 반환할지 여부
+## 쓰기 액션
 
-**예시:**
-```python
-from servicenow_mcp.tools.catalog_tools import ListCatalogCategoriesParams, list_catalog_categories
+| 액션 | 필수 | 선택 |
+|---|---|---|
+| `action="create_category"` | `title` | `description`, `parent`, `icon`, `active`, `order` |
+| `action="update_category"` | `category_id`와 필드 하나 이상 | create와 같은 필드 |
+| `action="update_item"` | `item_id`와 필드 하나 이상 | `name`, `short_description`, `description`, `category`, `price`, `active`, `order` |
+| `action="move_items"` | `item_ids`, `target_category_id` | |
+| `action="create_variable"` | `catalog_item_id`, `variable_name`, `variable_type`, `label` | `mandatory`, `help_text`, `default_value`, `description`, `order`, `reference_table`, `reference_qualifier`, `max_length`, `min`, `max` |
+| `action="update_variable"` | `variable_id`와 필드 하나 이상 | `variable_name`, `variable_type`, `reference_table`, create의 선택 필드 |
 
-params = ListCatalogCategoriesParams(
-    limit=5,
-    query="hardware"
-)
-result = list_catalog_categories(config, auth_manager, params)
-```
+### 변수 타입
 
-### `manage_catalog(action="list_items")`
+`item_option_new.type`에는 단어가 아니라 숫자 코드가 저장됩니다. 코드나 라벨 중 하나를 넘기면 됩니다.
 
-사용 가능한 서비스 카탈로그 항목을 조회합니다.
+| 코드 | 라벨 |
+|---|---|
+| `6` | Single Line Text |
+| `2` | Multi Line Text |
+| `5` | Select Box |
+| `3` | Multiple Choice |
+| `7` | CheckBox |
+| `8` | Reference |
+| `9` | Date |
+| `10` | Date/Time |
 
-**매개변수:**
-- `limit` (int, 기본값: 10): 반환할 최대 항목 수
-- `offset` (int, 기본값: 0): 페이지네이션 오프셋
-- `category` (string, 선택): 카테고리별 필터
-- `query` (string, 선택): 항목 검색어
-- `active` (boolean, 기본값: true): 활성 항목만 반환할지 여부
+쓰기 전에 그 인스턴스의 선택지 목록(`sys_choice`)과 대조하므로, 인스턴스에서 추가한 선택지도 받습니다. 목록에 없는 값은 거절하고, 사용할 수 있는 코드를 모두 알려 줍니다. 선택지 목록을 읽지 못하면 아무것도 쓰지 않습니다.
 
-**예시:**
-```python
-from servicenow_mcp.tools.catalog_tools import ListCatalogItemsParams, list_catalog_items
+### 길이와 범위
 
-params = ListCatalogItemsParams(
-    limit=5,
-    category="hardware",
-    query="laptop"
-)
-result = list_catalog_items(config, auth_manager, params)
-```
+- `item_option_new`에는 `max_length` 컬럼이 없습니다. `max_length`는 플랫폼과 같은 방식으로 변수의 `attributes`에 `max_length=N` 형태로 저장됩니다.
+- `min`과 `max`는 평가 척도(rating scale)의 범위인 `scale_min`, `scale_max`를 설정합니다.
 
-### `manage_catalog(action="get_item")`
+## 미리보기
 
-특정 카탈로그 항목의 상세 정보를 조회합니다.
+모든 쓰기 액션에 `dry_run=true`를 줄 수 있습니다.
 
-**매개변수:**
-- `item_id` (string, 필수): 카탈로그 항목 ID 또는 sys_id
+- `action="update_category"`와 `action="update_item"`은 필드별 차이를 보여 줍니다.
+- 그 밖의 쓰기 액션은 보낼 요청을 그대로 `would_send`로 돌려줍니다.
 
-**예시:**
-```python
-from servicenow_mcp.tools.catalog_tools import GetCatalogItemParams, get_catalog_item
+어느 경우든 아무것도 쓰지 않습니다. 이 규칙은 서버가 모든 도구에 대해 강제하므로, 미리보기가 실제 쓰기로 바뀌는 일은 없습니다.
 
-params = GetCatalogItemParams(
-    item_id="item123"
-)
-result = get_catalog_item(config, auth_manager, params)
-```
+## 프롬프트 예시
 
-## 리소스
-
-ServiceNow 서비스 카탈로그에 접근하기 위한 리소스는 다음과 같습니다.
-
-### `catalog://items`
-
-서비스 카탈로그 항목을 조회합니다.
-
-**예시:**
-```
-catalog://items
-```
-
-### `catalog://categories`
-
-서비스 카탈로그 카테고리를 조회합니다.
-
-**예시:**
-```
-catalog://categories
-```
-
-### `catalog://{item_id}`
-
-ID로 특정 카탈로그 항목을 조회합니다.
-
-**예시:**
-```
-catalog://item123
-```
-
-## Claude Desktop 연동
-
-ServiceNow 서비스 카탈로그를 Claude Desktop에서 사용하려면:
-
-1. Claude Desktop에서 ServiceNow MCP 서버를 설정합니다
-2. Claude에게 서비스 카탈로그에 대해 질문합니다
-
-**예시 프롬프트:**
-- "Can you list the available service catalog categories in ServiceNow?"
-- "Can you show me the available items in the ServiceNow service catalog?"
-- "Can you list the catalog items in the Hardware category?"
-- "Can you show me the details of the 'New Laptop' catalog item?"
-- "Can you find catalog items related to 'software' in ServiceNow?"
-- "Can you create a new category called 'Cloud Services' in the service catalog?"
-- "Can you update the 'Hardware' category to rename it to 'IT Equipment'?"
-- "Can you move the 'Virtual Machine' catalog item to the 'Cloud Services' category?"
-- "Can you create a subcategory called 'Monitors' under the 'IT Equipment' category?"
-- "Can you reorganize our catalog by moving all software items to the 'Software' category?"
-
-## 예시 스크립트
-
-### 연동 테스트
-
-`examples/catalog_integration_test.py` 스크립트는 카탈로그 도구를 직접 사용하는 방법을 보여줍니다.
-
-```bash
-python examples/catalog_integration_test.py
-```
-
-### Claude Desktop 데모
-
-`examples/claude_catalog_demo.py` 스크립트는 Claude Desktop에서 카탈로그 기능을 사용하는 방법을 보여줍니다.
-
-```bash
-python examples/claude_catalog_demo.py
-```
-
-## 데이터 모델
-
-### CatalogItemModel
-
-ServiceNow 카탈로그 항목을 나타냅니다.
-
-**필드:**
-- `sys_id` (string): 카탈로그 항목의 고유 식별자
-- `name` (string): 카탈로그 항목 이름
-- `short_description` (string, 선택): 카탈로그 항목의 간단한 설명
-- `description` (string, 선택): 카탈로그 항목의 상세 설명
-- `category` (string, 선택): 카탈로그 항목의 카테고리
-- `price` (string, 선택): 카탈로그 항목의 가격
-- `picture` (string, 선택): 카탈로그 항목의 이미지 URL
-- `active` (boolean, 선택): 카탈로그 항목 활성화 여부
-- `order` (integer, 선택): 카테고리 내 카탈로그 항목의 정렬 순서
-
-### CatalogCategoryModel
-
-ServiceNow 카탈로그 카테고리를 나타냅니다.
-
-**필드:**
-- `sys_id` (string): 카테고리의 고유 식별자
-- `title` (string): 카테고리 제목
-- `description` (string, 선택): 카테고리 설명
-- `parent` (string, 선택): 상위 카테고리 ID
-- `icon` (string, 선택): 카테고리 아이콘
-- `active` (boolean, 선택): 카테고리 활성화 여부
-- `order` (integer, 선택): 카테고리 정렬 순서
-
-### CatalogItemVariableModel
-
-ServiceNow 카탈로그 항목 변수를 나타냅니다.
-
-**필드:**
-- `sys_id` (string): 변수의 고유 식별자
-- `name` (string): 변수 이름
-- `label` (string): 변수 라벨
-- `type` (string): 변수 타입
-- `mandatory` (boolean, 선택): 필수 변수 여부
-- `default_value` (string, 선택): 변수의 기본값
-- `help_text` (string, 선택): 변수의 도움말 텍스트
-- `order` (integer, 선택): 변수의 정렬 순서
+- "카탈로그 카테고리와 카테고리별 항목 수를 보여줘."
+- "'New Laptop' 항목의 변수들을 보여줘."
+- "그 항목에 필수 Single Line Text 변수 'asset_tag'를 추가해 줘. 먼저 미리보기로."
+- "이 세 항목을 Hardware 카테고리로 옮겨 줘."

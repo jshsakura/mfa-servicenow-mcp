@@ -975,7 +975,7 @@ uv build
 - [클라이언트 설정 가이드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.ko.md) — installer 우선 설치 + 수동 복구용 설정 예시
 - [도구 목록](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_INVENTORY.md) — 전체 도구 카테고리/패키지별 목록
 - [Windows 설치 가이드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.ko.md)
-- [서비스 카탈로그 가이드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.ko.md) — 카탈로그 CRUD 및 최적화
+- [서비스 카탈로그 가이드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.ko.md) — 카탈로그 카테고리·항목·변수
 - [변경 관리 가이드](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/change_management.ko.md) — 변경 요청 생명주기 및 승인
 - [워크플로우 관리](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/workflow_management.ko.md) — 레거시 워크플로우 및 Flow Designer 도구
 - [English README](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.md)

@@ -19,6 +19,7 @@ from typing import Any, Dict, Optional, Union
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services.choices import resolve_payload_choices
 from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
@@ -36,6 +37,12 @@ class IncidentResponse(BaseModel):
     incident_number: Optional[str] = Field(
         default=None, description="Number of the affected incident"
     )
+
+
+# Choice columns a caller sets by word or code. close_code is a fixed list
+# ("Solution provided", ...); a near-miss was stored and failed resolution rules
+# later. category/subcategory are left alone (free text on many instances).
+INCIDENT_CHOICE_FIELDS = ("state", "priority", "impact", "urgency", "close_code")
 
 
 def resolve_incident_sys_id(
@@ -119,6 +126,12 @@ def create(
         if value is not None:
             data[field_name] = value
 
+    refusal = resolve_payload_choices(
+        config, auth_manager, table="incident", data=data, elements=INCIDENT_CHOICE_FIELDS
+    )
+    if refusal is not None:
+        return IncidentResponse(success=False, message=refusal["message"])
+
     try:
         response = auth_manager.make_request(
             "POST",
@@ -192,6 +205,12 @@ def update(
     ):
         if value is not None:
             data[field_name] = value
+
+    refusal = resolve_payload_choices(
+        config, auth_manager, table="incident", data=data, elements=INCIDENT_CHOICE_FIELDS
+    )
+    if refusal is not None:
+        return refusal
 
     if dry_run:
         return build_update_preview(
@@ -297,6 +316,11 @@ def resolve(
         "close_notes": resolution_notes,
         "resolved_at": "now",
     }
+    refusal = resolve_payload_choices(
+        config, auth_manager, table="incident", data=data, elements=("close_code",)
+    )
+    if refusal is not None:
+        return refusal
 
     if dry_run:
         return build_update_preview(

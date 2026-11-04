@@ -126,7 +126,13 @@ def test_snap_manage_kb_article_publish(mock_config, auth):
             }
         }
     )
-    with patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache"):
+    with (
+        patch(
+            "servicenow_mcp.services.choices.sn_query_page",
+            return_value=([{"value": "published", "label": "Published"}], None),
+        ),
+        patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache"),
+    ):
         result = manage_kb_article(
             mock_config,
             auth,
@@ -146,7 +152,13 @@ def test_snap_manage_kb_article_publish(mock_config, auth):
 
 def test_snap_manage_kb_article_publish_failure(mock_config, auth):
     auth.make_request.side_effect = RuntimeError("boom: 500 Internal Server Error")
-    with patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache"):
+    with (
+        patch(
+            "servicenow_mcp.services.choices.sn_query_page",
+            return_value=([{"value": "published", "label": "Published"}], None),
+        ),
+        patch("servicenow_mcp.tools.knowledge_base.invalidate_query_cache"),
+    ):
         result = manage_kb_article(
             mock_config,
             auth,

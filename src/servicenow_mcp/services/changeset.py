@@ -1,6 +1,6 @@
 """Update set (sys_update_set) service layer.
 
-Business logic for create / update / commit / publish / move_file / remove_file.
+Business logic for create / update / commit / move_file / remove_file.
 ``manage_changeset`` in tools/changeset_tools.py is the sole public entry point.
 """
 
@@ -41,11 +41,8 @@ def create(
     name: str,
     application: str,
     description: Optional[str] = None,
-    developer: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Create a new update set."""
-    # `developer` is accepted for call compatibility and deliberately NOT sent —
-    # see _CHANGESET_UPDATE_FIELDS. The server records the author itself.
+    """Create a new update set. The server records its author in sys_created_by."""
     data: Dict[str, Any] = {"name": name, "application": application}
     if description:
         data["description"] = description
@@ -76,7 +73,6 @@ def update(
     name: Optional[str] = None,
     description: Optional[str] = None,
     state: Optional[str] = None,
-    developer: Optional[str] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Update an existing update set. Supports dry-run preview."""
@@ -150,37 +146,6 @@ def commit(
         return {"success": False, "message": f"Error committing changeset: {str(e)}"}
 
 
-def publish(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    *,
-    changeset_id: str,
-    publish_notes: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Deploy a committed update set to the target instance."""
-    data: Dict[str, Any] = {"state": "published"}
-    if publish_notes:
-        data["description"] = publish_notes
-
-    url = f"{config.api_url}/table/sys_update_set/{changeset_id}"
-    headers = auth_manager.get_headers()
-    headers["Content-Type"] = "application/json"
-
-    try:
-        response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
-        response.raise_for_status()
-        result = response.json()
-        invalidate_query_cache(table="sys_update_set")
-        return {
-            "success": True,
-            "message": "Changeset published successfully",
-            "changeset": result["result"],
-        }
-    except Exception as e:
-        logger.error("Error publishing changeset: %s", e)
-        return {"success": False, "message": f"Error publishing changeset: {str(e)}"}
-
-
 def get(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -190,7 +155,6 @@ def get(
     offset: int = 0,
     state: Optional[str] = None,
     application: Optional[str] = None,
-    developer: Optional[str] = None,
     timeframe: Optional[str] = None,
     query: Optional[str] = None,
     count_only: bool = False,
@@ -254,8 +218,6 @@ def get(
         query_parts.append(f"state={state}")
     if application:
         query_parts.append(f"application={application}")
-    # `developer` is not a sys_update_set column (see _CHANGESET_UPDATE_FIELDS):
-    # a condition on it is dropped by the server, so it is accepted and not sent.
     if timeframe:
         if timeframe == "recent":
             query_parts.append(

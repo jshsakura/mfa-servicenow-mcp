@@ -5,48 +5,39 @@ This module provides tools for managing change requests in ServiceNow.
 """
 
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services import change as change_service
+from servicenow_mcp.services.choices import resolve_choice
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .sn_api import count_response, invalidate_query_cache, sn_query_page
+from .sn_api import invalidate_query_cache, sn_query_page
 
 logger = logging.getLogger(__name__)
 
 
-class GetChangeRequestDetailsParams(BaseModel):
-    """Parameters for getting change request details or listing change requests."""
+def _change_state(
+    config: ServerConfig, auth_manager: AuthManager, requested: str
+) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """change_request.state is an integer choice (-4 = Assess, -1 = Implement, 4 = Canceled).
 
-    change_id: Optional[str] = Field(
-        default=None,
-        description="Change request ID or sys_id. If provided, returns full details for that single change request.",
-    )
-    limit: Optional[int] = Field(
-        default=10, description="Maximum number of records to return (list mode)"
-    )
-    offset: Optional[int] = Field(default=0, description="Offset to start from (list mode)")
-    state: Optional[str] = Field(default=None, description="Filter by state (list mode)")
-    type: Optional[str] = Field(
-        default=None, description="Filter by type (normal, standard, emergency) (list mode)"
-    )
-    category: Optional[str] = Field(default=None, description="Filter by category (list mode)")
-    assignment_group: Optional[str] = Field(
-        default=None, description="Filter by assignment group (list mode)"
-    )
-    timeframe: Optional[str] = Field(
-        default=None,
-        description="Filter by timeframe (upcoming, in-progress, completed) (list mode)",
-    )
-    query: Optional[str] = Field(default=None, description="Additional query string (list mode)")
-    count_only: bool = Field(
-        default=False,
-        description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
+    These tools wrote the words "assess", "implement" and "canceled" by default:
+    stored as-is, answered 200, and the change request never moved. Resolved here,
+    before the FIRST write, so a bad state cannot leave the approval record
+    changed and the change request not.
+    """
+    return resolve_choice(
+        config,
+        auth_manager,
+        table="change_request",
+        element="state",
+        requested=requested,
+        unknown_error="UNKNOWN_CHANGE_STATE",
+        unverified_error="CHANGE_STATE_UNVERIFIED",
     )
 
 
@@ -99,115 +90,6 @@ class RejectChangeParams(BaseModel):
     )
 
 
-def get_change_request_details(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetChangeRequestDetailsParams,
-) -> Dict[str, Any]:
-    """Get details of a single change request or list change requests from ServiceNow."""
-    if params.change_id:
-        # Detail mode: fetch a single change request by sys_id/number
-        try:
-            rows, _ = sn_query_page(
-                config,
-                auth_manager,
-                table="change_request",
-                query=f"sys_id={params.change_id}",
-                fields="",
-                limit=1,
-                offset=0,
-                display_value=True,
-            )
-
-            if not rows:
-                return {
-                    "success": False,
-                    "message": f"Change request {params.change_id} not found",
-                }
-
-            # Get tasks associated with this change request
-            tasks, _ = sn_query_page(
-                config,
-                auth_manager,
-                table="change_task",
-                query=f"change_request={params.change_id}",
-                fields="",
-                limit=100,
-                offset=0,
-                display_value=True,
-            )
-
-            return {
-                "success": True,
-                "change_request": rows[0],
-                "tasks": tasks,
-            }
-        except Exception as e:
-            logger.error(f"Error getting change request details: {e}")
-            return {
-                "success": False,
-                "message": f"Error getting change request details: {str(e)}",
-            }
-    else:
-        # List mode: search change requests with filters
-        query_parts: List[str] = []
-
-        if params.state:
-            query_parts.append(f"state={params.state}")
-        if params.type:
-            query_parts.append(f"type={params.type}")
-        if params.category:
-            query_parts.append(f"category={params.category}")
-        if params.assignment_group:
-            query_parts.append(f"assignment_group={params.assignment_group}")
-
-        # Handle timeframe filtering
-        if params.timeframe:
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            if params.timeframe == "upcoming":
-                query_parts.append(f"start_date>{now}")
-            elif params.timeframe == "in-progress":
-                query_parts.append(f"start_date<{now}^end_date>{now}")
-            elif params.timeframe == "completed":
-                query_parts.append(f"end_date<{now}")
-
-        # Add any additional query string
-        if params.query:
-            query_parts.append(params.query)
-
-        query = "^".join(query_parts) if query_parts else ""
-
-        if params.count_only:
-            return count_response(
-                config, auth_manager, "change_request", query, what="change requests"
-            )
-
-        try:
-            rows, total = sn_query_page(
-                config,
-                auth_manager,
-                table="change_request",
-                query=query,
-                fields="",
-                limit=min(params.limit or 10, 100),
-                offset=params.offset or 0,
-                display_value=True,
-            )
-
-            return {
-                "success": True,
-                "change_requests": rows,
-                "count": len(rows),
-                "total": total if total is not None else len(rows),
-            }
-        except Exception as e:
-            logger.error(f"Error listing change requests: {e}")
-            return {
-                "success": False,
-                "message": f"Error listing change requests: {str(e)}",
-            }
-
-
 @register_tool(
     name="submit_change_for_approval",
     params=SubmitChangeForApprovalParams,
@@ -221,7 +103,10 @@ def submit_change_for_approval(
     params: SubmitChangeForApprovalParams,
 ) -> Dict[str, Any]:
     """Submit a change request for approval in ServiceNow."""
-    data: Dict[str, Any] = {"state": params.change_state or "assess"}
+    state, refusal = _change_state(config, auth_manager, params.change_state or "assess")
+    if refusal is not None:
+        return refusal
+    data: Dict[str, Any] = {"state": state}
 
     if params.approval_comments:
         data["work_notes"] = params.approval_comments
@@ -351,7 +236,11 @@ def approve_change(
             return {"success": False, "message": err}
         assert approval is not None
         approval_id = _unwrap(approval.get("sys_id"))
-        target_state = params.change_state or "implement"
+        target_state, refusal = _change_state(
+            config, auth_manager, params.change_state or "implement"
+        )
+        if refusal is not None:
+            return refusal
 
         if params.dry_run:
             change_rows, _ = sn_query_page(
@@ -447,7 +336,11 @@ def reject_change(
             return {"success": False, "message": err}
         assert approval is not None
         approval_id = _unwrap(approval.get("sys_id"))
-        target_state = params.change_state or "canceled"
+        target_state, refusal = _change_state(
+            config, auth_manager, params.change_state or "canceled"
+        )
+        if refusal is not None:
+            return refusal
 
         if params.dry_run:
             change_rows, _ = sn_query_page(

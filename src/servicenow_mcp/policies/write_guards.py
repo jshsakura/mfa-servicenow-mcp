@@ -219,12 +219,10 @@ CONFIRM_PUBLISH_VALUE = "approve"
 # tool_name → publish-class trigger condition. None=always publish-class.
 # Otherwise dict of arg matches (all must match).
 _PUBLISH_CLASS_TOOLS: Dict[str, Optional[Union[Dict[str, Any], List[Dict[str, Any]]]]] = {
-    "publish_changeset": None,
-    "commit_changeset": None,
     "update_remote_from_local": None,
     "approve_change": None,
     "submit_change_for_approval": None,
-    "manage_changeset": {"action": ("publish", "commit")},
+    "manage_changeset": {"action": ("commit",)},
 }
 
 

@@ -176,3 +176,66 @@ def _forget_resolved_columns():
     forget_columns()
     yield
     forget_columns()
+
+
+# Choice lists as a stock instance carries them (values/labels measured live).
+# Writes to a choice column resolve against sys_choice first; a module whose
+# fixtures script make_request call-by-call opts in with
+# `pytestmark = pytest.mark.usefixtures("live_choices")` so that read is
+# answered here instead of consuming one of its scripted responses.
+STOCK_CHOICES = {
+    ("change_request", "state"): [
+        ("-5", "New"),
+        ("-4", "Assess"),
+        ("-3", "Authorize"),
+        ("-2", "Scheduled"),
+        ("-1", "Implement"),
+        ("0", "Review"),
+        ("3", "Closed"),
+        ("4", "Canceled"),
+    ],
+    ("change_request", "type"): [
+        ("standard", "Standard"),
+        ("normal", "Normal"),
+        ("emergency", "Emergency"),
+    ],
+    ("change_request", "risk"): [
+        ("1", "Very High"),
+        ("2", "High"),
+        ("3", "Moderate"),
+        ("4", "Low"),
+    ],
+    ("change_request", "impact"): [("1", "1 - High"), ("2", "2 - Medium"), ("3", "3 - Low")],
+    ("incident", "state"): [
+        ("1", "New"),
+        ("2", "In Progress"),
+        ("3", "On Hold"),
+        ("6", "Resolved"),
+        ("7", "Closed"),
+        ("8", "Canceled"),
+    ],
+    ("incident", "priority"): [
+        ("1", "1 - Critical"),
+        ("2", "2 - High"),
+        ("3", "3 - Moderate"),
+        ("4", "4 - Low"),
+        ("5", "5 - Planning"),
+    ],
+    ("incident", "impact"): [("1", "1 - High"), ("2", "2 - Medium"), ("3", "3 - Low")],
+    ("incident", "urgency"): [("1", "1 - High"), ("2", "2 - Medium"), ("3", "3 - Low")],
+    ("incident", "close_code"): [
+        ("Solution provided", "Solution provided"),
+        ("Workaround provided", "Workaround provided"),
+        ("Duplicate", "Duplicate"),
+        ("User error", "User error"),
+    ],
+}
+
+
+@pytest.fixture()
+def live_choices(monkeypatch):
+    def rows(config, auth_manager, table, element):
+        return [{"value": v, "label": lbl} for v, lbl in STOCK_CHOICES.get((table, element), [])]
+
+    monkeypatch.setattr("servicenow_mcp.services.choices._choice_rows", rows)
+    return STOCK_CHOICES

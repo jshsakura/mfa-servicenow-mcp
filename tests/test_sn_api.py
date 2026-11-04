@@ -552,28 +552,6 @@ def test_a_silenced_page_does_not_paste_a_kilobyte_of_ids_into_the_log(caplog):
     assert "fields=(none)" in message
 
 
-def test_a_count_only_tool_reports_a_failure_instead_of_zero(monkeypatch):
-    """`{"success": true, "count": 0}` over an unread count is the whole bug."""
-    from servicenow_mcp.tools import catalog_tools
-
-    def _boom(*args, **kwargs):
-        raise RuntimeError("stats endpoint timed out")
-
-    # Patched where count_response calls it, not where the tool imports from —
-    # the tool now imports count_response, and sn_count lives in sn_api.
-    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_count", _boom)
-
-    result = catalog_tools.list_catalog_items(
-        _browser_cfg_for("https://countonly.service-now.com"),
-        MagicMock(),
-        catalog_tools.ListCatalogItemsParams(count_only=True),
-    )
-
-    assert result["success"] is False
-    assert "timed out" in result["message"]
-    assert "count" not in result, "a count that was never taken must not be in the answer"
-
-
 # --- SYS_ID_IN_CHUNK -------------------------------------------------------
 
 

@@ -976,7 +976,7 @@ uv build
 - [Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md) — インストーラー優先のセットアップとフォールバックのクライアント設定
 - [Tool Inventory](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_INVENTORY.md) — カテゴリとパッケージ別の完全なツールリスト
 - [Windows Installation Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md)
-- [Catalog Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.md) — サービスカタログの CRUD と最適化
+- [Catalog Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.ja.md) — サービスカタログのカテゴリ・アイテム・変数
 - [Change Management](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/change_management.md) — 変更要求のライフサイクルと承認
 - [Workflow Management](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/workflow_management.md) — Workflow（wf_workflow エンジン）と Flow Designer のツール
 - [Korean README](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md)

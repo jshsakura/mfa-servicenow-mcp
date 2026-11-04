@@ -225,9 +225,9 @@ class TestKnowledgeBaseTools(unittest.TestCase):
                 "sys_created_on": "2023-01-01 00:00:00",
                 "sys_updated_on": "2023-01-02 00:00:00",
                 "author": {"display_value": "admin"},
-                "keywords": "test,article,knowledge",
+                "meta": "test,article,knowledge",
                 "article_type": "text",
-                "view_count": "42",
+                "sys_view_count": "42",
             }
         }
         self._finalize_response(mock_response)

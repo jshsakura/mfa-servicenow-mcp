@@ -18,6 +18,7 @@ from typing import Any, Dict, Literal, Optional, Union
 from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services.choices import resolve_choice
 from servicenow_mcp.tools._preview import build_update_preview
 from servicenow_mcp.tools.sn_api import invalidate_query_cache
 from servicenow_mcp.utils.config import ServerConfig
@@ -68,7 +69,7 @@ def create(
     if title:
         data["short_description"] = title
     if keywords:
-        data["keywords"] = keywords
+        data["meta"] = keywords
 
     try:
         response = auth_manager.make_request(
@@ -125,7 +126,7 @@ def update(
     if category:
         data["kb_category"] = category
     if keywords:
-        data["keywords"] = keywords
+        data["meta"] = keywords
 
     if dry_run:
         return build_update_preview(
@@ -172,17 +173,27 @@ def publish(
     *,
     article_id: str,
     workflow_state: Optional[str] = "published",
-    workflow_version: Optional[str] = None,
-) -> ArticleResponse:
-    """Publish a knowledge article by transitioning its workflow state."""
+) -> Union[ArticleResponse, Dict[str, Any]]:
+    """Publish a knowledge article by transitioning its workflow state.
+
+    The target state is resolved against kb_knowledge.workflow_state's live
+    choices first: an unknown word was stored as-is and left the article in a
+    state no KB workflow recognises, reported as "published successfully".
+    """
     api_url = f"{config.api_url}/table/kb_knowledge/{article_id}"
 
-    data: Dict[str, Any] = {
-        "workflow_state": workflow_state,
-    }
-
-    if workflow_version:
-        data["workflow_version"] = workflow_version
+    state, refusal = resolve_choice(
+        config,
+        auth_manager,
+        table="kb_knowledge",
+        element="workflow_state",
+        requested=workflow_state or "published",
+        unknown_error="UNKNOWN_WORKFLOW_STATE",
+        unverified_error="WORKFLOW_STATE_UNVERIFIED",
+    )
+    if refusal is not None:
+        return refusal
+    data: Dict[str, Any] = {"workflow_state": state}
 
     try:
         response = auth_manager.make_request(
@@ -199,7 +210,11 @@ def publish(
 
         return ArticleResponse(
             success=True,
-            message="Article published successfully",
+            message=(
+                "Article published successfully"
+                if state == "published"
+                else f"Article moved to workflow_state={state}"
+            ),
             article_id=article_id,
             article_title=result.get("short_description"),
             workflow_state=result.get("workflow_state"),

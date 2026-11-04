@@ -1,189 +1,76 @@
-# Integración con el Catálogo de Servicios de ServiceNow
+# Catálogo de servicios
 
-Este documento proporciona información sobre la integración con el Catálogo de Servicios de ServiceNow en el servidor MCP de ServiceNow.
+Una sola herramienta, `manage_catalog`, cubre las categorías del catálogo de servicios (`sc_category`), los artículos (`sc_cat_item`) y las variables de artículo (`item_option_new`).
 
-## Descripción general
+| Paquete | Acciones |
+|---|---|
+| `service_desk` | las cuatro acciones de lectura |
+| `portal_developer`, `full` | todas las acciones |
 
-La integración con el Catálogo de Servicios de ServiceNow le permite:
+Las acciones de escritura necesitan `confirm='approve'`, como cualquier escritura en este servidor.
 
-- Listar categorías del catálogo de servicios
-- Listar elementos del catálogo de servicios
-- Obtener información detallada sobre elementos específicos del catálogo, incluidas sus variables
-- Filtrar elementos del catálogo por categoría o consulta de búsqueda
+## Acciones de lectura
 
-## Herramientas
+| Acción | Argumentos | Devuelve |
+|---|---|---|
+| `action="list_categories"` | `limit`, `offset`, `query`, `active`, `count_only` | las categorías |
+| `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | los artículos |
+| `action="get_item"` | `item_id` | el artículo y sus variables |
+| `action="list_item_variables"` | `catalog_item_id` | las variables: nombre, etiqueta, código de tipo, obligatoria, valor por defecto, orden |
 
-Las siguientes herramientas están disponibles para interactuar con el Catálogo de Servicios de ServiceNow:
+Las dos acciones de listado devuelven:
 
-### `manage_catalog(action="list_categories")`
+- `count`: las filas de esta página.
+- `total`: cuántas filas coinciden en el servidor.
+- `more`: solo aparece cuando hay otra página, e indica el offset que hay que pedir a continuación.
 
-Lista las categorías disponibles del catálogo de servicios.
+Si el servidor no envía el total, la respuesta indica `total_unknown` en lugar de adivinarlo. Con `count_only=true` solo se devuelve el número.
 
-**Parámetros:**
-- `limit` (int, default: 10): Número máximo de categorías a devolver
-- `offset` (int, default: 0): Desplazamiento para la paginación
-- `query` (string, optional): Consulta de búsqueda para categorías
-- `active` (boolean, default: true): Si solo se deben devolver categorías activas
+## Acciones de escritura
 
-**Ejemplo:**
-```python
-from servicenow_mcp.tools.catalog_tools import ListCatalogCategoriesParams, list_catalog_categories
+| Acción | Obligatorio | Opcional |
+|---|---|---|
+| `action="create_category"` | `title` | `description`, `parent`, `icon`, `active`, `order` |
+| `action="update_category"` | `category_id` y al menos un campo | los mismos campos que create |
+| `action="update_item"` | `item_id` y al menos un campo | `name`, `short_description`, `description`, `category`, `price`, `active`, `order` |
+| `action="move_items"` | `item_ids`, `target_category_id` | |
+| `action="create_variable"` | `catalog_item_id`, `variable_name`, `variable_type`, `label` | `mandatory`, `help_text`, `default_value`, `description`, `order`, `reference_table`, `reference_qualifier`, `max_length`, `min`, `max` |
+| `action="update_variable"` | `variable_id` y al menos un campo | `variable_name`, `variable_type`, `reference_table` y los campos opcionales de create |
 
-params = ListCatalogCategoriesParams(
-    limit=5,
-    query="hardware"
-)
-result = list_catalog_categories(config, auth_manager, params)
-```
+### Tipos de variable
 
-### `manage_catalog(action="list_items")`
+`item_option_new.type` guarda un número, no una palabra. Pasa el número o su etiqueta:
 
-Lista los elementos disponibles del catálogo de servicios.
+| Código | Etiqueta |
+|---|---|
+| `6` | Single Line Text |
+| `2` | Multi Line Text |
+| `5` | Select Box |
+| `3` | Multiple Choice |
+| `7` | CheckBox |
+| `8` | Reference |
+| `9` | Date |
+| `10` | Date/Time |
 
-**Parámetros:**
-- `limit` (int, default: 10): Número máximo de elementos a devolver
-- `offset` (int, default: 0): Desplazamiento para la paginación
-- `category` (string, optional): Filtrar por categoría
-- `query` (string, optional): Consulta de búsqueda para elementos
-- `active` (boolean, default: true): Si solo se deben devolver elementos activos
+Antes de escribir, la herramienta compara el valor con la lista de opciones de la propia instancia (`sys_choice`), así que también acepta las opciones añadidas en tu instancia. Un valor que no está en la lista se rechaza, y el rechazo enumera todos los códigos válidos. Si la lista de opciones no se puede leer, no se escribe nada.
 
-**Ejemplo:**
-```python
-from servicenow_mcp.tools.catalog_tools import ListCatalogItemsParams, list_catalog_items
+### Longitud y rango
 
-params = ListCatalogItemsParams(
-    limit=5,
-    category="hardware",
-    query="laptop"
-)
-result = list_catalog_items(config, auth_manager, params)
-```
+- `item_option_new` no tiene columna `max_length`. `max_length` se guarda en los `attributes` de la variable como `max_length=N`, igual que lo guarda la plataforma.
+- `min` y `max` fijan `scale_min` y `scale_max`, el rango de una escala de valoración.
 
-### `manage_catalog(action="get_item")`
+## Vistas previas
 
-Obtiene información detallada sobre un elemento específico del catálogo.
+Puedes pasar `dry_run=true` en cualquier acción de escritura:
 
-**Parámetros:**
-- `item_id` (string, required): ID o sys_id del elemento del catálogo
+- `action="update_category"` y `action="update_item"` devuelven las diferencias campo a campo.
+- Las demás acciones de escritura devuelven `would_send`: la petición exacta que se enviaría.
 
-**Ejemplo:**
-```python
-from servicenow_mcp.tools.catalog_tools import GetCatalogItemParams, get_catalog_item
+En ambos casos no se escribe nada. El servidor lo impone en todas las herramientas, así que una vista previa no puede convertirse en una escritura.
 
-params = GetCatalogItemParams(
-    item_id="item123"
-)
-result = get_catalog_item(config, auth_manager, params)
-```
+## Ejemplos de instrucciones
 
-## Recursos
-
-Los siguientes recursos están disponibles para acceder al Catálogo de Servicios de ServiceNow:
-
-### `catalog://items`
-
-Lista los elementos del catálogo de servicios.
-
-**Ejemplo:**
-```
-catalog://items
-```
-
-### `catalog://categories`
-
-Lista las categorías del catálogo de servicios.
-
-**Ejemplo:**
-```
-catalog://categories
-```
-
-### `catalog://{item_id}`
-
-Obtiene un elemento específico del catálogo por ID.
-
-**Ejemplo:**
-```
-catalog://item123
-```
-
-## Integración con Claude Desktop
-
-Para usar el Catálogo de Servicios de ServiceNow con Claude Desktop:
-
-1. Configure el servidor MCP de ServiceNow en Claude Desktop
-2. Haga preguntas a Claude sobre el catálogo de servicios
-
-**Ejemplos de indicaciones:**
-- "¿Puedes listar las categorías disponibles del catálogo de servicios en ServiceNow?"
-- "¿Puedes mostrarme los elementos disponibles en el catálogo de servicios de ServiceNow?"
-- "¿Puedes listar los elementos del catálogo en la categoría Hardware?"
-- "¿Puedes mostrarme los detalles del elemento del catálogo 'New Laptop'?"
-- "¿Puedes encontrar elementos del catálogo relacionados con 'software' en ServiceNow?"
-- "¿Puedes crear una nueva categoría llamada 'Cloud Services' en el catálogo de servicios?"
-- "¿Puedes actualizar la categoría 'Hardware' para cambiarle el nombre a 'IT Equipment'?"
-- "¿Puedes mover el elemento del catálogo 'Virtual Machine' a la categoría 'Cloud Services'?"
-- "¿Puedes crear una subcategoría llamada 'Monitors' bajo la categoría 'IT Equipment'?"
-- "¿Puedes reorganizar nuestro catálogo moviendo todos los elementos de software a la categoría 'Software'?"
-
-## Scripts de ejemplo
-
-### Prueba de integración
-
-El script `examples/catalog_integration_test.py` demuestra cómo usar las herramientas del catálogo directamente:
-
-```bash
-python examples/catalog_integration_test.py
-```
-
-### Demostración con Claude Desktop
-
-El script `examples/claude_catalog_demo.py` demuestra cómo usar la funcionalidad del catálogo con Claude Desktop:
-
-```bash
-python examples/claude_catalog_demo.py
-```
-
-## Modelos de datos
-
-### CatalogItemModel
-
-Representa un elemento del catálogo de ServiceNow.
-
-**Campos:**
-- `sys_id` (string): Identificador único del elemento del catálogo
-- `name` (string): Nombre del elemento del catálogo
-- `short_description` (string, optional): Descripción corta del elemento del catálogo
-- `description` (string, optional): Descripción detallada del elemento del catálogo
-- `category` (string, optional): Categoría del elemento del catálogo
-- `price` (string, optional): Precio del elemento del catálogo
-- `picture` (string, optional): URL de la imagen del elemento del catálogo
-- `active` (boolean, optional): Si el elemento del catálogo está activo
-- `order` (integer, optional): Orden del elemento del catálogo en su categoría
-
-### CatalogCategoryModel
-
-Representa una categoría del catálogo de ServiceNow.
-
-**Campos:**
-- `sys_id` (string): Identificador único de la categoría
-- `title` (string): Título de la categoría
-- `description` (string, optional): Descripción de la categoría
-- `parent` (string, optional): ID de la categoría padre
-- `icon` (string, optional): Icono de la categoría
-- `active` (boolean, optional): Si la categoría está activa
-- `order` (integer, optional): Orden de la categoría
-
-### CatalogItemVariableModel
-
-Representa una variable de un elemento del catálogo de ServiceNow.
-
-**Campos:**
-- `sys_id` (string): Identificador único de la variable
-- `name` (string): Nombre de la variable
-- `label` (string): Etiqueta de la variable
-- `type` (string): Tipo de la variable
-- `mandatory` (boolean, optional): Si la variable es obligatoria
-- `default_value` (string, optional): Valor predeterminado de la variable
-- `help_text` (string, optional): Texto de ayuda para la variable
-- `order` (integer, optional): Orden de la variable
+- "Lista las categorías del catálogo y cuántos artículos tiene cada una."
+- "Muestra las variables del artículo 'New Laptop'."
+- "Añade a ese artículo una variable Single Line Text obligatoria llamada 'asset_tag'. Primero una vista previa."
+- "Mueve estos tres artículos a la categoría Hardware."

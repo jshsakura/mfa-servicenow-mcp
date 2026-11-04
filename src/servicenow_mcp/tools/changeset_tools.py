@@ -15,151 +15,14 @@ from servicenow_mcp.services import changeset as _cs_svc
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .sn_api import sn_count, sn_query_page
-
 logger = logging.getLogger(__name__)
-
-
-class GetChangesetDetailsParams(BaseModel):
-    """Parameters for getting changeset details or listing changesets."""
-
-    changeset_id: Optional[str] = Field(
-        default=None,
-        description="Changeset ID or sys_id. If provided, returns detail for that single update set with its entries.",
-    )
-    limit: Optional[int] = Field(
-        default=10, description="Maximum number of records to return (list mode)"
-    )
-    offset: Optional[int] = Field(default=0, description="Offset to start from (list mode)")
-    state: Optional[str] = Field(default=None, description="Filter by state (list mode)")
-    application: Optional[str] = Field(
-        default=None, description="Filter by application (list mode)"
-    )
-    developer: Optional[str] = Field(default=None, description="Filter by developer (list mode)")
-    timeframe: Optional[str] = Field(
-        default=None, description="Filter by timeframe (recent, last_week, last_month) (list mode)"
-    )
-    query: Optional[str] = Field(default=None, description="Additional query string (list mode)")
-    count_only: bool = Field(
-        default=False,
-        description="Return count only without fetching records. Uses lightweight Aggregate API. (list mode)",
-    )
-
-
-def get_changeset_details(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: GetChangesetDetailsParams,
-) -> Dict[str, Any]:
-    """Get detailed information about a specific changeset, or list changesets."""
-    # Detail mode: single changeset with entries
-    if params.changeset_id:
-        try:
-            records, _ = sn_query_page(
-                config,
-                auth_manager,
-                table="sys_update_set",
-                query=f"sys_id={params.changeset_id}",
-                fields="",
-                limit=1,
-                offset=0,
-            )
-
-            if not records:
-                return {
-                    "success": False,
-                    "message": f"Changeset not found: {params.changeset_id}",
-                }
-
-            changeset = records[0]
-
-            changes, _ = sn_query_page(
-                config,
-                auth_manager,
-                table="sys_update_xml",
-                query=f"update_set={params.changeset_id}",
-                fields="",
-                limit=100,
-                offset=0,
-            )
-
-            return {
-                "success": True,
-                "changeset": changeset,
-                "changes": changes,
-                "change_count": len(changes),
-            }
-        except Exception as e:
-            logger.error("Error getting changeset details: %s", e)
-            return {
-                "success": False,
-                "message": f"Error getting changeset details: {str(e)}",
-            }
-
-    # List mode: filter and return multiple changesets
-    query_parts: List[str] = []
-
-    if params.state:
-        query_parts.append(f"state={params.state}")
-
-    if params.application:
-        query_parts.append(f"application={params.application}")
-
-    if params.developer:
-        query_parts.append(f"developer={params.developer}")
-
-    if params.timeframe:
-        if params.timeframe == "recent":
-            query_parts.append(
-                "sys_created_onONLast 7 days@javascript:gs.beginningOfLast7Days()@javascript:gs.endOfToday()"
-            )
-        elif params.timeframe == "last_week":
-            query_parts.append(
-                "sys_created_onONLast week@javascript:gs.beginningOfLastWeek()@javascript:gs.endOfLastWeek()"
-            )
-        elif params.timeframe == "last_month":
-            query_parts.append(
-                "sys_created_onONLast month@javascript:gs.beginningOfLastMonth()@javascript:gs.endOfLastMonth()"
-            )
-
-    if params.query:
-        query_parts.append(params.query)
-
-    query_string = "^".join(query_parts) if query_parts else ""
-
-    if params.count_only:
-        count = sn_count(config, auth_manager, "sys_update_set", query_string)
-        return {"success": True, "count": count}
-
-    try:
-        records, total_count = sn_query_page(
-            config,
-            auth_manager,
-            table="sys_update_set",
-            query=query_string,
-            fields="",
-            limit=params.limit if params.limit is not None else 10,
-            offset=params.offset if params.offset is not None else 0,
-        )
-
-        return {
-            "success": True,
-            "changesets": records,
-            "count": len(records),
-        }
-    except Exception as e:
-        logger.error("Error listing changesets: %s", e)
-        return {
-            "success": False,
-            "message": f"Error listing changesets: {str(e)}",
-        }
 
 
 # ---------------------------------------------------------------------------
 # manage_changeset — bundled CRUD + lifecycle for sys_update_set
 # ---------------------------------------------------------------------------
 
-_CHANGESET_UPDATE_FIELDS = ("name", "description", "state", "developer")
+_CHANGESET_UPDATE_FIELDS = ("name", "description", "state")
 _SYS_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
 # add_file was inherited from the project this one started from, which modelled
@@ -167,6 +30,16 @@ _SYS_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 # serialization of a record, and committing the set applies that XML to the next
 # instance. A payload typed by the caller is a hand-written deploy XML with no
 # certificate, and the sys_update_xml create ACL refuses it even for admin.
+# publish wrote state='published', which is not a sys_update_set state (the
+# choices are in progress, complete and ignore). It deployed nothing: the set
+# just dropped out of both the open and the completed lists. Moving a set to
+# another instance is retrieve, preview and commit ON THAT INSTANCE.
+_PUBLISH_RETIRED = (
+    "action='publish' was removed: 'published' is not an update set state, and no field "
+    "write deploys a set. Mark it done with action='commit' (state complete). To ship it, "
+    "retrieve, preview and commit it on the target instance, or use export_record_xml and "
+    "verify_deployment_xml."
+)
 _ADD_FILE_RETIRED = (
     "action='add_file' was removed: an update set entry is ServiceNow's own record of a "
     "change, never a file you write. To move an entry that already exists, use "
@@ -183,14 +56,11 @@ class ManageChangesetParams(BaseModel):
       create:   name, application
       update:   changeset_id, at least one field
       commit:   changeset_id
-      publish:  changeset_id
       move_file:   changeset_id, entry_ids, target_changeset_id
       remove_file: changeset_id, entry_ids, confirm_remove
     """
 
-    action: Literal["get", "create", "update", "commit", "publish", "move_file", "remove_file"] = (
-        Field(...)
-    )
+    action: Literal["get", "create", "update", "commit", "move_file", "remove_file"] = Field(...)
     changeset_id: Optional[str] = Field(
         default=None, description="Update set sys_id. For move_file/remove_file, the source set."
     )
@@ -226,20 +96,16 @@ class ManageChangesetParams(BaseModel):
         default=False, description="get detail: also return each entry's full record XML (large)."
     )
 
-    # Create + update (application/developer also used as list filters for get)
+    # Create + update (application and state are also list filters for get)
     name: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     application: Optional[str] = Field(
         default=None, description="Required for create; filter for get"
     )
-    developer: Optional[str] = Field(default=None)
     state: Optional[str] = Field(default=None, description="Update only; filter for get")
 
     # Commit-specific
     commit_message: Optional[str] = Field(default=None)
-
-    # Publish-specific
-    publish_notes: Optional[str] = Field(default=None)
 
     dry_run: bool = Field(default=False)
 
@@ -248,6 +114,8 @@ class ManageChangesetParams(BaseModel):
     def _retired_add_file(cls, data: Any) -> Any:
         if isinstance(data, dict) and data.get("action") == "add_file":
             raise ValueError(_ADD_FILE_RETIRED)
+        if isinstance(data, dict) and data.get("action") == "publish":
+            raise ValueError(_PUBLISH_RETIRED)
         return data
 
     @model_validator(mode="after")
@@ -264,7 +132,7 @@ class ManageChangesetParams(BaseModel):
                 raise ValueError("changeset_id is required for action='update'")
             if not any(getattr(self, f) is not None for f in _CHANGESET_UPDATE_FIELDS):
                 raise ValueError("at least one field must be provided for action='update'")
-        elif self.action in ("commit", "publish"):
+        elif self.action == "commit":
             if not self.changeset_id:
                 raise ValueError(f"changeset_id is required for action='{self.action}'")
         elif self.action in ("move_file", "remove_file"):
@@ -299,7 +167,7 @@ class ManageChangesetParams(BaseModel):
     name="manage_changeset",
     params=ManageChangesetParams,
     description=(
-        "Get/create/update/commit/publish an update set (table: sys_update_set). "
+        "Get/create/update/commit an update set (table: sys_update_set). "
         "move_file/remove_file take wrong entries out; dry_run=true first."
     ),
     serialization="raw_dict",
@@ -319,7 +187,6 @@ def manage_changeset(
             offset=params.offset,
             state=params.state,
             application=params.application,
-            developer=params.developer,
             timeframe=params.timeframe,
             query=params.query,
             count_only=params.count_only,
@@ -335,7 +202,6 @@ def manage_changeset(
             name=params.name,
             application=params.application,
             description=params.description,
-            developer=params.developer,
         )
     if params.action == "update":
         assert params.changeset_id is not None
@@ -346,7 +212,6 @@ def manage_changeset(
             name=params.name,
             description=params.description,
             state=params.state,
-            developer=params.developer,
             dry_run=params.dry_run,
         )
     if params.action == "commit":
@@ -356,14 +221,6 @@ def manage_changeset(
             auth_manager,
             changeset_id=params.changeset_id,
             commit_message=params.commit_message,
-        )
-    if params.action == "publish":
-        assert params.changeset_id is not None
-        return _cs_svc.publish(
-            config,
-            auth_manager,
-            changeset_id=params.changeset_id,
-            publish_notes=params.publish_notes,
         )
     # move_file / remove_file
     assert params.changeset_id is not None

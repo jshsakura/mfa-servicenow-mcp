@@ -42,6 +42,7 @@ from servicenow_mcp.utils.config import (
     OAuthConfig,
     ServerConfig,
 )
+from servicenow_mcp.utils.dry_run_guard import run_with_dry_run_guard
 from servicenow_mcp.utils.instances import (
     ACTIVE_INSTANCE_ENV,
     INSTANCE_CONFIG_ENV,
@@ -1218,6 +1219,9 @@ class ServiceNowMCP:
     def _result_outcome(result: Any) -> str:
         """Journal outcome from a tool result: honor explicit success/error keys."""
         if isinstance(result, dict):
+            if result.get("dry_run") is True and result.get("success") is not False:
+                # A preview wrote nothing; "success" would read as a write that landed.
+                return "dry_run"
             if result.get("error"):
                 return "rejected"
             if result.get("success") is False:
@@ -2052,7 +2056,7 @@ class ServiceNowMCP:
         """
         progress_token, session = self._progress_channel()
         if session is None or not _should_stream_progress(name, progress_token):
-            return impl_func(call_config, call_auth_manager, params)
+            return run_with_dry_run_guard(impl_func, call_config, call_auth_manager, params)
 
         # One warning per CALL, not per emit: a client that dropped its
         # notification socket fails on every milestone, and the second message
@@ -2091,7 +2095,7 @@ class ServiceNowMCP:
 
         def _worker():
             with use_progress_emitter(_report):
-                return impl_func(call_config, call_auth_manager, params)
+                return run_with_dry_run_guard(impl_func, call_config, call_auth_manager, params)
 
         return await anyio.to_thread.run_sync(_worker)
 

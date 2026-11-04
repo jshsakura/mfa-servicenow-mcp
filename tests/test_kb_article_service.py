@@ -64,7 +64,10 @@ def test_create_happy_path(mock_invalidate, mock_config, auth):
     assert sent["kb_knowledge_base"] == "kb1"
     assert sent["kb_category"] == "cat1"
     assert sent["article_type"] == "html"
-    assert sent["keywords"] == "k1"
+    # kb_knowledge keeps search keywords in `meta`; `keywords` is not a column
+    # (measured in sys_dictionary) and was accepted, dropped, reported as saved.
+    assert sent["meta"] == "k1"
+    assert "keywords" not in sent
 
 
 @patch("servicenow_mcp.services.kb_article.invalidate_query_cache")
@@ -87,7 +90,7 @@ def test_create_without_title_uses_short_description(mock_invalidate, mock_confi
     sent = auth.make_request.call_args[1]["json"]
     assert sent["short_description"] == "S"
     # Optional fields not sent when not provided
-    assert "keywords" not in sent
+    assert "meta" not in sent
 
 
 def test_create_failure_returns_error_response(mock_config, auth):
@@ -138,7 +141,8 @@ def test_update_happy_path(mock_invalidate, mock_config, auth):
     assert sent["short_description"] == "Updated"
     assert sent["text"] == "<p>new</p>"
     assert sent["kb_category"] == "cat2"
-    assert sent["keywords"] == "kw"
+    assert sent["meta"] == "kw"
+    assert "keywords" not in sent
     mock_invalidate.assert_called_once_with(table="kb_knowledge")
 
 
@@ -200,8 +204,23 @@ def test_update_failure_returns_error_response(mock_config, auth):
 # ----------------------------------------------------------------------
 
 
+_STATES = [
+    {"value": "draft", "label": "Draft"},
+    {"value": "review", "label": "Review"},
+    {"value": "published", "label": "Published"},
+    {"value": "retired", "label": "Retired"},
+    {"value": "pending_retirement", "label": "Pending retirement"},
+]
+
+
+@pytest.fixture
+def states():
+    with patch("servicenow_mcp.services.choices.sn_query_page", return_value=(_STATES, None)) as q:
+        yield q
+
+
 @patch("servicenow_mcp.services.kb_article.invalidate_query_cache")
-def test_publish_happy_path(mock_invalidate, mock_config, auth):
+def test_publish_happy_path(mock_invalidate, mock_config, auth, states):
     auth.make_request.return_value = _ok_response(
         {"result": {"sys_id": "art1", "short_description": "T", "workflow_state": "published"}}
     )
@@ -216,29 +235,49 @@ def test_publish_happy_path(mock_invalidate, mock_config, auth):
     assert result.success is True
     assert result.workflow_state == "published"
     sent = auth.make_request.call_args[1]["json"]
-    assert sent["workflow_state"] == "published"
-    assert "workflow_version" not in sent
+    assert sent == {"workflow_state": "published"}
     mock_invalidate.assert_called_once_with(table="kb_knowledge")
+    assert "element=workflow_state" in states.call_args.kwargs["query"]
 
 
 @patch("servicenow_mcp.services.kb_article.invalidate_query_cache")
-def test_publish_with_workflow_version(_mock_invalidate, mock_config, auth):
+def test_publish_defaults_to_published(_mock_invalidate, mock_config, auth, states):
     auth.make_request.return_value = _ok_response({"result": {}})
+    kb_article.publish(mock_config, auth, article_id="art1")
+    assert auth.make_request.call_args[1]["json"] == {"workflow_state": "published"}
 
-    kb_article.publish(
-        mock_config,
-        auth,
-        article_id="art1",
-        workflow_version="v2",
+
+@patch("servicenow_mcp.services.kb_article.invalidate_query_cache")
+def test_publish_label_resolves_to_value(_mock_invalidate, mock_config, auth, states):
+    auth.make_request.return_value = _ok_response({"result": {}})
+    result = kb_article.publish(
+        mock_config, auth, article_id="art1", workflow_state="Pending retirement"
     )
-
-    sent = auth.make_request.call_args[1]["json"]
-    assert sent["workflow_version"] == "v2"
-    # workflow_state default still applied
-    assert sent["workflow_state"] == "published"
+    assert auth.make_request.call_args[1]["json"] == {"workflow_state": "pending_retirement"}
+    assert "pending_retirement" in result.message
 
 
-def test_publish_failure_returns_error_response(mock_config, auth):
+def test_publish_unknown_state_writes_nothing(mock_config, auth, states):
+    result = kb_article.publish(mock_config, auth, article_id="art1", workflow_state="live")
+    assert result["error"] == "UNKNOWN_WORKFLOW_STATE"
+    assert "published=Published" in result["message"]
+    auth.make_request.assert_not_called()
+
+
+def test_publish_unreadable_states_block_the_write(mock_config, auth):
+    with patch("servicenow_mcp.services.choices.sn_query_page", side_effect=RuntimeError("403")):
+        result = kb_article.publish(mock_config, auth, article_id="art1")
+    assert result["error"] == "WORKFLOW_STATE_UNVERIFIED"
+    auth.make_request.assert_not_called()
+
+
+def test_publish_has_no_workflow_version(mock_config, auth):
+    # Not a kb_knowledge column: it was written, ignored, and reported as set.
+    with pytest.raises(TypeError):
+        kb_article.publish(mock_config, auth, article_id="art1", workflow_version="v2")
+
+
+def test_publish_failure_returns_error_response(mock_config, auth, states):
     auth.make_request.side_effect = RuntimeError("503")
 
     with patch("servicenow_mcp.services.kb_article.invalidate_query_cache"):

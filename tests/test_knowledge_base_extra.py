@@ -87,7 +87,8 @@ class TestManageKbArticle:
         result = manage_kb_article(config, auth, params)
         assert result.success is True
         call_data = auth.make_request.call_args[1]["json"]
-        assert call_data["keywords"] == "test,kw"
+        assert call_data["meta"] == "test,kw"
+        assert "keywords" not in call_data
         assert call_data["article_type"] == "text"
 
     @patch("servicenow_mcp.services.kb_article.invalidate_query_cache")
@@ -122,25 +123,17 @@ class TestManageKbArticle:
             article_id="art1",
             workflow_state="published",
         )
-        result = manage_kb_article(config, auth, params)
+        with patch(
+            "servicenow_mcp.services.choices.sn_query_page",
+            return_value=([{"value": "published", "label": "Published"}], None),
+        ):
+            result = manage_kb_article(config, auth, params)
         assert result.success is True
         assert result.workflow_state == "published"
 
-    @patch("servicenow_mcp.services.kb_article.invalidate_query_cache")
-    def test_publish_action_with_version(self, mock_invalidate):
-        config, auth = _setup()
-        _mock_response({"result": {"sys_id": "art1", "workflow_state": "published"}}, auth)
-
-        params = ManageKbArticleParams(
-            action="publish",
-            article_id="art1",
-            workflow_state="published",
-            workflow_version="v2",
-        )
-        result = manage_kb_article(config, auth, params)
-        assert result.success is True
-        call_data = auth.make_request.call_args[1]["json"]
-        assert call_data["workflow_version"] == "v2"
+    def test_workflow_version_is_not_a_parameter(self):
+        # Not a kb_knowledge column: it was written, ignored, and reported as set.
+        assert "workflow_version" not in ManageKbArticleParams.model_fields
 
     def test_create_validation_missing_fields(self):
         with pytest.raises(ValueError, match="action='create' requires"):
@@ -427,3 +420,15 @@ class TestListKnowledgeBasesNonListResult:
 
         assert result["success"] is True
         assert result["count"] == 0
+
+
+def test_get_article_selects_the_real_columns():
+    """`keywords` and `view_count` are not kb_knowledge columns; the server omitted them."""
+    config, auth = _setup()
+    _mock_response({"result": {"sys_id": "a1", "meta": "k", "sys_view_count": "3"}}, auth)
+    result = get_article(config, auth, GetArticleParams(article_id="a1"))
+    fields = auth.make_request.call_args[1]["params"]["sysparm_fields"].split(",")
+    assert "meta" in fields and "sys_view_count" in fields
+    assert "keywords" not in fields and "view_count" not in fields
+    assert result["article"]["keywords"] == "k"
+    assert result["article"]["views"] == "3"

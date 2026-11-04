@@ -45,7 +45,6 @@ def test_update_sends_only_columns_that_exist(mock_config, auth):
             auth,
             changeset_id="us_001",
             description="updated desc",
-            developer="user.dev",
         )
     assert result["success"] is True
     # `developer` is not a column on sys_update_set and is no longer sent.
@@ -147,7 +146,6 @@ def test_get_list_with_all_filters(mock_config, auth):
             auth,
             state="complete",
             application="x_app",
-            developer="user.dev",
             query="active=true",
         )
     assert result["success"] is True

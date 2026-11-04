@@ -974,7 +974,7 @@ uv build
 - [Client Setup Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md) — Installer-first सेटअप के साथ-साथ fallback client configs
 - [Tool Inventory](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_INVENTORY.md) — category और package के अनुसार पूर्ण tool सूची
 - [Windows Installation Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md)
-- [Catalog Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.md) — Service catalog CRUD और optimization
+- [Catalog Guide](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.hi.md) — Service catalog categories, items और variables
 - [Change Management](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/change_management.md) — Change request lifecycle और approval
 - [Workflow Management](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/workflow_management.md) — Workflow (wf_workflow engine) और Flow Designer टूल
 - [Korean README](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md)

@@ -5,18 +5,21 @@ Tests for the change management tools.
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.change_tools import (
     ApproveChangeParams,
-    GetChangeRequestDetailsParams,
     RejectChangeParams,
     SubmitChangeForApprovalParams,
     approve_change,
-    get_change_request_details,
     reject_change,
     submit_change_for_approval,
 )
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
+
+# Writes to choice columns resolve against sys_choice first; answered by conftest.
+pytestmark = pytest.mark.usefixtures("live_choices")
 
 
 class TestChangeTools(unittest.TestCase):
@@ -39,154 +42,6 @@ class TestChangeTools(unittest.TestCase):
         mock_response.json.return_value = json_data
         mock_response.raise_for_status = MagicMock()
         return mock_response
-
-    # ------------------------------------------------------------------ #
-    # get_change_request_details – list mode (no change_id)
-    # ------------------------------------------------------------------ #
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_list_change_requests_basic(self, mock_query_page):
-        mock_query_page.return_value = (
-            [{"sys_id": "ch1", "number": "CHG001"}],
-            1,
-        )
-        params = GetChangeRequestDetailsParams()
-        result = get_change_request_details(self.config, self.auth_manager, params)
-
-        self.assertTrue(result["success"])
-        self.assertEqual(len(result["change_requests"]), 1)
-        self.assertEqual(result["total"], 1)
-        mock_query_page.assert_called_once_with(
-            self.config,
-            self.auth_manager,
-            table="change_request",
-            query="",
-            fields="",
-            limit=10,
-            offset=0,
-            display_value=True,
-        )
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_list_change_requests_with_filters(self, mock_query_page):
-        mock_query_page.return_value = (
-            [{"sys_id": "ch1", "state": "open", "type": "normal"}],
-            1,
-        )
-        params = GetChangeRequestDetailsParams(
-            state="open",
-            type="normal",
-            category="Hardware",
-            assignment_group="IT Support",
-            query="short_description=Test",
-        )
-        result = get_change_request_details(self.config, self.auth_manager, params)
-
-        self.assertTrue(result["success"])
-        call_kwargs = mock_query_page.call_args
-        query = (
-            call_kwargs[1]["query"] if "query" in call_kwargs[1] else call_kwargs.kwargs["query"]
-        )
-        self.assertIn("state=open", query)
-        self.assertIn("type=normal", query)
-        self.assertIn("category=Hardware", query)
-        self.assertIn("assignment_group=IT Support", query)
-        self.assertIn("short_description=Test", query)
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_list_change_requests_timeframe_upcoming(self, mock_query_page):
-        mock_query_page.return_value = ([], 0)
-        params = GetChangeRequestDetailsParams(timeframe="upcoming")
-        get_change_request_details(self.config, self.auth_manager, params)
-
-        call_kwargs = mock_query_page.call_args
-        query = call_kwargs.kwargs.get("query", "")
-        self.assertIn("start_date>", query)
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_list_change_requests_timeframe_in_progress(self, mock_query_page):
-        mock_query_page.return_value = ([], 0)
-        params = GetChangeRequestDetailsParams(timeframe="in-progress")
-        get_change_request_details(self.config, self.auth_manager, params)
-
-        call_kwargs = mock_query_page.call_args
-        query = call_kwargs.kwargs.get("query", "")
-        self.assertIn("start_date<", query)
-        self.assertIn("^end_date>", query)
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_list_change_requests_timeframe_completed(self, mock_query_page):
-        mock_query_page.return_value = ([], 0)
-        params = GetChangeRequestDetailsParams(timeframe="completed")
-        get_change_request_details(self.config, self.auth_manager, params)
-
-        call_kwargs = mock_query_page.call_args
-        query = call_kwargs.kwargs.get("query", "")
-        self.assertIn("end_date<", query)
-
-    @patch("servicenow_mcp.tools.sn_api.sn_count")
-    def test_list_change_requests_count_only(self, mock_count):
-        mock_count.return_value = 42
-        params = GetChangeRequestDetailsParams(count_only=True)
-        result = get_change_request_details(self.config, self.auth_manager, params)
-
-        self.assertTrue(result["success"])
-        self.assertEqual(result["count"], 42)
-        mock_count.assert_called_once_with(
-            self.config,
-            self.auth_manager,
-            "change_request",
-            "",
-        )
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_list_change_requests_error(self, mock_query_page):
-        mock_query_page.side_effect = Exception("Network error")
-        params = GetChangeRequestDetailsParams()
-        result = get_change_request_details(self.config, self.auth_manager, params)
-
-        self.assertFalse(result["success"])
-        self.assertIn("Error listing change requests", result["message"])
-
-    # ------------------------------------------------------------------ #
-    # get_change_request_details
-    # ------------------------------------------------------------------ #
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_get_change_request_details_found(self, mock_query_page):
-        cr_data = {"sys_id": "cr123", "number": "CHG001", "short_description": "Test"}
-        task_data = {"sys_id": "t1", "short_description": "Task 1"}
-        mock_query_page.side_effect = [
-            ([cr_data], 1),
-            ([task_data], 1),
-        ]
-
-        params = GetChangeRequestDetailsParams(change_id="cr123")
-        result = get_change_request_details(self.config, self.auth_manager, params)
-
-        self.assertTrue(result["success"])
-        self.assertEqual(result["change_request"]["sys_id"], "cr123")
-        self.assertEqual(len(result["tasks"]), 1)
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_get_change_request_details_not_found(self, mock_query_page):
-        mock_query_page.return_value = ([], 0)
-
-        params = GetChangeRequestDetailsParams(change_id="nonexistent")
-        result = get_change_request_details(self.config, self.auth_manager, params)
-
-        self.assertFalse(result["success"])
-        self.assertIn("not found", result["message"])
-
-    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
-    def test_get_change_request_details_error(self, mock_query_page):
-        mock_query_page.side_effect = Exception("Server error")
-
-        params = GetChangeRequestDetailsParams(change_id="cr123")
-        result = get_change_request_details(self.config, self.auth_manager, params)
-
-        self.assertFalse(result["success"])
-        self.assertIn("Error getting change request details", result["message"])
 
     # ------------------------------------------------------------------ #
     # submit_change_for_approval
@@ -282,7 +137,9 @@ class TestChangeTools(unittest.TestCase):
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["operation"], "approve_change")
         self.assertEqual(result["approval_record"]["new_state"], "approved")
-        self.assertEqual(result["change_record"]["proposed_state"], "implement")
+        # change_request.state is an integer choice: the word was stored as-is and
+        # the change never moved. -1 = Implement.
+        self.assertEqual(result["change_record"]["proposed_state"], "-1")
         self.auth_manager.make_request.assert_not_called()
 
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
@@ -299,7 +156,7 @@ class TestChangeTools(unittest.TestCase):
 
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["approval_record"]["new_state"], "rejected")
-        self.assertEqual(result["change_record"]["proposed_state"], "canceled")
+        self.assertEqual(result["change_record"]["proposed_state"], "4")  # Canceled
         self.assertEqual(result["approval_record"]["rejection_reason"], "risk too high")
         self.auth_manager.make_request.assert_not_called()
 
@@ -347,7 +204,7 @@ class TestChangeTools(unittest.TestCase):
         self.assertEqual(first_patch_body["comments"], "Bad idea")
 
         second_patch_body = calls[1][1]["json"]
-        self.assertEqual(second_patch_body["state"], "canceled")
+        self.assertEqual(second_patch_body["state"], "4")  # Canceled
         self.assertIn("Bad idea", second_patch_body["work_notes"])
 
         mock_invalidate.assert_any_call(table="sysapproval_approver")
@@ -436,7 +293,7 @@ class TestChangeTools(unittest.TestCase):
     @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
     def test_approve_change_state_override(self, mock_query_page, mock_invalidate):
-        """change_state overrides the hardcoded 'implement' default."""
+        """change_state overrides the default (Implement), resolved to its code."""
         mock_query_page.return_value = ([{"sys_id": "ap1", "state": "requested"}], 1)
         self.auth_manager.make_request.return_value = self._make_response({"result": {}})
 
@@ -445,7 +302,7 @@ class TestChangeTools(unittest.TestCase):
 
         self.assertTrue(result["success"])
         second_patch_body = self.auth_manager.make_request.call_args_list[1][1]["json"]
-        self.assertEqual(second_patch_body["state"], "scheduled")
+        self.assertEqual(second_patch_body["state"], "-2")  # Scheduled
 
     @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")

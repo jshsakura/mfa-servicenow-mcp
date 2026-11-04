@@ -5,7 +5,7 @@ it asserts the guarantees a production instance depends on:
 
   I1. The MCP never creates an update set without explicit confirm='approve'.
   I2. Renaming / re-stating an update set never happens without confirm.
-  I3. Publish/commit needs DOUBLE confirmation (confirm + confirm_publish).
+  I3. Commit needs DOUBLE confirmation (confirm + confirm_publish).
   I4. A blocked write reaches NO network — the block happens before any request.
   I5. There is exactly ONE module that POSTs a new update set
       (services/changeset.py); no tool silently spawns one.
@@ -139,19 +139,24 @@ class TestNoUnconfirmedMutation:
 
 
 # ---------------------------------------------------------------------------
-# I3 — publish/commit need DOUBLE confirmation (confirm + confirm_publish)
+# I3 — commit needs DOUBLE confirmation (confirm + confirm_publish)
 # ---------------------------------------------------------------------------
 class TestPublishDoubleConfirm:
-    def test_publish_with_single_confirm_is_blocked(self, monkeypatch, tmp_path):
+    def test_publish_is_gone_and_reaches_no_network(self, monkeypatch, tmp_path):
+        # 'published' is not an update set state; the action only broke the set.
         server = _server(monkeypatch, tmp_path)
         with patch.object(server.auth_manager, "make_request") as mr:
-            mr.side_effect = AssertionError("network reached during a blocked publish")
-            # confirm='approve' alone is NOT enough — G7 demands confirm_publish too.
-            with pytest.raises(ValueError, match="confirm_publish"):
+            mr.side_effect = AssertionError("network reached for a removed action")
+            with pytest.raises(ValueError, match="publish"):
                 _call(
                     server,
                     "manage_changeset",
-                    {"action": "publish", "changeset_id": "abc", "confirm": "approve"},
+                    {
+                        "action": "publish",
+                        "changeset_id": "abc",
+                        "confirm": "approve",
+                        "confirm_publish": "approve",
+                    },
                 )
         mr.assert_not_called()
 

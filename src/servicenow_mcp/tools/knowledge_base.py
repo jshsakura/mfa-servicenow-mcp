@@ -507,7 +507,7 @@ def get_article(
             auth_manager,
             table="kb_knowledge",
             query=f"sys_id={params.article_id}",
-            fields="sys_id,short_description,text,kb_knowledge_base,kb_category,workflow_state,sys_created_on,sys_updated_on,author,keywords,article_type,view_count",
+            fields="sys_id,short_description,text,kb_knowledge_base,kb_category,workflow_state,sys_created_on,sys_updated_on,author,meta,article_type,sys_view_count",
             limit=1,
             offset=0,
             display_value=True,
@@ -548,9 +548,10 @@ def get_article(
         if isinstance(result.get("author"), dict):
             author = result["author"].get("display_value", "")
 
-        keywords = result.get("keywords", "")
+        # kb_knowledge keeps search keywords in `meta`; `keywords` is not a column.
+        keywords = result.get("meta", "")
         article_type = result.get("article_type", "")
-        views = result.get("view_count", "0")
+        views = result.get("sys_view_count", "0")
         created = result.get("sys_created_on", "")
         updated = result.get("sys_updated_on", "")
 
@@ -765,13 +766,12 @@ class ManageKbArticleParams(BaseModel):
     category: Optional[str] = Field(
         default=None, description="Category sys_id (create/list_articles)"
     )
-    keywords: Optional[str] = Field(default=None)
+    keywords: Optional[str] = Field(
+        default=None, description="Search keywords, stored in kb_knowledge.meta (create/update)"
+    )
     article_type: Optional[Literal["html", "text", "wiki"]] = Field(
         default=None, description="Article body markup type (create)"
     )
-
-    # Publish-specific
-    workflow_version: Optional[str] = Field(default=None)
 
     dry_run: bool = Field(default=False)
 
@@ -885,11 +885,9 @@ def manage_kb_article(
             dry_run=params.dry_run,
         )
 
-    # publish — only forward workflow_state/version when caller supplied them so
+    # publish — only forward workflow_state when the caller supplied it so
     # the service-layer default ("published") applies otherwise.
     pub_kwargs: Dict[str, Any] = {"article_id": params.article_id}
     if params.workflow_state is not None:
         pub_kwargs["workflow_state"] = params.workflow_state
-    if params.workflow_version is not None:
-        pub_kwargs["workflow_version"] = params.workflow_version
     return kb_article_service.publish(config, auth_manager, **pub_kwargs)

@@ -1123,8 +1123,6 @@ class TestPublishConfirmIsAdvertisedNotHidden:
     @pytest.mark.parametrize(
         "tool_name",
         [
-            "publish_changeset",
-            "commit_changeset",
             "update_remote_from_local",
             "approve_change",
             "submit_change_for_approval",

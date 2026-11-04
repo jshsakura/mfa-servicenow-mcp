@@ -977,7 +977,7 @@ uv build
 - [Guía de configuración de clientes](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md) — Configuración con instalador primero más configuraciones de cliente de respaldo
 - [Inventario de herramientas](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_INVENTORY.md) — Lista completa de herramientas por categoría y paquete
 - [Guía de instalación en Windows](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md)
-- [Guía del catálogo](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.md) — CRUD y optimización del catálogo de servicios
+- [Guía del catálogo](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.es.md) — categorías, artículos y variables del catálogo de servicios
 - [Gestión de cambios](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/change_management.md) — Ciclo de vida y aprobación de change requests
 - [Gestión de workflow](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/workflow_management.md) — Herramientas de Workflow (motor wf_workflow) y Flow Designer
 - [README en coreano](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md)

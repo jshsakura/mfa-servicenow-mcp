@@ -43,14 +43,19 @@ class TestValidation:
         with pytest.raises(ValidationError, match="changeset_id"):
             ManageChangesetParams(action="commit")
 
-    def test_publish_requires_changeset_id(self):
-        with pytest.raises(ValidationError, match="changeset_id"):
-            ManageChangesetParams(action="publish")
+    def test_publish_is_retired_with_the_way_forward(self):
+        with pytest.raises(ValidationError, match="not an update set state") as err:
+            ManageChangesetParams(action="publish", changeset_id="abc")
+        assert "commit" in str(err.value) and "export_record_xml" in str(err.value)
 
     def test_add_file_is_retired_with_the_way_forward(self):
         with pytest.raises(ValidationError, match="move_file") as err:
             ManageChangesetParams(action="add_file", changeset_id="abc")
         assert "manage_session_context" in str(err.value)
+
+    def test_developer_is_not_a_parameter(self):
+        # Not a sys_update_set column: every action accepted it and dropped it.
+        assert "developer" not in ManageChangesetParams.model_fields
 
     def test_invalid_action_rejected(self):
         with pytest.raises(ValidationError):
@@ -99,26 +104,6 @@ class TestDispatch:
             assert mock_fn.call_args.kwargs["changeset_id"] == "abc"
             assert mock_fn.call_args.kwargs["commit_message"] == "ship"
 
-    def test_publish_dispatches(self):
-        with patch("servicenow_mcp.services.changeset.publish") as mock_fn:
-            mock_fn.return_value = {"success": True}
-            manage_changeset(
-                _config(),
-                MagicMock(),
-                ManageChangesetParams(
-                    action="publish", changeset_id="abc", publish_notes="release v1"
-                ),
-            )
-            assert mock_fn.call_args.kwargs["changeset_id"] == "abc"
-            assert mock_fn.call_args.kwargs["publish_notes"] == "release v1"
-
-
-# ---------------------------------------------------------------------------
-# Confirm gate
-# ---------------------------------------------------------------------------
-
-
-class TestConfirmGate:
     def test_manage_changeset_requires_confirm(self):
         from servicenow_mcp.server import ServiceNowMCP
 

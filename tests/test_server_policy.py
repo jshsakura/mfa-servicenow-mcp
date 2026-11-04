@@ -805,12 +805,12 @@ def test_flow_publish_reachable_end_to_end_via_guards(monkeypatch, tmp_path):
     server = _build_multi_server(monkeypatch, tmp_path)
     seen = _register_recorder(server, "manage_changeset")
 
-    # With BOTH approvals the publish call reaches the tool body.
+    # With BOTH approvals the publish-class call reaches the tool body.
     asyncio.run(
         server._call_tool_impl(
             "manage_changeset",
             {
-                "action": "publish",
+                "action": "commit",
                 "changeset_id": "c1",
                 "confirm": "approve",
                 "confirm_publish": "approve",
@@ -830,7 +830,7 @@ def test_flow_publish_blocked_without_confirm_publish(monkeypatch, tmp_path):
         asyncio.run(
             server._call_tool_impl(
                 "manage_changeset",
-                {"action": "publish", "changeset_id": "c1", "confirm": "approve"},
+                {"action": "commit", "changeset_id": "c1", "confirm": "approve"},
             )
         )
     assert seen == {}

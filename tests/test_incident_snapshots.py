@@ -14,6 +14,9 @@ import pytest
 
 from servicenow_mcp.tools.incident_tools import ManageIncidentParams, manage_incident
 
+# Writes to choice columns resolve against sys_choice first; answered by conftest.
+pytestmark = pytest.mark.usefixtures("live_choices")
+
 SNAPSHOTS_DIR = Path(__file__).parent / "snapshots" / "incident"
 
 
@@ -114,7 +117,7 @@ def test_snap_manage_incident_resolve(mock_config, auth):
             ManageIncidentParams(
                 action="resolve",
                 incident_id="a" * 32,
-                resolution_code="Solved (Permanently)",
+                resolution_code="Solution provided",
                 resolution_notes="Restarted service",
             ),
         )

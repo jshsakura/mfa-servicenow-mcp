@@ -14,6 +14,9 @@ import pytest
 from servicenow_mcp.services import incident as incident_service
 from servicenow_mcp.services.incident import IncidentResponse
 
+# Writes to choice columns resolve against sys_choice first; answered by conftest.
+pytestmark = pytest.mark.usefixtures("live_choices")
+
 
 def _resp(payload: dict, status: int = 200) -> MagicMock:
     r = MagicMock()
@@ -69,7 +72,7 @@ def test_resolve_error_path(mock_config, auth):
                 mock_config,
                 auth,
                 incident_id="INC0001",
-                resolution_code="solved",
+                resolution_code="Solution provided",
                 resolution_notes="fixed",
             )
     assert result.success is False
@@ -85,7 +88,7 @@ def test_resolve_dry_run(mock_config, auth):
                 mock_config,
                 auth,
                 incident_id="INC0001",
-                resolution_code="solved",
+                resolution_code="Solution provided",
                 resolution_notes="fixed",
                 dry_run=True,
             )

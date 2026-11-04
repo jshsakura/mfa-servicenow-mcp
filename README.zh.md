@@ -976,7 +976,7 @@ uv build
 - [客户端设置指南](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/CLIENT_SETUP.md) — 安装程序优先的设置以及回退客户端配置
 - [工具清单](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/TOOL_INVENTORY.md) — 按分类和工具包列出的完整工具列表
 - [Windows 安装指南](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/WINDOWS_INSTALL.md)
-- [Catalog 指南](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.md) — 服务目录 CRUD 与优化
+- [Catalog 指南](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/catalog.zh.md) — 服务目录分类、目录项与变量
 - [变更管理](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/change_management.md) — 变更请求生命周期与审批
 - [工作流管理](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/docs/workflow_management.md) — Workflow（wf_workflow 引擎）和 Flow Designer 工具
 - [韩语 README](https://github.com/jshsakura/mfa-servicenow-mcp/blob/main/README.ko.md)

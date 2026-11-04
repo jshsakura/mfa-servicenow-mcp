@@ -47,14 +47,14 @@ class TestValidation:
             ManageCatalogParams(
                 action="create_variable",
                 variable_name="x",
-                variable_type="string",
+                variable_type="Single Line Text",
                 label="X",
             )
         with pytest.raises(ValidationError, match="variable_name"):
             ManageCatalogParams(
                 action="create_variable",
                 catalog_item_id="i1",
-                variable_type="string",
+                variable_type="Single Line Text",
                 label="X",
             )
         with pytest.raises(ValidationError, match="variable_type"):
@@ -69,7 +69,7 @@ class TestValidation:
                 action="create_variable",
                 catalog_item_id="i1",
                 variable_name="x",
-                variable_type="string",
+                variable_type="Single Line Text",
             )
 
     def test_update_variable_requires_id(self):
@@ -143,14 +143,14 @@ class TestDispatch:
                     action="create_variable",
                     catalog_item_id="i1",
                     variable_name="comments",
-                    variable_type="string",
+                    variable_type="Single Line Text",
                     label="Comments",
                     mandatory=True,
                 ),
             )
             assert mock_fn.call_args.kwargs["catalog_item_id"] == "i1"
             assert mock_fn.call_args.kwargs["name"] == "comments"
-            assert mock_fn.call_args.kwargs["variable_type"] == "string"
+            assert mock_fn.call_args.kwargs["variable_type"] == "Single Line Text"
             assert mock_fn.call_args.kwargs["label"] == "Comments"
             assert mock_fn.call_args.kwargs["mandatory"] is True
 
@@ -177,3 +177,41 @@ class TestConfirmGate:
         from servicenow_mcp.server import ServiceNowMCP
 
         assert ServiceNowMCP._tool_requires_confirmation("manage_catalog") is True
+
+
+class TestFieldsThatWereDropped:
+    """Fields the schema offered for an action and the dispatch never forwarded."""
+
+    def test_update_variable_forwards_name_type_and_reference(self):
+        with patch("servicenow_mcp.services.catalog.update_variable") as mock_fn:
+            mock_fn.return_value = {"success": True}
+            manage_catalog(
+                _config(),
+                MagicMock(),
+                ManageCatalogParams(
+                    action="update_variable",
+                    variable_id="v1",
+                    variable_name="renamed",
+                    variable_type="Reference",
+                    reference_table="sys_user",
+                ),
+            )
+            kwargs = mock_fn.call_args.kwargs
+            assert kwargs["variable_name"] == "renamed"
+            assert kwargs["variable_type"] == "Reference"
+            assert kwargs["reference_table"] == "sys_user"
+
+    def test_list_categories_forwards_count_only(self):
+        with patch("servicenow_mcp.services.catalog.list_categories") as mock_fn:
+            mock_fn.return_value = {"success": True}
+            manage_catalog(
+                _config(),
+                MagicMock(),
+                ManageCatalogParams(action="list_categories", count_only=True),
+            )
+            assert mock_fn.call_args.kwargs["count_only"] is True
+
+    def test_every_variable_field_is_declared_for_its_action(self):
+        fba = ManageCatalogParams._FIELDS_BY_ACTION
+        assert "description" in fba["create_variable"]
+        assert "description" in fba["update_variable"]

@@ -246,51 +246,125 @@ class TestMoveItems(unittest.TestCase):
         self.assertFalse(result["success"])
 
 
+_TYPE_CHOICES = [
+    {"value": "6", "label": "Single Line Text"},
+    {"value": "8", "label": "Reference"},
+    {"value": "7", "label": "CheckBox"},
+    {"value": "1", "label": "Yes / No"},
+]
+
+
+def _choices(rows=None):
+    """Patch the live sys_choice read that resolves item_option_new.type."""
+    return patch(
+        "servicenow_mcp.services.choices.sn_query_page",
+        return_value=(_TYPE_CHOICES if rows is None else rows, None),
+    )
+
+
 class TestCreateVariable(unittest.TestCase):
     @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
     def test_happy(self, mock_inv):
         auth = _auth()
         auth.make_request.return_value = _resp({"result": {"sys_id": "v1", "name": "qty"}})
-        result = svc.create_variable(
-            _config(),
-            auth,
-            catalog_item_id="i1",
-            name="qty",
-            variable_type="integer",
-            label="Quantity",
-        )
+        with _choices():
+            result = svc.create_variable(
+                _config(),
+                auth,
+                catalog_item_id="i1",
+                name="qty",
+                variable_type="6",
+                label="Quantity",
+            )
         self.assertTrue(result["success"])
         self.assertEqual(result["variable_id"], "v1")
         mock_inv.assert_called_once_with(table="item_option_new")
         body = auth.make_request.call_args[1]["json"]
         self.assertEqual(body["cat_item"], "i1")
         self.assertEqual(body["name"], "qty")
-        self.assertEqual(body["type"], "integer")
+        self.assertEqual(body["type"], "6")
         self.assertEqual(body["question_text"], "Quantity")
+
+    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
+    def test_label_resolves_to_its_code(self, mock_inv):
+        auth = _auth()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "v1"}})
+        for label in ("Single Line Text", "single_line_text", "SINGLE LINE TEXT"):
+            with _choices():
+                svc.create_variable(
+                    _config(), auth, catalog_item_id="i1", name="x", variable_type=label, label="X"
+                )
+            self.assertEqual(auth.make_request.call_args[1]["json"]["type"], "6")
+
+    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
+    def test_a_word_that_is_not_a_type_is_refused_before_any_write(self, mock_inv):
+        # "string" was the documented example and is not a value of the column:
+        # the record was created with a type the form cannot render.
+        auth = _auth()
+        with _choices():
+            result = svc.create_variable(
+                _config(), auth, catalog_item_id="i1", name="x", variable_type="string", label="X"
+            )
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "UNKNOWN_VARIABLE_TYPE")
+        self.assertIn("6=Single Line Text", result["message"])
+        auth.make_request.assert_not_called()
+
+    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
+    def test_unreadable_choice_list_blocks_the_write(self, mock_inv):
+        auth = _auth()
+        with patch(
+            "servicenow_mcp.services.choices.sn_query_page", side_effect=RuntimeError("403")
+        ):
+            result = svc.create_variable(
+                _config(), auth, catalog_item_id="i1", name="x", variable_type="6", label="X"
+            )
+        self.assertEqual(result["error"], "VARIABLE_TYPE_UNVERIFIED")
+        auth.make_request.assert_not_called()
+
+    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
+    def test_empty_choice_list_is_not_a_pass(self, mock_inv):
+        auth = _auth()
+        with _choices(rows=[]):
+            result = svc.create_variable(
+                _config(), auth, catalog_item_id="i1", name="x", variable_type="6", label="X"
+            )
+        self.assertEqual(result["error"], "VARIABLE_TYPE_UNVERIFIED")
+        auth.make_request.assert_not_called()
+
+    def test_choice_read_targets_the_parent_question_table(self):
+        with _choices() as q:
+            svc.resolve_variable_type(_config(), _auth(), "6")
+        kwargs = q.call_args.kwargs
+        self.assertEqual(kwargs["table"], "sys_choice")
+        self.assertIn("name=question^element=type^", kwargs["query"])
+        self.assertFalse(kwargs["fail_silently"])
 
     @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
     def test_optional_fields(self, mock_inv):
         auth = _auth()
         auth.make_request.return_value = _resp({"result": {"sys_id": "v2"}})
-        svc.create_variable(
-            _config(),
-            auth,
-            catalog_item_id="i1",
-            name="ref",
-            variable_type="reference",
-            label="User",
-            mandatory=True,
-            help_text="Pick a user",
-            default_value="root",
-            description="DESC",
-            reference_table="sys_user",
-            reference_qualifier="active=true",
-            max_length=50,
-            min=0,
-            max=100,
-            order=10,
-        )
+        with _choices():
+            svc.create_variable(
+                _config(),
+                auth,
+                catalog_item_id="i1",
+                name="ref",
+                variable_type="Reference",
+                label="User",
+                mandatory=True,
+                help_text="Pick a user",
+                default_value="root",
+                description="DESC",
+                reference_table="sys_user",
+                reference_qualifier="active=true",
+                max_length=50,
+                min=0,
+                max=100,
+                order=10,
+            )
         body = auth.make_request.call_args[1]["json"]
+        self.assertEqual(body["type"], "8")
         self.assertEqual(body["mandatory"], "true")
         self.assertEqual(body["help_text"], "Pick a user")
         self.assertEqual(body["default_value"], "root")
@@ -311,11 +385,90 @@ class TestCreateVariable(unittest.TestCase):
     def test_error(self, mock_inv):
         auth = _auth()
         auth.make_request.side_effect = Exception("Timeout")
-        result = svc.create_variable(
-            _config(), auth, catalog_item_id="i1", name="x", variable_type="string", label="X"
-        )
+        with _choices():
+            result = svc.create_variable(
+                _config(), auth, catalog_item_id="i1", name="x", variable_type="6", label="X"
+            )
         self.assertFalse(result["success"])
+        self.assertIn("Timeout", result["message"])
         mock_inv.assert_not_called()
+
+
+class TestUpdateVariableIdentityFields(unittest.TestCase):
+    """name / type / reference were in the update schema and silently dropped."""
+
+    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
+    def test_name_type_and_reference_are_written(self, mock_inv):
+        auth = _auth()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "v1"}})
+        with _choices():
+            result = svc.update_variable(
+                _config(),
+                auth,
+                variable_id="v1",
+                variable_name="renamed",
+                variable_type="Reference",
+                reference_table="sys_user",
+            )
+        self.assertTrue(result["success"])
+        body = auth.make_request.call_args[1]["json"]
+        self.assertEqual(body, {"name": "renamed", "type": "8", "reference": "sys_user"})
+
+    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
+    def test_bad_type_on_update_writes_nothing(self, mock_inv):
+        auth = _auth()
+        with _choices():
+            result = svc.update_variable(
+                _config(), auth, variable_id="v1", variable_type="boolean", label="L"
+            )
+        self.assertEqual(result["error"], "UNKNOWN_VARIABLE_TYPE")
+        auth.make_request.assert_not_called()
+
+    def test_label_only_update_does_not_read_choices(self):
+        auth = _auth()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "v1"}})
+        with _choices() as q, patch("servicenow_mcp.services.catalog.invalidate_query_cache"):
+            svc.update_variable(_config(), auth, variable_id="v1", label="L")
+        q.assert_not_called()
+
+
+class TestListTotals(unittest.TestCase):
+    """`total` used to be len(page): a page of 3 read as "3 in the catalog"."""
+
+    def test_items_total_is_the_server_count(self):
+        rows = [{"sys_id": f"i{n}", "name": "n"} for n in range(3)]
+        with patch("servicenow_mcp.services.catalog.sn_query_page", return_value=(rows, 47)):
+            result = svc.list_items(_config(), _auth(), limit=3)
+        self.assertEqual((result["count"], result["total"]), (3, 47))
+        self.assertEqual(result["more"], "44 more; offset=3")
+
+    def test_categories_total_is_the_server_count(self):
+        rows = [{"sys_id": "c1", "title": "t"}]
+        with patch("servicenow_mcp.services.catalog.sn_query_page", return_value=(rows, 1)):
+            result = svc.list_categories(_config(), _auth(), limit=3)
+        self.assertEqual((result["count"], result["total"]), (1, 1))
+        self.assertNotIn("more", result)
+
+    def test_no_server_count_is_said_not_guessed(self):
+        with patch("servicenow_mcp.services.catalog.sn_query_page", return_value=([], None)):
+            result = svc.list_categories(_config(), _auth())
+        self.assertNotIn("total", result)
+        self.assertTrue(result["total_unknown"])
+
+    def test_categories_count_only(self):
+        with patch(
+            "servicenow_mcp.services.catalog.count_response", return_value={"count": 10}
+        ) as cr:
+            result = svc.list_categories(_config(), _auth(), count_only=True, active=True)
+        self.assertEqual(result, {"count": 10})
+        self.assertEqual(cr.call_args.args[2], "sc_category")
+        self.assertEqual(cr.call_args.args[3], "active=true")
+
+    def test_category_query_cannot_widen_the_filter(self):
+        with patch("servicenow_mcp.services.catalog.sn_query_page", return_value=([], 0)) as q:
+            result = svc.list_categories(_config(), _auth(), query="a^ORactive=false")
+        self.assertNotIn("^ORactive=false", q.call_args.kwargs["query"])
+        self.assertIn("filter_notes", result)
 
 
 class TestUpdateVariable(unittest.TestCase):

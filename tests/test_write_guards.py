@@ -98,12 +98,14 @@ def test_is_read_only(tool: str, args: Dict[str, Any], expected_read_only: bool)
 @pytest.mark.parametrize(
     "tool, args, expected",
     [
-        ("publish_changeset", {}, True),
-        ("commit_changeset", {}, True),
+        # Not tools: the names were listed for tools that never existed.
+        ("publish_changeset", {}, False),
+        ("commit_changeset", {}, False),
         ("update_remote_from_local", {}, True),
         ("approve_change", {}, True),
         ("submit_change_for_approval", {}, True),
-        ("manage_changeset", {"action": "publish"}, True),
+        # Removed: 'published' is not an update set state.
+        ("manage_changeset", {"action": "publish"}, False),
         ("manage_changeset", {"action": "commit"}, True),
         ("manage_changeset", {"action": "create"}, False),
         # Flow Designer lost its write actions; nothing it can do is publish-class.
@@ -171,14 +173,14 @@ def test_g6_allows_sn_write_to_unrelated_table() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_g7_blocks_publish_changeset_without_confirm_publish() -> None:
+def test_g7_blocks_submit_change_without_confirm_publish() -> None:
     with pytest.raises(PolicyViolation, match=r"\[G7\]"):
-        run_write_guards(_SERVER, "publish_changeset", {"changeset_id": "abc"})
+        run_write_guards(_SERVER, "submit_change_for_approval", {"change_id": "abc"})
 
 
-def test_g7_allows_publish_changeset_with_confirm_publish() -> None:
+def test_g7_allows_submit_change_with_confirm_publish() -> None:
     run_write_guards(
-        _SERVER, "publish_changeset", {"changeset_id": "abc", "confirm_publish": "approve"}
+        _SERVER, "submit_change_for_approval", {"change_id": "abc", "confirm_publish": "approve"}
     )
 
 
@@ -198,7 +200,7 @@ def test_g7_push_rejection_points_to_preview_no_dead_end() -> None:
 def test_g7_generic_publish_rejection_has_no_push_hint() -> None:
     # The hint is push-specific; a generic publish-class rejection stays clean.
     with pytest.raises(PolicyViolation) as exc:
-        run_write_guards(_SERVER, "publish_changeset", {"changeset_id": "abc"})
+        run_write_guards(_SERVER, "submit_change_for_approval", {"change_id": "abc"})
     assert "diff_local_component" not in str(exc.value)
 
 
@@ -209,9 +211,9 @@ def test_preview_hint_unknown_tool_is_empty() -> None:
     assert "diff_local_component" in preview_hint("update_remote_from_local")
 
 
-def test_g7_blocks_manage_changeset_publish() -> None:
+def test_g7_blocks_manage_changeset_commit() -> None:
     with pytest.raises(PolicyViolation, match=r"\[G7\]"):
-        run_write_guards(_SERVER, "manage_changeset", {"action": "publish"})
+        run_write_guards(_SERVER, "manage_changeset", {"action": "commit"})
 
 
 def test_g7_allows_manage_changeset_create() -> None:
