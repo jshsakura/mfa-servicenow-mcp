@@ -153,6 +153,122 @@ def update_category(
         }
 
 
+# sc_cat_item flags update_item takes in ``item_options``, by column name.
+# Measured on a live instance: the item form's Portal Settings tab carries the
+# *_v2 columns (Hide 'Add to Cart', Hide Quantity, ...); the un-suffixed no_*
+# columns are the older desktop flags, still read by the classic UI. A column an
+# instance does not have is ignored by the Table API without an error, which is
+# why every write is read back and compared rather than reported as saved.
+_ITEM_BOOL_OPTIONS = frozenset(
+    {
+        "no_cart_v2",
+        "no_quantity_v2",
+        "no_delivery_time_v2",
+        "no_wishlist_v2",
+        "no_save_as_draft",
+        "no_attachment_v2",
+        "mandatory_attachment",
+        "hide_sp",
+        "omit_price",
+        "ignore_price",
+        "show_variable_help_on_load",
+        "start_closed",
+        "use_sc_layout",
+        "visible_standalone",
+        "visible_bundle",
+        "visible_guide",
+        "make_item_non_conversational",
+        "no_search",
+        "no_cart",
+        "no_quantity",
+        "no_order",
+        "no_order_now",
+        "no_proceed_checkout",
+    }
+)
+# Choice columns, checked against this instance's sys_choice rather than a list
+# written here. request_method's "Order" is the NULL_OVERRIDE choice: stored empty.
+_ITEM_CHOICE_OPTIONS = ("request_method", "availability", "access_type")
+_TRUE = ("true", "1", "yes")
+
+
+def _item_option_body(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    options: Dict[str, Any],
+    body: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """Validate ``options`` into ``body``; a refusal dict when any key or value is wrong."""
+    unknown = sorted(k for k in options if k not in _ITEM_BOOL_OPTIONS | set(_ITEM_CHOICE_OPTIONS))
+    if unknown:
+        return {
+            "success": False,
+            "error": "UNKNOWN_ITEM_OPTION",
+            "message": (
+                f"Not an item option: {', '.join(unknown)}. Booleans: "
+                f"{', '.join(sorted(_ITEM_BOOL_OPTIONS))}. Choices: "
+                f"{', '.join(_ITEM_CHOICE_OPTIONS)}. Nothing was written."
+            ),
+        }
+    for key, value in options.items():
+        if key in _ITEM_BOOL_OPTIONS:
+            if not isinstance(value, bool) and str(value).strip().lower() not in (
+                "true",
+                "false",
+            ):
+                return {
+                    "success": False,
+                    "error": "BAD_ITEM_OPTION",
+                    "message": f"{key} takes true or false, not {value!r}. Nothing was written.",
+                }
+            body[key] = str(value).strip().lower()
+            continue
+        resolved, refusal = resolve_choice(
+            config,
+            auth_manager,
+            table="sc_cat_item",
+            element=key,
+            requested=str(value),
+            unknown_error="BAD_ITEM_OPTION",
+            unverified_error="ITEM_OPTION_UNVERIFIED",
+        )
+        if refusal is not None:
+            return refusal
+        body[key] = "" if resolved == "NULL_OVERRIDE" else resolved
+    return None
+
+
+def _same(wanted: Any, got: Any) -> bool:
+    """Whether a read-back value is the one written (booleans and lists normalised)."""
+    w, g = str(wanted if wanted is not None else "").strip(), str(got if got is not None else "")
+    g = g.strip()
+    if w.lower() in ("true", "false"):
+        return (g.lower() in _TRUE) == (w.lower() == "true")
+    if "," in w or "," in g:
+        return sorted(x.strip() for x in w.split(",") if x.strip()) == sorted(
+            x.strip() for x in g.split(",") if x.strip()
+        )
+    return w == g
+
+
+def _applied(body: Dict[str, Any], proof: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compare a write with its read-back. Unread is said, never scored as applied."""
+    if proof is None:
+        return {"applied": None, "because": "the record could not be read back"}
+    missing = sorted(k for k in body if k not in proof)
+    differ = {
+        k: {"wanted": v, "now": proof.get(k)}
+        for k, v in body.items()
+        if k in proof and not _same(v, proof.get(k))
+    }
+    out: Dict[str, Any] = {"applied": not missing and not differ}
+    if differ:
+        out["not_applied"] = differ
+    if missing:
+        out["not_returned"] = missing
+    return out
+
+
 def update_item(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -165,25 +281,45 @@ def update_item(
     price: Optional[str] = None,
     active: Optional[bool] = None,
     order: Optional[int] = None,
+    sc_catalogs: Optional[str] = None,
+    flow_designer_flow: Optional[str] = None,
+    workflow: Optional[str] = None,
+    item_options: Optional[Dict[str, Any]] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Update a catalog item by sys_id."""
+    """Update a catalog item; OOTB items are refused, and the write is read back."""
+    if flow_designer_flow and workflow:
+        return {
+            "success": False,
+            "error": "ENGINE_CONFLICT",
+            "message": "Set flow_designer_flow or workflow, not both",
+        }
     body: Dict[str, Any] = {}
-    if name is not None:
-        body["name"] = name
-    if short_description is not None:
-        body["short_description"] = short_description
-    if description is not None:
-        body["description"] = description
-    if category is not None:
-        body["category"] = category
-    if price is not None:
-        body["price"] = price
+    for key, value in (
+        ("name", name),
+        ("short_description", short_description),
+        ("description", description),
+        ("category", category),
+        ("price", price),
+        ("sc_catalogs", sc_catalogs),
+        ("flow_designer_flow", flow_designer_flow),
+        ("workflow", workflow),
+    ):
+        if value is not None:
+            body[key] = value
     if active is not None:
         body["active"] = str(active).lower()
     if order is not None:
         body["order"] = str(order)
+    refusal = _item_option_body(config, auth_manager, item_options or {}, body)
+    if refusal is not None:
+        return refusal
+    if not body:
+        return {"success": False, "message": "No update parameters provided"}
 
+    refusal = _writable_target(config, auth_manager, "sc_cat_item", item_id)
+    if refusal is not None:
+        return refusal
     if dry_run:
         return build_update_preview(
             config,
@@ -193,23 +329,25 @@ def update_item(
             proposed=body,
             identifier_fields=["name", "category", "active"],
         )
-
-    url = f"{config.instance_url}/api/now/table/sc_cat_item/{item_id}"
-    headers = auth_manager.get_headers()
-    headers["Content-Type"] = "application/json"
-
     try:
-        response = auth_manager.make_request("PATCH", url, headers=headers, json=body)
-        response.raise_for_status()
-        invalidate_query_cache(table="sc_cat_item")
-        return {
-            "success": True,
-            "message": "Catalog item updated successfully",
-            "data": response.json()["result"],
-        }
+        _table_write(config, auth_manager, "PATCH", "sc_cat_item", body, item_id)
     except Exception as e:
-        logger.error(f"Error updating catalog item: {e}")
-        return {"success": False, "message": f"Error updating catalog item: {str(e)}", "data": None}
+        return _fail("Error updating catalog item", e)
+    fields = sorted(set(body) | {"sys_id", "name", "flow_designer_flow", "workflow"})
+    proof = _reread(config, auth_manager, "sc_cat_item", item_id, ",".join(fields))
+    out: Dict[str, Any] = {
+        "success": True,
+        "message": "Catalog item updated",
+        "sys_id": item_id,
+        **_applied(body, proof),
+        "record": proof,
+    }
+    if proof and proof.get("flow_designer_flow") and proof.get("workflow"):
+        out["warning"] = (
+            "The item now has both a flow and a workflow; which runs is decided by the "
+            "platform. Clear the one you do not want (set it to an empty string)."
+        )
+    return out
 
 
 def move_items(
@@ -314,6 +452,32 @@ def resolve_variable_type(
     )
 
 
+def _apply_container_layout(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    data: Dict[str, Any],
+    layout: Optional[str],
+    display_title: Optional[bool],
+) -> Optional[Dict[str, Any]]:
+    """Container Start columns (question.layout: normal, 2across, 2down) and title."""
+    if layout is not None:
+        code, refusal = resolve_choice(
+            config,
+            auth_manager,
+            table="question",
+            element="layout",
+            requested=layout,
+            unknown_error="UNKNOWN_LAYOUT",
+            unverified_error="LAYOUT_UNVERIFIED",
+        )
+        if refusal is not None:
+            return refusal
+        data["layout"] = code
+    if display_title is not None:
+        data["display_title"] = str(display_title).lower()
+    return None
+
+
 def create_variable(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -335,6 +499,8 @@ def create_variable(
     max: Optional[int] = None,
     map_to_field: Optional[bool] = None,
     target_field: Optional[str] = None,
+    layout: Optional[str] = None,
+    display_title: Optional[bool] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Add a form variable to a catalog item OR to a variable set (exactly one)."""
@@ -374,6 +540,9 @@ def create_variable(
         data["map_to_field"] = str(map_to_field).lower()
     if target_field:
         data["field"] = target_field
+    refusal = _apply_container_layout(config, auth_manager, data, layout, display_title)
+    if refusal is not None:
+        return refusal
 
     if dry_run:
         return build_create_preview(table="item_option_new", proposed=data)
@@ -418,6 +587,8 @@ def update_variable(
     max_length: Optional[int] = None,
     min: Optional[int] = None,
     max: Optional[int] = None,
+    layout: Optional[str] = None,
+    display_title: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Update an existing catalog item variable."""
     data: Dict[str, Any] = {}
@@ -445,6 +616,9 @@ def update_variable(
     if reference_qualifier is not None:
         data["reference_qual"] = reference_qualifier
     _apply_variable_constraints(data, max_length=max_length, min=min, max=max)
+    refusal = _apply_container_layout(config, auth_manager, data, layout, display_title)
+    if refusal is not None:
+        return refusal
 
     if not data:
         return {"success": False, "message": "No update parameters provided"}
@@ -623,9 +797,22 @@ def get_item(
 
 _FULL_CAP = 500
 _VARIABLE_FIELDS = (
-    "sys_id,name,question_text,type,mandatory,order,default_value,reference,active,"
-    "variable_set,cat_item"
+    "sys_id,name,question_text,type,mandatory,order,default_value,reference,list_table,"
+    "lookup_table,active,variable_set,cat_item"
 )
+# The column that names a variable's table, by type. A variable keeps whatever
+# was once typed into the others: measured on a live instance, Single Line Text,
+# Multi Line Text and Select Box variables still carry `reference: sys_user`.
+# Showing that as the variable's table is a claim the form does not make.
+_TABLE_COLUMN_BY_TYPE = {
+    "8": "reference",
+    "31": "reference",
+    "21": "list_table",
+    "18": "lookup_table",
+}
+_TABLE_COLUMNS = ("reference", "list_table", "lookup_table")
+# Types whose default is a record: a label there resolves to nothing.
+_RECORD_DEFAULT_TYPES = ("8", "31", "21")
 
 
 def _rv(x: Any) -> Any:
@@ -685,6 +872,62 @@ def _item_or_set_queries(item_col: str, item_id: str, set_ids: List[str]) -> Lis
     ]
 
 
+def _user_criteria_block(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    item_id: str,
+    category_id: Optional[str],
+    truncated: List[str],
+) -> Dict[str, Any]:
+    """Available / Not Available For of the item and of its category, described."""
+    try:
+        links: Dict[Tuple[str, str], List[str]] = {}
+        targets = [("item", item_id)] + ([("category", category_id)] if category_id else [])
+        for kind, target in targets:
+            for access in ("available", "not_available"):
+                link, col = _UC_LINKS[(kind, access)]
+                rows = _rows(
+                    config, auth_manager, link, f"{col}={target}", "user_criteria", truncated
+                )
+                links[(kind, access)] = [_rv(r.get("user_criteria")) for r in rows]
+        ids = sorted({i for v in links.values() for i in v if i})
+        described: Dict[str, Dict[str, Any]] = {}
+        for c in _chunks(ids):
+            for r in _rows(
+                config, auth_manager, "user_criteria", f"sys_idIN{','.join(c)}", _UC_FIELDS
+            ):
+                entry: Dict[str, Any] = {
+                    "sys_id": _rv(r.get("sys_id")),
+                    "name": _rv(r.get("name")),
+                    "active": _rv(r.get("active")),
+                    "match_all": _rv(r.get("match_all")),
+                    "conditions": {k: _dv(r.get(k)) for k in _UC_CONDITIONS if _rv(r.get(k))},
+                }
+                if str(_rv(r.get("advanced"))).lower() == "true":
+                    entry["advanced"] = "scripted (script not shown)"
+                described[entry["sys_id"]] = entry
+
+        def side(kind: str) -> Dict[str, Any]:
+            return {
+                f"{access}_for": [
+                    described.get(i, {"sys_id": i, "unreadable": True})
+                    for i in links.get((kind, access), [])
+                ]
+                for access in ("available", "not_available")
+            }
+
+        return {
+            "item": side("item"),
+            "category": side("category") if category_id else None,
+            "note": (
+                "Rows only. Not Available For wins; empty lists mean no rows here, "
+                "not that everyone can see the item."
+            ),
+        }
+    except Exception as e:
+        return {"checked": False, "because": str(e) or type(e).__name__}
+
+
 def _item_full(config: ServerConfig, auth_manager: AuthManager, item_id: str) -> Dict[str, Any]:
     """detail='full' blocks. A failed read is {checked: False, because}, never []."""
     truncated: List[str] = []
@@ -705,7 +948,7 @@ def _item_full(config: ServerConfig, auth_manager: AuthManager, item_id: str) ->
             query=f"sys_id={item_id}",
             fields=(
                 "sys_id,flow_designer_flow,workflow,delivery_plan,sys_scope,sys_package,"
-                "sys_policy,sys_class_name"
+                "sys_policy,sys_class_name,category"
             ),
             limit=1,
             offset=0,
@@ -721,7 +964,9 @@ def _item_full(config: ServerConfig, auth_manager: AuthManager, item_id: str) ->
     if item is None:
         out["engine"] = out["origin"] = item_err
     else:
-        engine = {k: _ref(item.get(k)) for k in ("flow_designer_flow", "workflow", "delivery_plan")}
+        engine: Dict[str, Any] = {
+            k: _ref(item.get(k)) for k in ("flow_designer_flow", "workflow", "delivery_plan")
+        }
         out["engine"] = engine
         live = [k for k, v in engine.items() if v]
         if len(live) > 1:
@@ -755,10 +1000,17 @@ def _item_full(config: ServerConfig, auth_manager: AuthManager, item_id: str) ->
                     fail_silently=False,
                 )
                 if prow:
+                    target = _rv(prow[0].get("table_name"))
                     origin["producer"] = {
-                        "table_name": _rv(prow[0].get("table_name")),
+                        "table_name": target,
                         "script_length": len(str(_rv(prow[0].get("script")) or "")),
                     }
+                    # A producer inserts a record; what runs after submit is
+                    # mostly the target table's automation, not these fields.
+                    engine["after_submit"] = (
+                        f"Record producer: the submit inserts into {target}. Read what runs "
+                        f"then with get_table_automation(table='{target}', operation='insert')."
+                    )
                 else:
                     origin["producer"] = {"checked": False, "because": "producer row not returned"}
             except Exception as e:
@@ -830,6 +1082,7 @@ def _item_full(config: ServerConfig, auth_manager: AuthManager, item_id: str) ->
             )
             variables = []
             absent = set()
+            bad_defaults: List[str] = []
             for r in rows:
                 absent |= {
                     f
@@ -839,23 +1092,55 @@ def _item_full(config: ServerConfig, auth_manager: AuthManager, item_id: str) ->
                     if f not in r
                 }
                 vs = _rv(r.get("variable_set"))
-                variables.append(
-                    {
-                        "sys_id": _rv(r.get("sys_id")),
-                        "name": _rv(r.get("name")),
-                        "question_text": _rv(r.get("question_text")),
-                        "type": {"value": _rv(r.get("type")), "label": _dv(r.get("type"))},
-                        "mandatory": _rv(r.get("mandatory")),
-                        "order": _rv(r.get("order")),
-                        "default_value": _rv(r.get("default_value")),
-                        "reference": _rv(r.get("reference")),
-                        "active": _rv(r.get("active")),
-                        "variable_set": vs,
-                        **({"variable_set_title": set_title.get(vs, "")} if vs else {}),
-                    }
-                )
+                vtype = str(_rv(r.get("type")))
+                used = _TABLE_COLUMN_BY_TYPE.get(vtype)
+                tables = {c: _rv(r.get(c)) for c in _TABLE_COLUMNS if _rv(r.get(c))}
+                unused = {c: v for c, v in tables.items() if c != used}
+                default = str(_rv(r.get("default_value")) or "")
+                var: Dict[str, Any] = {
+                    "sys_id": _rv(r.get("sys_id")),
+                    "name": _rv(r.get("name")),
+                    "question_text": _rv(r.get("question_text")),
+                    "type": {"value": vtype, "label": _dv(r.get("type"))},
+                    "mandatory": _rv(r.get("mandatory")),
+                    "order": _rv(r.get("order")),
+                    "default_value": default,
+                    **({used: tables[used]} if used and used in tables else {}),
+                    **({"unused_by_type": unused} if unused else {}),
+                    "active": _rv(r.get("active")),
+                    "variable_set": vs,
+                    **({"variable_set_title": set_title.get(vs, "")} if vs else {}),
+                }
+                variables.append(var)
+                if (
+                    vtype in _RECORD_DEFAULT_TYPES
+                    and default
+                    and not default.startswith("javascript:")
+                    and not all(_SYS_ID.match(x.strip()) for x in default.split(","))
+                ):
+                    bad_defaults.append(var["name"])
             variables.sort(key=lambda v: (v["variable_set"] != "", str(v["order"]).zfill(8)))
             out["variables"] = variables
+            if any("unused_by_type" in v for v in variables):
+                warnings.append(
+                    {
+                        "code": "UNUSED_TABLE_VALUES",
+                        "message": (
+                            "Some variables keep a reference/list_table/lookup_table value their "
+                            "type does not use; it is under unused_by_type, not the variable's table."
+                        ),
+                    }
+                )
+            if bad_defaults:
+                warnings.append(
+                    {
+                        "code": "DEFAULT_NOT_SYS_ID",
+                        "message": (
+                            "A record-type variable's default is not a sys_id (a label or name "
+                            "resolves to nothing): " + ", ".join(bad_defaults)
+                        ),
+                    }
+                )
             if absent:
                 warnings.append(
                     {
@@ -1006,6 +1291,12 @@ def _item_full(config: ServerConfig, auth_manager: AuthManager, item_id: str) ->
             )
         except Exception as e:
             out["client_scripts"] = fail(e)
+
+    # 8: user criteria — rows only. Who finally sees the item is decided at run
+    # time (catalog-level criteria and properties too), so no verdict is drawn.
+    out["user_criteria"] = _user_criteria_block(
+        config, auth_manager, item_id, _rv(item.get("category")) if item else None, truncated
+    )
 
     if truncated:
         warnings.append(
@@ -1274,8 +1565,18 @@ def _reread(
     return {k: _rv(v) for k, v in rows[0].items()}
 
 
-def _is_customer_package(pkg_value: str, pkg_label: str, scope_label: str) -> bool:
-    """Heuristic: empty package, a scoped (x_) customer app, or one named like its scope."""
+def _is_customer_package(
+    pkg_value: str, pkg_label: str, scope_label: str, scope_code: str = ""
+) -> bool:
+    """Heuristic: empty package, a scoped (x_) customer app, or one named like its scope.
+
+    ``scope_code`` (sys_scope.scope) overrides the name match when it was read: an
+    ``sn_`` scope is a ServiceNow application. Measured on a live instance, a store
+    app's package and scope can carry the same name ("Asset Management Common",
+    scope sn_itam_common), which the name match alone scored as a customer app.
+    """
+    if scope_code.strip().lower().startswith("sn_"):
+        return False
     if not pkg_value:
         return True
     low = f"{pkg_label} {scope_label}".lower()
@@ -1298,7 +1599,7 @@ def _writable_target(
             auth_manager,
             table,
             f"sys_id={sys_id}",
-            "sys_id,sys_policy,sys_package,sys_scope",
+            "sys_id,sys_policy,sys_package,sys_scope,sys_scope.scope",
         )
     except Exception as e:
         return {
@@ -1325,13 +1626,15 @@ def _writable_target(
         }
     pkg_v, pkg_l = str(_rv(row.get("sys_package"))), str(_dv(row.get("sys_package")))
     scope_l = str(_dv(row.get("sys_scope")))
-    if not _is_customer_package(pkg_v, pkg_l, scope_l):
+    scope_code = str(_rv(row.get("sys_scope.scope")) or "")
+    if not _is_customer_package(pkg_v, pkg_l, scope_l, scope_code):
         return {
             "success": False,
             "error": "OOTB_PACKAGE",
             "message": (
-                f"{table} {sys_id} belongs to package '{pkg_l}' (scope '{scope_l}'), not a "
-                "customer package; this client never edits OOTB records in place."
+                f"{table} {sys_id} belongs to package '{pkg_l}' (scope '{scope_l}'"
+                f"{', ' + scope_code if scope_code else ''}), not a customer package; this "
+                "client never edits OOTB records in place."
             ),
         }
     return None
@@ -1937,6 +2240,271 @@ def detach_variable_set(
             return out
         deleted.append(lid)
     return {"success": True, "message": "Detached variable set", "deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# User criteria: who can see an item or category
+# ---------------------------------------------------------------------------
+
+# user_criteria condition columns (glide_lists) and the table each one points at.
+_UC_CONDITIONS = {
+    "user": "sys_user",
+    "group": "sys_user_group",
+    "role": "sys_user_role",
+    "company": "core_company",
+    "department": "cmn_department",
+    "location": "cmn_location",
+}
+_UC_FIELDS = "sys_id,name,active,match_all,advanced," + ",".join(_UC_CONDITIONS)
+# (target kind, access) -> (link table, target column). Not Available For wins
+# over Available For on the platform.
+_UC_LINKS = {
+    ("item", "available"): ("sc_cat_item_user_criteria_mtom", "sc_cat_item"),
+    ("item", "not_available"): ("sc_cat_item_user_criteria_no_mtom", "sc_cat_item"),
+    ("category", "available"): ("sc_category_user_criteria_mtom", "sc_category"),
+    ("category", "not_available"): ("sc_category_user_criteria_no_mtom", "sc_category"),
+}
+_SYS_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _id_list(value: Any) -> List[str]:
+    items = value if isinstance(value, (list, tuple)) else str(value or "").split(",")
+    return [str(v).strip() for v in items if str(v).strip()]
+
+
+def create_user_criteria(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    name: str,
+    conditions: Dict[str, Any],
+    match_all: bool = False,
+    short_description: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Create a non-scripted user_criteria from users/groups/roles/... sys_ids."""
+    unknown = sorted(k for k in conditions if k not in _UC_CONDITIONS)
+    if unknown:
+        return {
+            "success": False,
+            "error": "UNKNOWN_CONDITION",
+            "message": (
+                f"Not a user criteria condition: {', '.join(unknown)}. Use "
+                f"{', '.join(_UC_CONDITIONS)}. Nothing was written."
+            ),
+        }
+    body: Dict[str, Any] = {"name": name, "match_all": str(match_all).lower(), "advanced": "false"}
+    if short_description:
+        body["short_description"] = short_description
+    for key, table in _UC_CONDITIONS.items():
+        ids = _id_list(conditions.get(key))
+        if not ids:
+            continue
+        bad = [i for i in ids if not _SYS_ID.match(i)]
+        if bad:
+            return {
+                "success": False,
+                "error": "NOT_A_SYS_ID",
+                "message": (
+                    f"{key} takes sys_ids of {table}, not {', '.join(bad)}; look them up with "
+                    "sn_query. Nothing was written."
+                ),
+            }
+        try:
+            found = {
+                _rv(r.get("sys_id"))
+                for c in _chunks(ids)
+                for r in _rows(config, auth_manager, table, f"sys_idIN{','.join(c)}", "sys_id")
+            }
+        except Exception as e:
+            return _fail(f"Could not read {table} to check the {key} ids; nothing was written", e)
+        missing = [i for i in ids if i not in found]
+        if missing:
+            return {
+                "success": False,
+                "error": "CONDITION_NOT_FOUND",
+                "message": f"{key}: not found in {table}: {', '.join(missing)}. Nothing was written.",
+            }
+        body[key] = ",".join(ids)
+    if not any(k in body for k in _UC_CONDITIONS):
+        return {
+            "success": False,
+            "error": "NO_CONDITIONS",
+            "message": "Give at least one of "
+            + ", ".join(_UC_CONDITIONS)
+            + ". Nothing was written.",
+        }
+    if dry_run:
+        return build_create_preview(table="user_criteria", proposed=body)
+    try:
+        result = _table_write(config, auth_manager, "POST", "user_criteria", body)
+    except Exception as e:
+        return _fail("Error creating user criteria", e)
+    sys_id = result.get("sys_id", "")
+    proof = _reread(config, auth_manager, "user_criteria", sys_id, _UC_FIELDS)
+    return {
+        "success": True,
+        "message": f"Created user criteria '{name}'",
+        "sys_id": sys_id,
+        **_applied(body, proof),
+        "record": proof,
+    }
+
+
+def _uc_target(
+    catalog_item_id: Optional[str], category_id: Optional[str], access: str
+) -> Tuple[Optional[Tuple[str, str, str, str]], Optional[Dict[str, Any]]]:
+    """(link table, target column, target table, target id) or a refusal."""
+    if bool(catalog_item_id) == bool(category_id):
+        return None, {
+            "success": False,
+            "message": "Exactly one of catalog_item_id or category_id is required",
+        }
+    kind = "item" if catalog_item_id else "category"
+    if (kind, access) not in _UC_LINKS:
+        return None, {
+            "success": False,
+            "error": "BAD_ACCESS",
+            "message": f"access takes available or not_available, not {access!r}",
+        }
+    link, col = _UC_LINKS[(kind, access)]
+    return (link, col, col, str(catalog_item_id or category_id)), None
+
+
+def attach_user_criteria(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    user_criteria: str,
+    access: str,
+    catalog_item_id: Optional[str] = None,
+    category_id: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Put a user criteria on an item's or category's Available/Not Available For list."""
+    target, refusal = _uc_target(catalog_item_id, category_id, access)
+    if refusal is not None:
+        return refusal
+    assert target is not None
+    link, col, table, target_id = target
+    refusal = _writable_target(config, auth_manager, table, target_id)
+    if refusal is not None:
+        return refusal
+    try:
+        criteria = _rows(
+            config, auth_manager, "user_criteria", f"sys_id={user_criteria}", _UC_FIELDS
+        )
+        if not criteria:
+            return {
+                "success": False,
+                "error": "CRITERIA_NOT_FOUND",
+                "message": f"user_criteria {user_criteria} not found; nothing was written",
+            }
+        existing = _rows(
+            config, auth_manager, link, f"{col}={target_id}^user_criteria={user_criteria}", "sys_id"
+        )
+        other_link = _UC_LINKS[
+            (
+                "item" if catalog_item_id else "category",
+                "not_available" if access == "available" else "available",
+            )
+        ][0]
+        opposite = _rows(
+            config,
+            auth_manager,
+            other_link,
+            f"{col}={target_id}^user_criteria={user_criteria}",
+            "sys_id",
+        )
+    except Exception as e:
+        return _fail("Could not read the current user criteria links; nothing was written", e)
+    out: Dict[str, Any] = {
+        "criteria": {"sys_id": user_criteria, "name": _rv(criteria[0].get("name"))}
+    }
+    if opposite:
+        out["warning"] = (
+            "The same criteria is also on the other list "
+            f"({other_link}); Not Available For wins over Available For."
+        )
+    if existing:
+        return {
+            "success": True,
+            "already_attached": True,
+            "message": "Already on that list; nothing written",
+            "link_ids": [_rv(r.get("sys_id")) for r in existing],
+            **out,
+        }
+    body = {col: target_id, "user_criteria": user_criteria}
+    if dry_run:
+        return {**build_create_preview(table=link, proposed=body), **out}
+    try:
+        result = _table_write(config, auth_manager, "POST", link, body)
+    except Exception as e:
+        return _fail("Error attaching user criteria", e)
+    link_id = result.get("sys_id", "")
+    proof = _reread(config, auth_manager, link, link_id, f"sys_id,{col},user_criteria")
+    return {
+        "success": True,
+        "already_attached": False,
+        "message": f"Added to {'Available' if access == 'available' else 'Not Available'} For",
+        "link_table": link,
+        "link_id": link_id,
+        "verified": proof is not None,
+        "record": proof,
+        **out,
+    }
+
+
+def detach_user_criteria(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    user_criteria: str,
+    access: str,
+    catalog_item_id: Optional[str] = None,
+    category_id: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Delete only the link row(s); the user_criteria record itself stays."""
+    target, refusal = _uc_target(catalog_item_id, category_id, access)
+    if refusal is not None:
+        return refusal
+    assert target is not None
+    link, col, table, target_id = target
+    refusal = _writable_target(config, auth_manager, table, target_id)
+    if refusal is not None:
+        return refusal
+    try:
+        rows = _rows(
+            config, auth_manager, link, f"{col}={target_id}^user_criteria={user_criteria}", "sys_id"
+        )
+    except Exception as e:
+        return _fail("Could not read the current user criteria links; nothing was deleted", e)
+    ids = [_rv(r.get("sys_id")) for r in rows]
+    if not ids:
+        return {
+            "success": True,
+            "not_attached": True,
+            "message": "Not on that list; nothing deleted",
+        }
+    if dry_run:
+        return {
+            "dry_run": True,
+            "operation": "delete",
+            "target": {"table": link},
+            "would_delete": ids,
+            "note": "Only the link rows are deleted; the user criteria record stays.",
+        }
+    deleted: List[str] = []
+    for lid in ids:
+        try:
+            _table_write(config, auth_manager, "DELETE", link, None, lid)
+        except Exception as e:
+            out = _fail("Error detaching user criteria", e)
+            out["deleted"] = deleted
+            return out
+        deleted.append(lid)
+    return {"success": True, "message": "Detached user criteria", "deleted": deleted}
 
 
 def _parent_of_variable(

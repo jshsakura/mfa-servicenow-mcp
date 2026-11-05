@@ -77,6 +77,10 @@ _ITEM_UPDATE_FIELDS = (
     "price",
     "active",
     "order",
+    "sc_catalogs",
+    "flow_designer_flow",
+    "workflow",
+    "item_options",
 )
 _VARIABLE_UPDATE_FIELDS = (
     "variable_name",
@@ -92,6 +96,8 @@ _VARIABLE_UPDATE_FIELDS = (
     "max_length",
     "min",
     "max",
+    "layout",
+    "display_title",
 )
 
 
@@ -101,7 +107,7 @@ class ManageCatalogParams(BaseModel):
     Required per action:
       create_category:  title
       update_category:  category_id, at least one field
-      update_item:      item_id, at least one field
+      update_item:      item_id, at least one field (item_options: portal flags, request_method)
       move_items:       item_ids, target_category_id
       create_variable:  catalog_item_id, variable_name, variable_type, label
       update_variable:  variable_id, at least one field
@@ -113,6 +119,10 @@ class ManageCatalogParams(BaseModel):
       attach_variable_set / detach_variable_set: catalog_item_id, variable_set
       set_choices:      variable_id, choices [{value,text,order,inactive?}] (full desired list)
       create_client_script: name, script_type, script, catalog_item_id XOR variable_set
+      create_variable Container Start/Split/End: type 19/24/20; layout + display_title on Start
+      create_user_criteria: name, conditions {user|group|role|company|department|location: [sys_id]}
+      attach_user_criteria / detach_user_criteria: user_criteria, access, catalog_item_id XOR
+                        category_id
     """
 
     action: Literal[
@@ -135,6 +145,9 @@ class ManageCatalogParams(BaseModel):
         "detach_variable_set",
         "set_choices",
         "create_client_script",
+        "create_user_criteria",
+        "attach_user_criteria",
+        "detach_user_criteria",
     ] = Field(...)
 
     # read params (list_items/get_item/list_categories/list_item_variables)
@@ -208,8 +221,12 @@ class ManageCatalogParams(BaseModel):
     )
     internal_name: Optional[str] = Field(default=None, description="Variable set internal name")
     set_type: Optional[str] = Field(default=None, description="Variable set type")
-    display_title: Optional[bool] = Field(default=None, description="Show set title on form")
-    layout: Optional[str] = Field(default=None, description="Variable set layout")
+    display_title: Optional[bool] = Field(
+        default=None, description="Show the title (variable set or Container Start)"
+    )
+    layout: Optional[str] = Field(
+        default=None, description="Columns for a set or Container Start: normal, 2across, 2down"
+    )
     choices: Optional[List[Dict[str, Any]]] = Field(
         default=None, description="Full desired list: {value,text,order?,inactive?}"
     )
@@ -220,6 +237,20 @@ class ManageCatalogParams(BaseModel):
     applies_catalog: Optional[bool] = Field(default=None)
     applies_req_item: Optional[bool] = Field(default=None)
     applies_sc_task: Optional[bool] = Field(default=None)
+
+    item_options: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="update_item: sc_cat_item flags by column, e.g. {no_quantity_v2: true}",
+    )
+    user_criteria: Optional[str] = Field(default=None, description="user_criteria sys_id")
+    access: Optional[Literal["available", "not_available"]] = Field(
+        default=None, description="Available For or Not Available For list"
+    )
+    conditions: Optional[Dict[str, List[str]]] = Field(
+        default=None,
+        description="create_user_criteria: {user|group|role|company|department|location: [sys_id]}",
+    )
+    match_all: Optional[bool] = Field(default=None, description="Require every condition")
 
     dry_run: bool = Field(default=False)
 
@@ -252,6 +283,11 @@ class ManageCatalogParams(BaseModel):
                 "description",
                 "price",
                 "active",
+                "order",
+                "sc_catalogs",
+                "flow_designer_flow",
+                "workflow",
+                "item_options",
                 "dry_run",
             }
         ),
@@ -275,6 +311,8 @@ class ManageCatalogParams(BaseModel):
                 "order",
                 "map_to_field",
                 "target_field",
+                "layout",
+                "display_title",
                 "dry_run",
             }
         ),
@@ -294,6 +332,8 @@ class ManageCatalogParams(BaseModel):
                 "min",
                 "max",
                 "order",
+                "layout",
+                "display_title",
                 "dry_run",
             }
         ),
@@ -366,6 +406,15 @@ class ManageCatalogParams(BaseModel):
                 "dry_run",
             }
         ),
+        "create_user_criteria": frozenset(
+            {"name", "conditions", "match_all", "short_description", "dry_run"}
+        ),
+        "attach_user_criteria": frozenset(
+            {"user_criteria", "access", "catalog_item_id", "category_id", "dry_run"}
+        ),
+        "detach_user_criteria": frozenset(
+            {"user_criteria", "access", "catalog_item_id", "category_id", "dry_run"}
+        ),
     }
 
     @model_validator(mode="after")
@@ -386,6 +435,8 @@ class ManageCatalogParams(BaseModel):
                 raise ValueError("item_id is required for action='update_item'")
             if not any(getattr(self, f) is not None for f in _ITEM_UPDATE_FIELDS):
                 raise ValueError("at least one field must be provided for action='update_item'")
+            if self.flow_designer_flow and self.workflow:
+                raise ValueError("set flow_designer_flow or workflow, not both")
         elif a == "move_items":
             if not self.item_ids:
                 raise ValueError("item_ids is required for action='move_items'")
@@ -455,13 +506,27 @@ class ManageCatalogParams(BaseModel):
         elif a == "update_variable":
             if not self.variable_id:
                 raise ValueError("variable_id is required for action='update_variable'")
+        elif a == "create_user_criteria":
+            if not self.name:
+                raise ValueError("name is required for action='create_user_criteria'")
+            if not self.conditions:
+                raise ValueError("conditions is required for action='create_user_criteria'")
+        elif a in ("attach_user_criteria", "detach_user_criteria"):
+            for f in ("user_criteria", "access"):
+                if not getattr(self, f):
+                    raise ValueError(f"{f} is required for action='{a}'")
+            if bool(self.catalog_item_id) == bool(self.category_id):
+                raise ValueError("exactly one of catalog_item_id or category_id is required")
         return self
 
 
 @register_tool(
     name="manage_catalog",
     params=ManageCatalogParams,
-    description="Catalog category/item/variable CRUD (tables: sc_category, sc_cat_item, item_option_new).",
+    description=(
+        "Catalog categories, items, variables, sets and user criteria (sc_category, "
+        "sc_cat_item, item_option_new, user_criteria)."
+    ),
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -565,6 +630,8 @@ def manage_catalog(
             "max",
             "map_to_field",
             "target_field",
+            "layout",
+            "display_title",
         ):
             v = getattr(params, f)
             if v is not None:
@@ -646,6 +713,31 @@ def manage_catalog(
             auth_manager,
             variable_id=str(params.variable_id),
             choices=params.choices or [],
+            dry_run=params.dry_run,
+        )
+    if a == "create_user_criteria":
+        return _cat_svc.create_user_criteria(
+            config,
+            auth_manager,
+            name=str(params.name),
+            conditions=params.conditions or {},
+            match_all=bool(params.match_all),
+            short_description=params.short_description,
+            dry_run=params.dry_run,
+        )
+    if a in ("attach_user_criteria", "detach_user_criteria"):
+        fn = (
+            _cat_svc.attach_user_criteria
+            if a == "attach_user_criteria"
+            else _cat_svc.detach_user_criteria
+        )
+        return fn(
+            config,
+            auth_manager,
+            user_criteria=str(params.user_criteria),
+            access=str(params.access),
+            catalog_item_id=params.catalog_item_id,
+            category_id=params.category_id,
             dry_run=params.dry_run,
         )
     if a == "create_client_script":

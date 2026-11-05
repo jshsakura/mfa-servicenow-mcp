@@ -87,7 +87,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_catalog` | R/W | Catalog category/item/variable CRUD (tables: sc_category, sc_cat_item, item_option_new). | portal_developer, service_desk (get_item, list_categories, list_item_variables, list_items), itsm_developer, full |
+| `manage_catalog` | R/W | Catalog categories, items, variables, sets and user criteria (sc_category, sc_cat_item, item_option_new, user_criteria). | portal_developer, service_desk (get_item, list_categories, list_item_variables, list_items), itsm_developer, full |
 
 ### Change Tools (1)
 

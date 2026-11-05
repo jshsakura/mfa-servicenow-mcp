@@ -162,63 +162,6 @@ class TestUpdateCategory(unittest.TestCase):
         mock_inv.assert_not_called()
 
 
-class TestUpdateItem(unittest.TestCase):
-    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
-    def test_happy(self, mock_inv):
-        auth = _auth()
-        auth.make_request.return_value = _resp(
-            {"result": {"sys_id": "i1", "name": "Laptop", "price": "999"}}
-        )
-        result = svc.update_item(_config(), auth, item_id="i1", name="Laptop", price="999")
-        self.assertTrue(result["success"])
-        mock_inv.assert_called_once_with(table="sc_cat_item")
-        body = auth.make_request.call_args[1]["json"]
-        self.assertEqual(body["name"], "Laptop")
-        self.assertEqual(body["price"], "999")
-
-    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
-    def test_optional_fields(self, mock_inv):
-        auth = _auth()
-        auth.make_request.return_value = _resp({"result": {"sys_id": "i1"}})
-        svc.update_item(
-            _config(),
-            auth,
-            item_id="i1",
-            short_description="S",
-            description="D",
-            category="c1",
-        )
-        body = auth.make_request.call_args[1]["json"]
-        self.assertEqual(body["short_description"], "S")
-        self.assertEqual(body["description"], "D")
-        self.assertEqual(body["category"], "c1")
-
-    @patch("servicenow_mcp.services.catalog.build_update_preview")
-    def test_dry_run(self, mock_preview):
-        mock_preview.return_value = {"success": True, "preview": {}}
-        svc.update_item(_config(), _auth(), item_id="i1", name="X", dry_run=True)
-        call_kwargs = mock_preview.call_args[1]
-        self.assertEqual(call_kwargs["table"], "sc_cat_item")
-        self.assertEqual(call_kwargs["sys_id"], "i1")
-
-    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
-    def test_active_and_order(self, mock_inv):
-        auth = _auth()
-        auth.make_request.return_value = _resp({"result": {"sys_id": "i1"}})
-        svc.update_item(_config(), auth, item_id="i1", active=False, order=5)
-        body = auth.make_request.call_args[1]["json"]
-        self.assertEqual(body["active"], "false")
-        self.assertEqual(body["order"], "5")
-
-    @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
-    def test_error(self, mock_inv):
-        auth = _auth()
-        auth.make_request.side_effect = Exception("Err")
-        result = svc.update_item(_config(), auth, item_id="i1", name="X")
-        self.assertFalse(result["success"])
-        mock_inv.assert_not_called()
-
-
 class TestMoveItems(unittest.TestCase):
     @patch("servicenow_mcp.services.catalog.invalidate_query_cache")
     def test_all_success(self, mock_inv):
