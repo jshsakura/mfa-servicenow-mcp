@@ -16,7 +16,7 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -1243,7 +1243,98 @@ def _is_closing_action(row: Dict[str, Any]) -> bool:
     )
 
 
-def _flow_structure_warnings(tree: List[Dict[str, Any]], orphans: List[Dict[str, Any]]):
+# (table, [elements], [values]) -> {(element, value): label}, or None when the
+# read failed. Injected so the tree builder stays free of network access.
+ChoiceResolver = Callable[[str, List[str], List[str]], Optional[Dict[Tuple[str, str], str]]]
+
+_NUMERIC_STATE_TERM = re.compile(
+    r"(?:^|[\^,;\s\"'{(])((?:state|stage|approval|incident_state)\w*)\s*[=:]\s*(-?\d+)(?![\w.])",
+    re.IGNORECASE,
+)
+_CLOSING_LABEL = re.compile(r"closed|complete|resolved|cancel|approved", re.IGNORECASE)
+_TABLE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _numeric_state_writes(row: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """(field, numeric value) pairs an Update Record row writes to a state-like field."""
+    if row.get("kind") != "ACTION" or (row.get("type") or "").lower() != "update record":
+        return []
+    inputs = row.get("inputs") or {}
+    text = str(inputs.get("values") or inputs.get("fields_values") or "")
+    return [(m.group(1).lower(), m.group(2)) for m in _NUMERIC_STATE_TERM.finditer(text)]
+
+
+def _update_record_table(row: Dict[str, Any]) -> str:
+    """Table of an Update Record row; the input reads '<table> / <label>'."""
+    raw = str((row.get("inputs") or {}).get("table_name") or "")
+    name = raw.split(" / ", 1)[0].strip()
+    return name if _TABLE_NAME.match(name) else ""
+
+
+def _numeric_closing_verdict(
+    row: Dict[str, Any], resolver: Optional[ChoiceResolver]
+) -> Tuple[Optional[bool], str]:
+    """(closing?, reason). closing is None when it could not be determined."""
+    writes = _numeric_state_writes(row)
+    if not writes:
+        return False, ""
+    table = _update_record_table(row)
+    if resolver is None or not table:
+        return None, "no table or choice reader available to label it"
+    labels = resolver(table, sorted({f for f, _ in writes}), sorted({v for _, v in writes}))
+    if labels is None:
+        return None, "the sys_choice read failed"
+    unlabelled = [f"{f}={v}" for f, v in writes if (f, v) not in labels]
+    if unlabelled:
+        return None, f"no sys_choice label for {', '.join(unlabelled)}"
+    return any(_CLOSING_LABEL.search(labels[w]) for w in writes), ""
+
+
+def _make_choice_resolver(config: ServerConfig, auth_manager: AuthManager) -> ChoiceResolver:
+    """One sys_choice read per call: the table's own label wins over task's."""
+
+    def resolve(table, elements, values):
+        try:
+            names = [table] if table == "task" else [table, "task"]
+            rows, _ = sn_query_page(
+                config,
+                auth_manager,
+                table="sys_choice",
+                query=(
+                    f"nameIN{','.join(names)}^elementIN{','.join(elements)}"
+                    f"^valueIN{','.join(values)}^language=en"
+                ),
+                fields="name,element,value,label",
+                limit=100,
+                offset=0,
+                display_value=False,
+                fail_silently=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - unlabelled, never "clean"
+            logger.debug("sys_choice read failed for %s: %s", table, exc)
+            return None
+        out: Dict[Tuple[str, str], str] = {}
+        own: Set[Tuple[str, str]] = set()
+        for r in rows or []:
+            key = (str(r.get("element") or "").lower(), str(r.get("value") or ""))
+            label = str(r.get("label") or "")
+            if not label:
+                continue
+            if r.get("name") == table:
+                out[key] = label
+                own.add(key)
+            elif key not in own:
+                out.setdefault(key, label)
+        return out
+
+    return resolve
+
+
+def _flow_structure_warnings(
+    tree: List[Dict[str, Any]],
+    orphans: List[Dict[str, Any]],
+    choice_resolver: Optional[ChoiceResolver] = None,
+):
     """Checks that read the tree's shape: fall-through, reject test, subflow inputs."""
     out: List[Dict[str, Any]] = []
     live = [r for r in tree if not r.get("deleted")]
@@ -1251,14 +1342,15 @@ def _flow_structure_warnings(tree: List[Dict[str, Any]], orphans: List[Dict[str,
     # Fall-through: only claimed when the preceding top-level node is an IF /
     # ELSE IF and no top-level ELSE exists.
     top = [r for r in live if int(r.get("depth") or 0) == 0]
-    if len(top) >= 2 and _is_closing_action(top[-1]):
+    if len(top) >= 2:
         logic_types = [(r.get("type") or "").lower() for r in top if r.get("kind") == "LOGIC"]
         prev = top[-2]
-        if (
+        shaped = (
             (prev.get("type") or "").lower() in {"if", "else_if", "elseif", "else if"}
             and prev.get("kind") == "LOGIC"
             and "else" not in logic_types
-        ):
+        )
+        if shaped and _is_closing_action(top[-1]):
             out.append(
                 {
                     "code": "FALL_THROUGH_AUTOCOMPLETE",
@@ -1271,6 +1363,37 @@ def _flow_structure_warnings(tree: List[Dict[str, Any]], orphans: List[Dict[str,
                     ),
                 }
             )
+        elif shaped and top[-1].get("kind") == "ACTION":
+            # Numeric state: the value means nothing until sys_choice names it.
+            closing, why = _numeric_closing_verdict(top[-1], choice_resolver)
+            if closing:
+                out.append(
+                    {
+                        "code": "FALL_THROUGH_AUTOCOMPLETE",
+                        "severity": "high",
+                        "order": top[-1].get("order", ""),
+                        "ui_id": top[-1].get("ui_id"),
+                        "message": (
+                            "Last top-level step sets a closing state (by sys_choice label) "
+                            "after IF branches with no ELSE — a value matching no branch "
+                            "may complete unapproved."
+                        ),
+                    }
+                )
+            elif closing is None:
+                out.append(
+                    {
+                        "code": "FALL_THROUGH_UNVERIFIED",
+                        "severity": "low",
+                        "order": top[-1].get("order", ""),
+                        "ui_id": top[-1].get("ui_id"),
+                        "message": (
+                            "Last top-level step writes a numeric state after IF branches "
+                            f"with no ELSE; it could not be labelled ({why}), so whether "
+                            "it closes the record is unknown — not a clean result."
+                        ),
+                    }
+                )
 
     # Reject test on 'requested': the approval step's state is no longer
     # 'requested' once it has finished. Needs the pill to name a real Ask For
@@ -1348,6 +1471,7 @@ def _detect_flow_warnings(
     orphans: List[Dict[str, Any]],
     deleted_logic: List[Dict[str, Any]],
     known_pills: Optional[Set[str]] = None,
+    choice_resolver: Optional[ChoiceResolver] = None,
 ) -> List[Dict[str, Any]]:
     """Mechanical config-error detection — surfaces obvious misconfigurations.
 
@@ -1497,7 +1621,7 @@ def _detect_flow_warnings(
                 }
             )
 
-    warnings.extend(_flow_structure_warnings(tree, orphans))
+    warnings.extend(_flow_structure_warnings(tree, orphans, choice_resolver))
 
     if deleted_logic:
         warnings.append(
@@ -1780,6 +1904,7 @@ def _build_flow_summary(
     include_scripts: bool = False,
     label_map: Optional[Dict[str, str]] = None,
     known_pills: Optional[Set[str]] = None,
+    choice_resolver: Optional[ChoiceResolver] = None,
 ) -> Dict[str, Any]:
     """Flat tree summary (depth + full conditions) for analysis use cases.
 
@@ -1885,7 +2010,7 @@ def _build_flow_summary(
             f"{len(unreachable)} node(s) unreachable from any root: {unreachable[:5]}"
         )
 
-    warnings = _detect_flow_warnings(tree, orphans, deleted_logic, known_pills)
+    warnings = _detect_flow_warnings(tree, orphans, deleted_logic, known_pills, choice_resolver)
     index = _build_summary_index(tree, orphans)
 
     # A tombstoned node still appears in the tree (tagged [DELETED], see
@@ -2591,6 +2716,7 @@ def get_flow_details(
                             detail,
                             label_map=_build_label_map(pf_data),
                             known_pills=_label_cache_names(pf_data),
+                            choice_resolver=_make_choice_resolver(config, auth_manager),
                         )
                         if params.summary_format
                         else detail
@@ -2679,7 +2805,12 @@ def get_flow_details(
         if params.include_structure:
             structure = _fetch_flow_structure(config, auth_manager, flow_id)
             if params.summary_format and structure.get("success") and "actions" in structure:
-                result["structure"] = _bound_structure(_build_flow_summary(structure))
+                result["structure"] = _bound_structure(
+                    _build_flow_summary(
+                        structure,
+                        choice_resolver=_make_choice_resolver(config, auth_manager),
+                    )
+                )
             else:
                 result["structure"] = _bound_structure(structure)
             if not structure.get("success"):

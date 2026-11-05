@@ -29,20 +29,22 @@ Complementos — de uso general, no son paquetes por sí solos. Combínalos con 
 | `office_files` | 2 | +~0.7K | Libros de Excel (leer, escribir, rellenar formularios) y adjuntos de registros |
 | `debug_window` | 3 | +~1.2K | ⚠️ El navegador compartido; `act_in_debug_window` puede pulsar Guardar |
 | `source_sync` | 3 | +~0.9K | ⚠️ Descargar fuentes de servidor, compararlas y subirlas |
+| `portal_design` | 10 | +~2.8K | ⚠️ Diseño de portal más allá del tema: layout de página y CSS/opciones de instancia, copias de widget y header/footer, listas de Workspace — para `itsm_developer,portal_design` |
 
 ⚠️ Con capacidad de escritura — **opciones avanzadas** que conceden crear/actualizar/eliminar:
 
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Cuándo usarlo |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 34 | ~8.1K | ~9.1K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
-| `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
-| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
-| `full` | 62 | ~18.2K | ~20.4K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
+| `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
+| `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
+| `platform_developer` | 45 | ~13.7K | ~15.3K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
+| `full` | 68 | ~21.6K | ~24.0K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
+| `itsm_developer` | 34 | ~11.1K | ~12.5K | ⚠️ ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **Tokens máx.** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken cl100k_base; el conteo real de Claude varía ligeramente). Usar el paquete más reducido ahorra contexto y costo. **Es el máximo**, no el costo típico: solo lo pagan completo los clientes que cargan todas las tool schemas al inicio. Los clientes con carga diferida de herramientas (p. ej. la búsqueda de herramientas de Claude Code) cargan un schema solo cuando se usa esa herramienta, así que su costo real por solicitud es mucho menor. El número de herramientas cuenta los miembros del paquete; todos los paquetes llevan además `list_tool_packages`, y una configuración multi-instancia añade `list_instances`, `compare_instances` y un parámetro `instance` en cada herramienta — la segunda columna lo mide con tres instancias. Las cifras se miden con tiktoken, no se estiman (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <paquete>` lista la parte de cada herramienta).
 
-Todos los paquetes excepto `core` y `none` heredan las herramientas de solo lectura de `standard` mediante `_extends`. Consulta `config/tool_packages.yaml` para ver el árbol de herencia completo. `asset_manager` y sus complementos no extienden nada: una sesión solo paga por las herramientas que pidió.
+Todos los paquetes excepto `core` y `none` heredan las herramientas de solo lectura de `standard` mediante `_extends`. Consulta `config/tool_packages.yaml` para ver el árbol de herencia completo. `asset_manager`, `itsm_developer` y los complementos no extienden nada: una sesión solo paga por las herramientas que pidió.
 
 ---
 

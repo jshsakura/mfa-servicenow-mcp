@@ -5,6 +5,7 @@ with conflict detection.
 """
 
 import difflib
+import json
 import logging
 import os
 import time
@@ -3001,6 +3002,22 @@ def _resolve_cross_instance_target(
     )
 
 
+def _invalid_json_fields(resolved: "_ResolvedComponent") -> Dict[str, str]:
+    """field -> parse error, for every existing ``*.json`` body file that does not parse."""
+    bad: Dict[str, str] = {}
+    for field_name, file_path in resolved.fields.items():
+        if file_path.suffix != ".json" or not file_path.exists():
+            continue
+        text = file_path.read_text(encoding="utf-8")
+        if not text.strip():
+            continue  # an empty body is a legal (cleared) value, not a syntax error
+        try:
+            json.loads(text)
+        except json.JSONDecodeError as exc:
+            bad[field_name] = f"line {exc.lineno} col {exc.colno}: {exc.msg}"
+    return bad
+
+
 @register_tool(
     "update_remote_from_local",
     params=PushLocalComponentParams,
@@ -3019,6 +3036,18 @@ def update_remote_from_local(
         resolved = _resolve_local_path(path)
     except ValueError as e:
         return {"error": str(e)}
+
+    # A JSON body (Next Experience theme/style) that does not parse is refused
+    # before any network call: the platform stores it as text, and every
+    # workspace using the theme then renders unstyled.
+    invalid_json = _invalid_json_fields(resolved)
+    if invalid_json:
+        return {
+            "error": "INVALID_JSON",
+            "message": "Not pushed: these files are not valid JSON — fix them first. "
+            + "; ".join(f"{f}: {why}" for f, why in invalid_json.items()),
+            "component": {"table": resolved.table, "name": resolved.name},
+        }
 
     # Cross-instance deploy gate. Local source records its origin instance; when
     # the push target differs, we do NOT blindly trust the origin's sys_id (it may

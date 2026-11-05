@@ -1,7 +1,8 @@
 """Service layer for portal component creation (widget, provider, header/footer, theme, template, ui_page)."""
 
 import logging
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
@@ -374,4 +375,344 @@ def create_ui_page(
         **_scope_info(result),
         "sys_id": record.get("sys_id"),
         "name": record.get("name"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Clone (widget / header-footer) — copy the code, reference the same relations
+# ---------------------------------------------------------------------------
+
+_SYS_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+# Columns measured live on sp_widget / sp_header_footer. Copied: every code and
+# config field. NOT copied: id/name (the caller picks them), sys_* (record
+# identity), `servicenow` (the platform's own "shipped by ServiceNow" flag — a
+# clone is not), and `docs` (a reference to the ORIGINAL's documentation record).
+_CLONE_FIELDS = (
+    "template",
+    "script",
+    "client_script",
+    "link",
+    "css",
+    "option_schema",
+    "demo_data",
+    "data_table",
+    "field_list",
+    "controller_as",
+    "public",
+    "roles",
+    "has_preview",
+    "description",
+    "category",
+    "internal",
+)
+_CLONE_TABLES: Dict[str, Dict[str, Any]] = {
+    "sp_widget": {"fields": _CLONE_FIELDS, "label": "widget"},
+    "sp_header_footer": {"fields": _CLONE_FIELDS + ("static",), "label": "header/footer"},
+}
+# Relations a widget carries by reference. The clone points at the SAME
+# dependency / provider records; it never copies them.
+_DEPENDENCY_M2M = "m2m_sp_widget_dependency"
+_DEPENDENCY_REF = "sp_dependency"
+_PROVIDER_REF = "sp_angular_provider"
+_M2M_PAGE = 500
+
+
+def _norm(field: str, value: Any) -> Any:
+    """Comparable form of a raw field value (CRLF, bool case, list order)."""
+    if isinstance(value, dict):
+        value = value.get("value", "")
+    text = "" if value is None else str(value).replace("\r\n", "\n")
+    if field in ("roles", "field_list"):
+        return sorted(p for p in text.split(",") if p)
+    if text in ("true", "false"):
+        return text
+    return text
+
+
+def _read_all(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    query: str,
+    fields: str,
+) -> Tuple[List[Dict[str, Any]], bool]:
+    """Read every matching row. Returns (rows, complete); raises when unreadable.
+
+    ``complete`` is False when the page cap was hit with more rows behind it, so
+    a caller never mistakes a capped list for the whole relation.
+    """
+    invalidate_query_cache(table=table)
+    rows, total = sn_query_page(
+        config,
+        auth_manager,
+        table=table,
+        query=query,
+        fields=fields,
+        limit=_M2M_PAGE,
+        offset=0,
+        fail_silently=False,
+    )
+    if total is not None:
+        return rows, len(rows) >= total
+    return rows, len(rows) < _M2M_PAGE
+
+
+def _ref_value(value: Any) -> str:
+    return _scope_id(value)
+
+
+def _resolve_clone_source(
+    config: ServerConfig, auth_manager: AuthManager, table: str, source: str, fields: str
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """(row, None) when exactly one record matches; (None, refusal) otherwise."""
+    column = "sys_id" if _SYS_ID_RE.match(source) else "id"
+    try:
+        invalidate_query_cache(table=table)
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=f"{column}={source}",
+            fields=f"sys_id,id,name,sys_scope,{fields}",
+            limit=5,
+            offset=0,
+            fail_silently=False,
+        )
+    except Exception as e:
+        return None, {"success": False, "message": f"Could not read the source {table}: {e}"}
+    if len(rows) == 1:
+        return rows[0], None
+    candidates = [
+        {
+            "sys_id": r.get("sys_id"),
+            "id": r.get("id"),
+            "name": r.get("name"),
+            "scope": _scope_id(r.get("sys_scope")),
+        }
+        for r in rows
+    ]
+    msg = (
+        f"No {table} record with {column}='{source}'."
+        if not rows
+        else f"{len(rows)} {table} records match {column}='{source}'; pass the sys_id."
+    )
+    return None, {"success": False, "message": msg, "candidates": candidates}
+
+
+def _relations(
+    config: ServerConfig, auth_manager: AuthManager, widget_sys_id: str
+) -> Tuple[Optional[Dict[str, Dict[str, Any]]], Optional[str]]:
+    """Dependency + provider links of a widget: {kind: {table, ref, ids}}.
+
+    Returns (None, reason) when either relation could not be read in full — a
+    clone made from half-read relations would silently lack some.
+    """
+    from servicenow_mcp.tools.portal_dev_tools import resolve_angular_provider_m2m
+
+    try:
+        provider_table = resolve_angular_provider_m2m(config, auth_manager)
+    except Exception as e:
+        return None, f"Could not resolve the angular-provider link table: {e}"
+    out: Dict[str, Dict[str, Any]] = {}
+    for kind, table, ref in (
+        ("dependency", _DEPENDENCY_M2M, _DEPENDENCY_REF),
+        ("provider", provider_table, _PROVIDER_REF),
+    ):
+        try:
+            rows, complete = _read_all(
+                config, auth_manager, table, f"sp_widget={widget_sys_id}", ref
+            )
+        except Exception as e:
+            return None, f"Could not read {table}: {e}"
+        if not complete:
+            return None, f"{table} has more than {_M2M_PAGE} rows for this widget; not cloning."
+        ids = sorted({_ref_value(r.get(ref)) for r in rows} - {""})
+        out[kind] = {"table": table, "ref": ref, "ids": ids}
+    return out, None
+
+
+def clone_component(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    table: str,
+    source: str,
+    new_id: str,
+    name: str,
+    scope: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    spec = _CLONE_TABLES[table]
+    label = spec["label"]
+    fields = ",".join(spec["fields"])
+
+    row, refusal = _resolve_clone_source(config, auth_manager, table, source, fields)
+    if refusal:
+        return refusal
+    assert row is not None
+    source_sys_id = str(row.get("sys_id"))
+
+    # The new id and name must be free. An unreadable check is a refusal: a
+    # silent "nothing found" is how a duplicate id gets written.
+    for column, value in (("id", new_id), ("name", name)):
+        try:
+            invalidate_query_cache(table=table)
+            clash, _ = sn_query_page(
+                config,
+                auth_manager,
+                table=table,
+                query=f"{column}={value}" + (f"^sys_scope={scope}" if column == "name" else ""),
+                fields="sys_id,id,name",
+                limit=1,
+                offset=0,
+                fail_silently=False,
+            )
+        except Exception as e:
+            return {"success": False, "message": f"Could not check {column} '{value}': {e}"}
+        if clash:
+            return {
+                "success": False,
+                "message": f"A {label} with {column} '{value}' already exists.",
+                "existing_sys_id": clash[0].get("sys_id"),
+            }
+
+    relations: Dict[str, Dict[str, Any]] = {}
+    if table == "sp_widget":
+        found, why = _relations(config, auth_manager, source_sys_id)
+        if found is None:
+            return {"success": False, "message": why}
+        relations = found
+
+    body: Dict[str, Any] = {"id": new_id, "name": name, "sys_scope": scope}
+    copied: List[str] = []
+    empty: List[str] = []
+    for f in spec["fields"]:
+        v = row.get(f)
+        v = v.get("value") if isinstance(v, dict) else v
+        if v in (None, ""):
+            empty.append(f)
+            continue
+        body[f] = v
+        copied.append(f)
+
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "operation": f"clone_{label.replace('/', '_')}",
+            "source": {
+                "sys_id": source_sys_id,
+                "id": row.get("id"),
+                "name": row.get("name"),
+                "scope": _scope_id(row.get("sys_scope")),
+            },
+            "target": {"id": new_id, "name": name, "scope": scope},
+            "would_copy_fields": copied,
+            "empty_in_source": empty,
+            "not_copied": ["docs", "servicenow", "sys_*"] if table == "sp_widget" else ["sys_*"],
+            "would_create_m2m": {
+                k: {"table": v["table"], "rows": len(v["ids"])} for k, v in relations.items()
+            },
+        }
+
+    created = _create_record(config, auth_manager, table, body)
+    if not created["success"]:
+        return created
+    record = created["result"]
+    clone_sys_id = str(record.get("sys_id"))
+
+    m2m_report: Dict[str, Dict[str, Any]] = {}
+    missing: List[str] = []
+    for kind, rel in relations.items():
+        errors: List[str] = []
+        for ref_id in rel["ids"]:
+            made = _create_record(
+                config,
+                auth_manager,
+                rel["table"],
+                {"sp_widget": clone_sys_id, rel["ref"]: ref_id},
+            )
+            if not made["success"]:
+                errors.append(str(made.get("message")))
+        # Prove by reading back, not by counting our own successful POSTs.
+        try:
+            rows, complete = _read_all(
+                config, auth_manager, rel["table"], f"sp_widget={clone_sys_id}", rel["ref"]
+            )
+            have = {_ref_value(r.get(rel["ref"])) for r in rows} - {""}
+            absent = sorted(set(rel["ids"]) - have)
+            entry: Dict[str, Any] = {
+                "table": rel["table"],
+                "expected": len(rel["ids"]),
+                "created": len(have & set(rel["ids"])),
+                "missing_ids": absent,
+                "verified": complete,
+            }
+            if not complete:
+                missing.append(f"{kind}: read-back capped, links unverified")
+        except Exception as e:
+            entry = {
+                "table": rel["table"],
+                "expected": len(rel["ids"]),
+                "created": None,
+                "missing_ids": rel["ids"],
+                "verified": False,
+                "read_error": str(e),
+            }
+            missing.append(f"{kind}: could not read back ({e})")
+        if errors:
+            entry["errors"] = errors[:3]
+        if entry["missing_ids"] and entry.get("verified"):
+            missing.append(f"{kind}: {len(entry['missing_ids'])} of {entry['expected']} not linked")
+        m2m_report[kind] = entry
+
+    applied: Dict[str, bool] = {}
+    try:
+        invalidate_query_cache(table=table)
+        back, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=f"sys_id={clone_sys_id}",
+            fields=",".join(["id", "name", *copied]),
+            limit=1,
+            offset=0,
+            fail_silently=False,
+        )
+        if not back:
+            raise RuntimeError("clone not found on read-back")
+        got = back[0]
+        for f in ("id", "name"):
+            expected = body[f]
+            applied[f] = _norm(f, got.get(f)) == _norm(f, expected)
+        for f in copied:
+            applied[f] = _norm(f, got.get(f)) == _norm(f, body[f])
+        not_applied = sorted(f for f, ok in applied.items() if not ok)
+        if not_applied:
+            missing.append(f"fields not applied: {', '.join(not_applied)}")
+    except Exception as e:
+        not_applied = []
+        missing.append(f"clone could not be read back ({e}); fields unverified")
+
+    if created.get("scope_warning"):
+        missing.append("scope: " + str(created["scope_warning"]))
+
+    complete = not missing
+    return {
+        "success": True,
+        "complete": complete,
+        "message": (
+            f"Cloned {label} '{row.get('name')}' -> '{name}'"
+            if complete
+            else f"Cloned {label} but INCOMPLETE: " + "; ".join(missing)
+        ),
+        **_scope_info(created),
+        "sys_id": clone_sys_id,
+        "id": record.get("id"),
+        "name": record.get("name"),
+        "source_sys_id": source_sys_id,
+        "applied": applied,
+        "m2m": m2m_report,
+        "missing": missing,
     }

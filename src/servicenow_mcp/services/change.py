@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services.choices import resolve_payload_choices
-from servicenow_mcp.tools._preview import build_update_preview
+from servicenow_mcp.tools._preview import build_create_preview, build_update_preview
 from servicenow_mcp.tools.sn_api import count_response, invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -41,6 +41,81 @@ TASK_LISTING_FIELDS = (
 CHANGE_CHOICE_FIELDS = ("type", "state", "risk", "impact")
 
 
+# Journal fields are write-only through the Table API: they read back empty.
+_JOURNAL_FIELDS = frozenset({"work_notes", "comments"})
+
+
+def _cell_value(value: Any) -> str:
+    return str(value.get("value") if isinstance(value, dict) else value or "")
+
+
+def verify_written(
+    config: ServerConfig, auth_manager: AuthManager, sys_id: str, data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Re-read the change and report, per field, whether it holds what was sent.
+
+    The state model and business rules can accept a write (200) and leave the
+    record elsewhere, so a 200 is not the answer — the re-read is. ``written``
+    says the server accepted it; a failed re-read is unconfirmed, never success,
+    and never a reason to retry blindly.
+    """
+    out: Dict[str, Any] = {"sys_id": sys_id, "written": True}
+    if not sys_id:
+        out.update(success=False, verified=False, applied=None)
+        out["message"] = (
+            "Write accepted but no sys_id came back; UNVERIFIED — do not retry blindly."
+        )
+        return out
+    checked = {f: v for f, v in data.items() if f not in _JOURNAL_FIELDS}
+    unverifiable = sorted(f for f in data if f in _JOURNAL_FIELDS)
+    if unverifiable:
+        out["unverifiable"] = unverifiable
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="change_request",
+            query=f"sys_id={sys_id}",
+            fields=",".join(["number", *checked]),
+            limit=1,
+            offset=0,
+            display_value="all",
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        out.update(success=False, verified=False, applied=None)
+        out["message"] = (
+            f"Write sent but the re-read failed ({exc}); UNVERIFIED — do not retry blindly."
+        )
+        return out
+    if not rows:
+        out.update(success=False, verified=False, applied=None)
+        out["message"] = "Write sent but the change was not returned on re-read; UNVERIFIED."
+        return out
+    row = rows[0]
+    applied: Dict[str, bool] = {}
+    not_applied: Dict[str, Any] = {}
+    for field, wanted in checked.items():
+        got = row.get(field)
+        raw = _cell_value(got)
+        label = str(got.get("display_value") or "") if isinstance(got, dict) else raw
+        ok = str(wanted) in (raw, label)
+        applied[field] = ok
+        if not ok:
+            not_applied[field] = {"requested": wanted, "actual": raw, "label": label}
+    out.update(verified=True, number=_cell_value(row.get("number")), applied=applied)
+    out["success"] = not not_applied
+    if not_applied:
+        out["not_applied"] = not_applied
+        out["message"] = (
+            "The write was accepted but these fields do not hold the requested value — "
+            "a state model or business rule refused them; use the form's UI action, do not retry."
+        )
+    else:
+        out["message"] = "Change request written and confirmed by re-read."
+    return out
+
+
 def create(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -55,8 +130,10 @@ def create(
     assignment_group: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    parent: Optional[str] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Create a new change request."""
+    """Create a change request. ``parent`` is a resolved sys_id. Proven by re-read."""
     data: Dict[str, Any] = {
         "short_description": short_description,
         "type": type,
@@ -70,6 +147,7 @@ def create(
         ("assignment_group", assignment_group),
         ("start_date", start_date),
         ("end_date", end_date),
+        ("parent", parent),
     ):
         if value:
             data[field_name] = value
@@ -79,6 +157,9 @@ def create(
     )
     if refusal is not None:
         return refusal
+
+    if dry_run:
+        return build_create_preview(table="change_request", proposed=data)
 
     url = f"{config.api_url}/table/change_request"
 
@@ -93,12 +174,8 @@ def create(
 
         result = response.json()
         invalidate_query_cache(table="change_request")
-
-        return {
-            "success": True,
-            "message": "Change request created successfully",
-            "change_request": result["result"],
-        }
+        created = result.get("result") or {}
+        return verify_written(config, auth_manager, _cell_value(created.get("sys_id")), data)
     except Exception as e:
         logger.error(f"Error creating change request: {e}")
         return {
@@ -122,9 +199,10 @@ def update(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     work_notes: Optional[str] = None,
+    parent: Optional[str] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Update an existing change request. Supports a dry-run preview."""
+    """Update a change request (dry-run preview supported). Proven by re-read."""
     data: Dict[str, Any] = {}
     for field_name, value in (
         ("short_description", short_description),
@@ -137,6 +215,7 @@ def update(
         ("start_date", start_date),
         ("end_date", end_date),
         ("work_notes", work_notes),
+        ("parent", parent),
     ):
         if value:
             data[field_name] = value
@@ -168,14 +247,8 @@ def update(
         )
         response.raise_for_status()
 
-        result = response.json()
         invalidate_query_cache(table="change_request")
-
-        return {
-            "success": True,
-            "message": "Change request updated successfully",
-            "change_request": result["result"],
-        }
+        return verify_written(config, auth_manager, change_id, data)
     except Exception as e:
         logger.error(f"Error updating change request: {e}")
         return {

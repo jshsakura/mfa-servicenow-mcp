@@ -1,9 +1,22 @@
 {
-  "change_request": {
-    "short_description": "Patch DB v2",
-    "state": "2",
-    "sys_id": "ch_001"
+  "applied": {
+    "short_description": true,
+    "state": false
   },
-  "message": "Change request updated successfully",
-  "success": true
+  "message": "The write was accepted but these fields do not hold the requested value — a state model or business rule refused them; use the form's UI action, do not retry.",
+  "not_applied": {
+    "state": {
+      "actual": "-3",
+      "label": "-3",
+      "requested": "-2"
+    }
+  },
+  "number": "CHG0001",
+  "success": false,
+  "sys_id": "ch_001",
+  "unverifiable": [
+    "work_notes"
+  ],
+  "verified": true,
+  "written": true
 }

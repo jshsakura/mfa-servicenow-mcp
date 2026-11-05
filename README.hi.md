@@ -194,7 +194,7 @@ TLS-निरीक्षण करने वाले proxies (Zscaler और �
 
 - MFA/SSO वातावरणों (Okta, Entra ID, SAML, MFA) के लिए **ब्राउज़र प्रमाणीकरण**
 - **4 auth मोड**: Browser, Basic, OAuth, API Key
-- **76 पंजीकृत टूल** के साथ **6 सक्रिय पैकेज प्रोफ़ाइल** और साथ ही disabled `none` — न्यूनतम read-only से लेकर व्यापक bundled CRUD तक
+- **82 पंजीकृत टूल** के साथ **6 सक्रिय पैकेज प्रोफ़ाइल** और साथ ही disabled `none` — न्यूनतम read-only से लेकर व्यापक bundled CRUD तक
 - **4 वर्कफ़्लो skills** सुरक्षा गेट, sub-agent डेलिगेशन, और सत्यापित पाइपलाइनों के साथ
 - **Streamable HTTP transport** — डिफ़ॉल्ट के रूप में stdio रखें, या HTTP-सक्षम क्लाइंट और ब्रिज के लिए `/mcp` एक्सपोज़ करें
 - HTML रिपोर्ट, क्रॉस-रेफ़रेंस ग्राफ़, dead code पहचान, और स्वतः-जनित डोमेन ज्ञान के साथ **लोकल सोर्स ऑडिट**
@@ -497,10 +497,11 @@ Read-only (सुरक्षित डिफ़ॉल्ट):
 
 | Package | Tools | अधिकतम टोकन | अधिकतम (3 instances) | Description |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 34 | ~8.1K | ~9.1K | ⚠️ standard + incident और change ऑपरेशनल writes |
-| `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
-| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
-| `full` | 62 | ~18.2K | ~20.4K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
+| `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + incident और change ऑपरेशनल writes |
+| `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
+| `platform_developer` | 45 | ~13.7K | ~15.3K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
+| `full` | 68 | ~21.6K | ~24.0K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
+| `itsm_developer` | 34 | ~11.1K | ~12.5K | ⚠️ स्वतंत्र ITSM: record का निदान, table automation का नक्शा, catalog/policy/notification config, approval और test order, assignment/approval rule और choice list, portal theme, update set या XML से ship. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ सामग्री, asset और ITOM कार्य के लिए न्यूनतम सतह: query, और इंस्टेंस पर पहले जाँचे गए asset write (`manage_asset`)। Add-on comma से जोड़ें: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **अधिकतम टोकन** हर request पर उस package की tool schemas model के context में जोड़ने वाले अनुमानित tokens हैं (tiktoken `cl100k_base` आधार; वास्तविक Claude token संख्या थोड़ी भिन्न हो सकती है)। संकरे package पर बने रहने से context और लागत दोनों बचती हैं। **यह अधिकतम है**, सामान्य लागत नहीं: पूरा खर्च केवल वे clients उठाते हैं जो सारी tool schemas शुरुआत में load करते हैं। Deferred tool loading वाले clients (जैसे Claude Code का tool search) किसी tool का schema तभी load करते हैं जब वह उपयोग हो, इसलिए उनकी वास्तविक per-request लागत काफी कम होती है। Tools की संख्या package के सदस्य गिनती है; हर package में `list_tool_packages` भी होता है, और multi-instance setup में `list_instances`, `compare_instances` और हर tool पर एक `instance` parameter जुड़ता है — दूसरा token column इसे तीन instances के साथ मापता है। आंकड़े tiktoken से मापे गए हैं, अनुमानित नहीं (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` हर tool का हिस्सा दिखाता है)।

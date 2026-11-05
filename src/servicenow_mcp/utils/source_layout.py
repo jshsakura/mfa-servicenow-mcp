@@ -49,6 +49,12 @@ FIELD_FILENAME: Dict[str, str] = {
     "html": "html.html",
     "message_html": "message_html.html",
     "css": "css.scss",
+    # Portal theme / portal-level SCSS variables (sp_theme, sp_portal).
+    "css_variables": "css_variables.scss",
+    # Next Experience theme and style bodies are JSON; push refuses one that
+    # does not parse, since a broken theme blanks every workspace using it.
+    "theme": "theme.json",
+    "style": "style.json",
     "xml": "xml.xml",
     "payload": "payload.xml",
     "message_text": "message_text.txt",

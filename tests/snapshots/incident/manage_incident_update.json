@@ -1,6 +1,16 @@
 {
+  "applied": {
+    "state": true
+  },
   "incident_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "incident_number": "INC0001000",
-  "message": "Incident updated successfully",
-  "success": true
+  "message": "Incident written and confirmed by re-read.",
+  "number": "INC0001000",
+  "success": true,
+  "sys_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "unverifiable": [
+    "work_notes"
+  ],
+  "verified": true,
+  "written": true
 }

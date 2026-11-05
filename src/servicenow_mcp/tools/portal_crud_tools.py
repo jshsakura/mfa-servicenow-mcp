@@ -354,6 +354,7 @@ class ManagePortalLayoutParams(BaseModel):
       add_column:     sp_row
       place_widget:   sp_widget, sp_column
       move_widget:    instance_id (and at least one of sp_column/order/widget_parameters/css)
+      replace_widget: instance_id, sp_widget (id or sys_id); params/css kept
     """
 
     action: Literal[
@@ -364,6 +365,7 @@ class ManagePortalLayoutParams(BaseModel):
         "add_column",
         "place_widget",
         "move_widget",
+        "replace_widget",
     ] = Field(...)
 
     # Page identity
@@ -389,7 +391,9 @@ class ManagePortalLayoutParams(BaseModel):
     size: Optional[int] = Field(default=None, description="Bootstrap col size 1-12")
 
     # Widget instance
-    sp_widget: Optional[str] = Field(default=None)
+    sp_widget: Optional[str] = Field(
+        default=None, description="Widget id or sys_id (replace_widget: the new widget)"
+    )
     sp_column: Optional[str] = Field(default=None)
     instance_id: Optional[str] = Field(default=None)
     widget_parameters: Optional[str] = Field(default=None, description="JSON string")
@@ -426,6 +430,10 @@ class ManagePortalLayoutParams(BaseModel):
         elif a == "move_widget":
             if not self.instance_id:
                 raise ValueError("instance_id is required for action='move_widget'")
+        elif a == "replace_widget":
+            for f in ("instance_id", "sp_widget"):
+                if not getattr(self, f):
+                    raise ValueError(f"{f} is required for action='replace_widget'")
         return self
 
 
@@ -499,6 +507,15 @@ def manage_portal_layout(
         if params.instance_css is not None:
             kw["css"] = params.instance_css
         return _layout_svc.place_widget(config, auth_manager, **kw)
+    if a == "replace_widget":
+        assert params.instance_id and params.sp_widget
+        return _layout_svc.replace_widget(
+            config,
+            auth_manager,
+            instance_id=params.instance_id,
+            sp_widget=params.sp_widget,
+            dry_run=params.dry_run,
+        )
     # move_widget
     kw = {"instance_id": params.instance_id}
     for src, dst in (
@@ -530,6 +547,8 @@ class ManagePortalComponentParams(BaseModel):
       create_ng_template:   template_id, template, scope
       create_ui_page:       name, scope
       update_code:          table, sys_id, update_data
+      clone_widget:         source (id|sys_id), new_id, name, scope
+      clone_header_footer:  source (id|sys_id), new_id, name, scope
     """
 
     action: Literal[
@@ -540,6 +559,8 @@ class ManagePortalComponentParams(BaseModel):
         "create_ng_template",
         "create_ui_page",
         "update_code",
+        "clone_widget",
+        "clone_header_footer",
     ] = Field(...)
 
     # Common fields
@@ -562,6 +583,12 @@ class ManagePortalComponentParams(BaseModel):
     link: Optional[str] = Field(default=None)
     internal: bool = Field(default=False)
     data_table: Optional[str] = Field(default=None)
+
+    # clone
+    source: Optional[str] = Field(
+        default=None, description="clone: id or sys_id of the record to copy"
+    )
+    new_id: Optional[str] = Field(default=None, description="clone: technical id of the copy")
 
     # provider
     provider_type: Optional[str] = Field(
@@ -626,6 +653,10 @@ class ManagePortalComponentParams(BaseModel):
                 raise ValueError("template is required for action='create_ng_template'")
             if not self.scope:
                 raise ValueError("scope is required for action='create_ng_template'")
+        elif a in ("clone_widget", "clone_header_footer"):
+            for f in ("source", "new_id", "name", "scope"):
+                if not getattr(self, f):
+                    raise ValueError(f"{f} is required for action='{a}'")
         elif a == "update_code":
             if not self.table:
                 raise ValueError("table is required for action='update_code'")
@@ -639,6 +670,8 @@ class ManagePortalComponentParams(BaseModel):
 # Create action → the table the new record lands in, for the local-sync nudge.
 _CREATE_ACTION_TABLE = {
     "create_widget": "sp_widget",
+    "clone_widget": "sp_widget",
+    "clone_header_footer": "sp_header_footer",
     "create_angular_provider": "sp_angular_provider",
     "create_header_footer": "sp_header_footer",
     "create_css_theme": "sp_css",
@@ -708,7 +741,10 @@ def manage_portal_component(
     # switch failure aborts the create rather than writing to the wrong scope.
     switch_info: Optional[Dict[str, Any]] = None
     update_set_warning: Optional[str] = None
-    if a.startswith("create_") and params.scope:
+    # clone_* honours dry_run (no scope/update-set switch, nothing written);
+    # create_* ignores it, so it must keep switching.
+    is_write_create = a.startswith("create_") or (a.startswith("clone_") and not params.dry_run)
+    if is_write_create and params.scope:
         # If the caller didn't pin an update set, snapshot the current one before
         # the scope switch. ServiceNow may silently move the session to the app's
         # Default set as a side effect of changing the current app — we never
@@ -750,7 +786,7 @@ def manage_portal_component(
     # intended set. Same fail-hard rule: a requested-but-unswitchable set aborts
     # rather than silently capturing into whatever set happens to be current.
     update_set_info: Optional[Dict[str, Any]] = None
-    if a.startswith("create_") and params.update_set:
+    if is_write_create and params.update_set:
         us = ensure_current_update_set(config, auth_manager, params.update_set)
         update_set_info = us
         if not us.get("switched") and not us.get("already_current") and us.get("error"):
@@ -773,7 +809,7 @@ def manage_portal_component(
                 result.setdefault("update_set_switch", update_set_info)
             if update_set_warning:
                 result.setdefault("update_set_warning", update_set_warning)
-            if a.startswith("create_") and result.get("success"):
+            if is_write_create and result.get("success"):
                 hint = _local_sync_hint(config, a, params, result)
                 if hint:
                     result.setdefault("local_out_of_sync", hint)
@@ -834,6 +870,20 @@ def manage_portal_component(
             if v is not None:
                 kw[f] = v
         return _attach(_comp_svc.create_ui_page(config, auth_manager, **kw))
+    if a in ("clone_widget", "clone_header_footer"):
+        assert params.source and params.new_id and params.name and params.scope
+        return _attach(
+            _comp_svc.clone_component(
+                config,
+                auth_manager,
+                table="sp_widget" if a == "clone_widget" else "sp_header_footer",
+                source=params.source,
+                new_id=params.new_id,
+                name=params.name,
+                scope=params.scope,
+                dry_run=params.dry_run,
+            )
+        )
     # update_code
     # ManagePortalCrudParams validator guarantees both are present for update_code.
     assert params.table is not None

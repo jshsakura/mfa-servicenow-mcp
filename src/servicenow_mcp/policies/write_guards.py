@@ -309,7 +309,7 @@ READ_ONLY_MANAGE_TOOLS = frozenset({"manage_flow_designer"})
 # applies.
 MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_incident": frozenset({"get"}),
-    "manage_change": frozenset({"get"}),
+    "manage_change": frozenset({"get", "list_templates"}),
     "manage_asset": frozenset({"get"}),
     "manage_changeset": frozenset({"get"}),
     "manage_user": frozenset({"get", "list"}),
@@ -339,6 +339,12 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
             "read_action",
         }
     ),
+    "manage_ui_policy": frozenset({"list", "get"}),
+    "manage_problem": frozenset({"get"}),
+    "manage_task_rule": frozenset({"list", "get"}),
+    "manage_choice": frozenset({"list"}),
+    "manage_request_item": frozenset({"get"}),
+    "manage_approval": frozenset({"list"}),
     "manage_project": frozenset({"list"}),
     "manage_epic": frozenset({"list"}),
     "manage_scrum_task": frozenset({"list"}),

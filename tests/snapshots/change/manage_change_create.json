@@ -1,9 +1,14 @@
 {
-  "change_request": {
-    "number": "CHG0001",
-    "state": "new",
-    "sys_id": "ch_001"
+  "applied": {
+    "impact": true,
+    "risk": true,
+    "short_description": true,
+    "type": true
   },
-  "message": "Change request created successfully",
-  "success": true
+  "message": "Change request written and confirmed by re-read.",
+  "number": "CHG0001",
+  "success": true,
+  "sys_id": "ch_001",
+  "verified": true,
+  "written": true
 }

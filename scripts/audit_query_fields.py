@@ -112,7 +112,7 @@ def _resolve_table(node: ast.AST, consts: Dict[str, str]) -> Optional[str]:
 def _fields_in_query(query: str) -> Set[str]:
     """Field names a query filters or orders on."""
     found: Set[str] = set()
-    for raw_term in re.split(r"\^(?:OR|NQ)?", query):
+    for raw_term in re.split(r"\^(?:OR(?!DERBY)|NQ)?", query):
         term = raw_term.strip()
         if not term or term in _NON_FIELD_TERMS or "\x00" in term[:1]:
             continue
@@ -318,34 +318,120 @@ def collect_field_maps() -> Dict[str, Dict[str, Set[str]]]:
     return per_table
 
 
+_TABLE_NAME = re.compile(r"[a-z][a-z0-9_]*")
+_FIELD_LIST = re.compile(r"[a-z_][a-z0-9_.]*(?:,[a-z_][a-z0-9_.]*)+")
+_FIELD_NAME = re.compile(r"[a-z_][a-z0-9_.]*")
+
+# Tables found by the positional pass in the last ``collect()`` call.
+POSITIONAL_TABLES: Set[str] = set()
+
+
+def _arg_text(node: ast.AST, consts: Dict[str, str]) -> Optional[str]:
+    """Static text of a positional arg: literal, f-string, NAME constant,
+    ``"a=" + x`` concatenation (interpolations blanked), or a list of terms
+    joined with ``^``. None when nothing static can be read."""
+    if isinstance(node, ast.Name):
+        return consts.get(node.id)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _arg_text(node.left, consts)
+        right = _arg_text(node.right, consts)
+        if left is None and right is None:
+            return None
+        return (left if left is not None else "\x00") + (right if right is not None else "\x00")
+    if isinstance(node, (ast.List, ast.Tuple)):
+        parts = [_arg_text(e, consts) for e in node.elts]
+        parts = [p for p in parts if p is not None]
+        return "^".join(parts) if parts else None
+    return _static_text(node)
+
+
+def _collect_keyword(tree, consts, per_table) -> None:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        kw = {k.arg: k.value for k in node.keywords if k.arg}
+        if "table" not in kw:
+            continue
+        table = _resolve_table(kw["table"], consts)
+        if not table or not re.fullmatch(r"[a-z0-9_]+", table):
+            continue
+        query_text = _static_text(kw["query"]) if "query" in kw else None
+        if query_text:
+            per_table[table]["query"] |= _fields_in_query(query_text)
+        fields_text = _static_text(kw["fields"]) if "fields" in kw else None
+        if fields_text and "\x00" not in fields_text:
+            per_table[table]["fields"] |= {f.strip() for f in fields_text.split(",") if f.strip()}
+
+
+def _collect_positional(tree, consts, known, per_table, found) -> None:
+    """Tables passed positionally to small helpers: ``_page(c, a, "tbl", q, "a,b")``.
+
+    A table candidate is a bare identifier string. It is trusted when the same
+    call also carries a comma field list, or when it is already known as a table
+    elsewhere; a lone string argument is never promoted to a table.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        texts = [_arg_text(a, consts) for a in node.args]
+        texts += [_arg_text(k.value, consts) for k in node.keywords if k.arg in ("query", "fields")]
+        field_lists = [t for t in texts if t and "\x00" not in t and _FIELD_LIST.fullmatch(t)]
+        candidates = [t for t in texts if t and _TABLE_NAME.fullmatch(t)]
+        table = next((t for t in candidates if t in known), None)
+        if table is None and field_lists and candidates:
+            table = candidates[0]
+        if table is None:
+            continue
+        got = False
+        for text in field_lists:
+            per_table[table]["fields"] |= {f for f in text.split(",") if f}
+            got = True
+        for text in texts:
+            if not text or text == table or text in field_lists:
+                continue
+            if not any(op in text for op in _OPERATORS) and "ORDERBY" not in text:
+                continue
+            names = {n for n in _fields_in_query(text) if _FIELD_NAME.fullmatch(n)}
+            if names:
+                per_table[table]["query"] |= names
+                got = True
+        if got:
+            found.add(table)
+
+
+def collect_source(source: str, known: Optional[Set[str]] = None) -> Dict[str, Dict[str, Set[str]]]:
+    """Both passes over one source text; the pure core ``collect()`` runs per file."""
+    per_table: Dict[str, Dict[str, Set[str]]] = defaultdict(
+        lambda: {"query": set(), "fields": set()}
+    )
+    tree = ast.parse(source)
+    consts = _module_constants(tree)
+    _collect_keyword(tree, consts, per_table)
+    _collect_positional(tree, consts, set(known or ()) | set(per_table), per_table, set())
+    return per_table
+
+
 def collect() -> Dict[str, Dict[str, Set[str]]]:
     """{table: {"query": {fields}, "fields": {fields}}} across the package."""
     per_table: Dict[str, Dict[str, Set[str]]] = defaultdict(
         lambda: {"query": set(), "fields": set()}
     )
+    trees = []
     for path in sorted(SRC.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
         consts = _module_constants(tree)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            kw = {k.arg: k.value for k in node.keywords if k.arg}
-            if "table" not in kw:
-                continue
-            table = _resolve_table(kw["table"], consts)
-            if not table or not re.fullmatch(r"[a-z0-9_]+", table):
-                continue
-            query_text = _static_text(kw["query"]) if "query" in kw else None
-            if query_text:
-                per_table[table]["query"] |= _fields_in_query(query_text)
-            fields_text = _static_text(kw["fields"]) if "fields" in kw else None
-            if fields_text and "\x00" not in fields_text:
-                per_table[table]["fields"] |= {
-                    f.strip() for f in fields_text.split(",") if f.strip()
-                }
+        trees.append((tree, consts))
+        _collect_keyword(tree, consts, per_table)
+    known = set(per_table) | set(collect_writes()) | set(collect_field_maps())
+    keyword_tables = set(per_table)
+    found: Set[str] = set()
+    for tree, consts in trees:
+        _collect_positional(tree, consts, known, per_table, found)
+    POSITIONAL_TABLES.clear()
+    POSITIONAL_TABLES.update(found - keyword_tables)
     return per_table
 
 
@@ -514,6 +600,10 @@ def main() -> int:
         return 0
     wanted = set(argv)
     per_table = collect()
+    print(
+        f"collected {len(per_table)} tables; {len(POSITIONAL_TABLES)} came only from the "
+        f"positional-argument path: {', '.join(sorted(POSITIONAL_TABLES)) or '-'}"
+    )
     # A registry-declared search field is ORed with the others into one query.
     # Measured here: when the dropped term came FIRST the surviving real term
     # did not save the read — `nameLIKEx^ORscriptLIKEx` on sys_transform_script

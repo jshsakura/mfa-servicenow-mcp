@@ -53,3 +53,9 @@ domains:
     plugins: [com.snc.contract_management]  # lab: active
     tables: [clm_]
     tables_exist_without_feature: false
+
+  universal_request:
+    label: Universal Request
+    plugins: [com.snc.universal_request]  # lab 2026-11-05: inactive, universal_request absent
+    tables: [universal_request]
+    tables_exist_without_feature: false

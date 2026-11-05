@@ -54,7 +54,19 @@ def test_snap_manage_incident_create(mock_config, auth):
     auth.make_request.return_value = _mock_response(
         {"result": {"sys_id": "inc_001", "number": "INC0001000"}}
     )
-    with patch("servicenow_mcp.services.incident.invalidate_query_cache"):
+    reread = [
+        {
+            "number": "INC0001000",
+            "short_description": "Server down",
+            "priority": "1",
+            "impact": "2",
+            "urgency": "2",
+        }
+    ]
+    with (
+        patch("servicenow_mcp.tools.incident_tools.invalidate_query_cache"),
+        patch("servicenow_mcp.tools.incident_tools.sn_query_page", return_value=(reread, None)),
+    ):
         result = manage_incident(
             mock_config,
             auth,
@@ -66,7 +78,7 @@ def test_snap_manage_incident_create(mock_config, auth):
                 urgency="2",
             ),
         )
-    _assert_snapshot("manage_incident_create", result.model_dump())
+    _assert_snapshot("manage_incident_create", result)
 
 
 def test_snap_manage_incident_update(mock_config, auth):
@@ -74,7 +86,15 @@ def test_snap_manage_incident_update(mock_config, auth):
     auth.make_request.return_value = _mock_response(
         {"result": {"sys_id": "a" * 32, "number": "INC0001000"}}
     )
-    with patch("servicenow_mcp.services.incident.invalidate_query_cache"):
+    reread = [{"number": "INC0001000", "state": "2"}]
+    with (
+        patch(
+            "servicenow_mcp.tools.incident_tools._resolve_record",
+            return_value=("a" * 32, "incident", None),
+        ),
+        patch("servicenow_mcp.tools.incident_tools._patch"),
+        patch("servicenow_mcp.tools.incident_tools.sn_query_page", return_value=(reread, None)),
+    ):
         result = manage_incident(
             mock_config,
             auth,
@@ -85,7 +105,7 @@ def test_snap_manage_incident_update(mock_config, auth):
                 work_notes="investigating",
             ),
         )
-    _assert_snapshot("manage_incident_update", result.model_dump())
+    _assert_snapshot("manage_incident_update", result)
 
 
 def test_snap_manage_incident_comment(mock_config, auth):
@@ -135,4 +155,4 @@ def test_snap_manage_incident_create_failure(mock_config, auth):
                 short_description="X",
             ),
         )
-    _assert_snapshot("manage_incident_create_failure", result.model_dump())
+    _assert_snapshot("manage_incident_create_failure", result)

@@ -1992,7 +1992,7 @@ def get_widget_bundle(
     response = sn_query(config, auth_manager, query_params)
 
     if not response.get("success") or not rows_of(response):
-        return {"error": f"Widget '{params.widget_id}' not found."}
+        return _lookup_miss(response, f"Widget '{params.widget_id}' not found.")
 
     widget = _strip_metadata(rows_of(response)[0], widget_fields)
     # A >50KB body clipped by sn_query would be silently lost on an edit+push —
@@ -2112,6 +2112,28 @@ def get_widget_bundle(
     return bundle
 
 
+_NO_ROW_MESSAGE = "No row returned — absent, or hidden from this account by ACL"
+_VISIBILITY_KEYS = ("availability", "hidden_rows", "rows_hidden_by_acl", "later_pages", "hint")
+
+
+def _lookup_miss(response: Dict[str, Any], not_found: str, wrap: bool = False) -> Dict[str, Any]:
+    """Error for a by-id read that returned nothing.
+
+    A successful 0-row read is NOT proof the record is absent: the row ACL drops
+    what this account may not read. Say so, and carry the server's own
+    availability / hidden_rows verdict through when the response has one. A
+    failed read keeps the plain message — it proves nothing either way."""
+    out: Dict[str, Any] = {"error": not_found}
+    if wrap:
+        out["success"] = False
+    if response.get("success"):
+        out["error"] = f"{not_found.rstrip('.')} — {_NO_ROW_MESSAGE}"
+        for key in _VISIBILITY_KEYS:
+            if key in response:
+                out[key] = response[key]
+    return out
+
+
 @register_tool(
     "get_portal_component_code",
     params=GetPortalComponentParams,
@@ -2134,7 +2156,9 @@ def get_portal_component_code(
     response = sn_query(config, auth_manager, query_params)
 
     if not response.get("success") or not rows_of(response):
-        return {"error": f"Component not found in {params.table} with sys_id {params.sys_id}"}
+        return _lookup_miss(
+            response, f"Component not found in {params.table} with sys_id {params.sys_id}"
+        )
 
     # Only return requested code fields to keep context clean
     result = _strip_metadata(rows_of(response)[0], params.fields)
@@ -4218,7 +4242,7 @@ def resolve_widget_chain(
         return {"success": False, "error": f"Failed to fetch widget: {exc}"}
 
     if not w_resp.get("success") or not rows_of(w_resp):
-        return {"success": False, "error": f"Widget '{params.widget_id}' not found."}
+        return _lookup_miss(w_resp, f"Widget '{params.widget_id}' not found.", wrap=True)
 
     widget = rows_of(w_resp)[0]
     # Truncate source fields
@@ -4453,7 +4477,12 @@ def resolve_page_dependencies(
         return {"success": False, "error": f"Failed to get page: {exc}"}
 
     if not page_result.get("success"):
-        return {"success": False, "error": f"Page '{params.page_id}' not found."}
+        missed: Dict[str, Any] = {"success": False, "error": f"Page '{params.page_id}' not found."}
+        # get_page does not expose the read's verdict; pass along any it carries.
+        if any(k in page_result for k in _VISIBILITY_KEYS):
+            missed["error"] += f" {_NO_ROW_MESSAGE}."
+            missed.update({k: page_result[k] for k in _VISIBILITY_KEYS if k in page_result})
+        return missed
 
     # Extract widget sys_ids from layout tree
     page_data = page_result.get("page", {})

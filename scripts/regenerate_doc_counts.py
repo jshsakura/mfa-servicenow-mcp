@@ -247,6 +247,7 @@ PACKAGES = [
     "portal_developer",
     "platform_developer",
     "full",
+    "itsm_developer",
     "asset_manager",
 ]
 

@@ -45,7 +45,6 @@ _NOT_YET_MAPPED = frozenset(
         "manage_scrum_task",
         "manage_session_context",
         "manage_story",
-        "manage_ui_policy",
         "manage_user",
         "query_local_graph",
         "sn_write",

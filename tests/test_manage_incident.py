@@ -61,34 +61,18 @@ class TestPerActionValidation:
 
 
 class TestDispatch:
-    def test_create_dispatches_to_service(self):
-        with patch("servicenow_mcp.services.incident.create") as mock_create:
-            mock_create.return_value = IncidentResponse(
-                success=True, message="ok", incident_id="abc", incident_number="INC1"
-            )
-            out = manage_incident(
-                _config(),
-                MagicMock(),
+    def test_create_and_update_share_the_verified_write_path(self):
+        # One path for both: links/choices resolved, dry_run honoured, re-read proof.
+        with patch("servicenow_mcp.tools.incident_tools._write") as mock_write:
+            mock_write.return_value = {"success": True, "verified": True}
+            for params in (
                 ManageIncidentParams(action="create", short_description="x", priority="3"),
-            )
-            assert mock_create.call_count == 1
-            kwargs = mock_create.call_args.kwargs
-            assert kwargs["short_description"] == "x"
-            assert kwargs["priority"] == "3"
-            assert out.success is True
-
-    def test_update_dispatches_to_service_with_id_and_dry_run(self):
-        with patch("servicenow_mcp.services.incident.update") as mock_update:
-            mock_update.return_value = IncidentResponse(success=True, message="ok")
-            manage_incident(
-                _config(),
-                MagicMock(),
                 ManageIncidentParams(action="update", incident_id="abc", state="2", dry_run=True),
-            )
-            kwargs = mock_update.call_args.kwargs
-            assert kwargs["incident_id"] == "abc"
-            assert kwargs["state"] == "2"
-            assert kwargs["dry_run"] is True
+            ):
+                out = manage_incident(_config(), MagicMock(), params)
+                assert out == {"success": True, "verified": True}
+                assert mock_write.call_args.args[2] is params
+            assert mock_write.call_count == 2
 
     def test_comment_dispatches_to_service(self):
         with patch("servicenow_mcp.services.incident.add_comment") as mock_comment:

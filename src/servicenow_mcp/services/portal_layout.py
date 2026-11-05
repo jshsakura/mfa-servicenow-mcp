@@ -1,7 +1,8 @@
 """Service layer for portal layout CRUD (page, container, row, column, widget instance)."""
 
 import logging
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools._preview import build_update_preview
@@ -364,3 +365,132 @@ def move_widget(
     except Exception as e:
         logger.error("Error moving widget: %s", e)
         return {"success": False, "message": f"Error moving widget: {e}"}
+
+
+_SYS_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _ref(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("value") or "")
+    return str(value or "")
+
+
+def replace_widget(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    instance_id: str,
+    sp_widget: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Point an existing widget instance at a different widget.
+
+    Only sp_instance.sp_widget changes; widget_parameters, css, column and order
+    stay as they are. Every read here raises on failure (fail_silently=False) so
+    an unreadable row is a refusal, never an empty answer.
+    """
+
+    def _read(table: str, query: str, fields: str, limit: int = 5) -> List[Dict[str, Any]]:
+        invalidate_query_cache(table=table)
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=query,
+            fields=fields,
+            limit=limit,
+            offset=0,
+            fail_silently=False,
+        )
+        return rows
+
+    keep = "sp_widget,widget_parameters,css,sp_column,order"
+    try:
+        inst = _read(INSTANCE_TABLE, f"sys_id={instance_id}", keep, 1)
+        if not inst:
+            return {"success": False, "message": f"No widget instance {instance_id}."}
+        column = "sys_id" if _SYS_ID_RE.match(sp_widget) else "id"
+        matches = _read("sp_widget", f"{column}={sp_widget}", "sys_id,id,name,sys_scope")
+        old_id = _ref(inst[0].get("sp_widget"))
+        old = _read("sp_widget", f"sys_id={old_id}", "sys_id,id,name", 1) if old_id else []
+    except Exception as e:
+        return {"success": False, "message": f"Could not read the instance or widget: {e}"}
+
+    if len(matches) != 1:
+        return {
+            "success": False,
+            "message": (
+                f"No sp_widget with {column}='{sp_widget}'."
+                if not matches
+                else f"{len(matches)} widgets match {column}='{sp_widget}'; pass the sys_id."
+            ),
+            "candidates": [
+                {
+                    "sys_id": r.get("sys_id"),
+                    "id": r.get("id"),
+                    "name": r.get("name"),
+                    "scope": _ref(r.get("sys_scope")),
+                }
+                for r in matches
+            ],
+        }
+    new = matches[0]
+    new_sys_id = str(new.get("sys_id"))
+    summary = {
+        "instance_id": instance_id,
+        "old_widget": {
+            "sys_id": old_id,
+            "id": old[0].get("id") if old else None,
+            "name": old[0].get("name") if old else None,
+        },
+        "new_widget": {"sys_id": new_sys_id, "id": new.get("id"), "name": new.get("name")},
+    }
+    if old_id == new_sys_id:
+        return {"success": True, "message": "Instance already uses this widget", **summary}
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "operation": "replace_widget",
+            **summary,
+            "untouched": ["widget_parameters", "css", "sp_column", "order"],
+        }
+
+    url = f"{config.instance_url}/api/now/table/{INSTANCE_TABLE}/{instance_id}"
+    try:
+        response = auth_manager.make_request(
+            "PATCH",
+            url,
+            json={"sp_widget": new_sys_id},
+            headers=auth_manager.get_headers(),
+            timeout=30,
+        )
+        response.raise_for_status()
+    except Exception as e:
+        logger.error("Error replacing widget: %s", e)
+        return {"success": False, "message": f"Error replacing widget: {e}"}
+
+    problems: List[str] = []
+    try:
+        after = _read(INSTANCE_TABLE, f"sys_id={instance_id}", keep, 1)
+        if not after:
+            raise RuntimeError("instance not found on read-back")
+        if _ref(after[0].get("sp_widget")) != new_sys_id:
+            problems.append("sp_widget did not change")
+        for f in ("widget_parameters", "css", "sp_column", "order"):
+            if _ref(after[0].get(f)) != _ref(inst[0].get(f)):
+                problems.append(f"{f} changed unexpectedly")
+    except Exception as e:
+        problems.append(f"could not read back ({e})")
+    return {
+        "success": True,
+        "complete": not problems,
+        "message": (
+            "Replaced widget on instance"
+            if not problems
+            else "Replace sent but NOT confirmed: " + "; ".join(problems)
+        ),
+        **summary,
+        "missing": problems,
+    }

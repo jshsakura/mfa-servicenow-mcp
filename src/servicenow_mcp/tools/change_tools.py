@@ -5,6 +5,7 @@ This module provides tools for managing change requests in ServiceNow.
 """
 
 import logging
+import re
 from typing import Any, ClassVar, Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, model_validator
@@ -15,6 +16,8 @@ from servicenow_mcp.services.choices import resolve_choice
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
+from ._preview import build_create_preview
+from .approval_tools import decide_approval
 from .sn_api import invalidate_query_cache, sn_query_page
 
 logger = logging.getLogger(__name__)
@@ -66,6 +69,10 @@ class ApproveChangeParams(BaseModel):
         default=None,
         description="change_request target state per your change model (default: implement)",
     )
+    confirm_on_behalf: Optional[str] = Field(
+        default=None,
+        description="Required to decide for another user: that approver's user_name.",
+    )
     dry_run: bool = Field(
         default=False,
         description="Preview approval-record and change-request transitions without executing.",
@@ -83,6 +90,10 @@ class RejectChangeParams(BaseModel):
     rejection_reason: str = Field(..., description="Reason for rejection")
     change_state: Optional[str] = Field(
         default=None, description="change_request target state (default: canceled)"
+    )
+    confirm_on_behalf: Optional[str] = Field(
+        default=None,
+        description="Required to decide for another user: that approver's user_name.",
     )
     dry_run: bool = Field(
         default=False,
@@ -228,6 +239,18 @@ def approve_change(
         if refusal is not None:
             return refusal
 
+        decision = decide_approval(
+            config,
+            auth_manager,
+            approval_id=approval_id,
+            decision="approved",
+            comments=params.approval_comments,
+            confirm_on_behalf=params.confirm_on_behalf,
+            dry_run=params.dry_run,
+        )
+        if not decision.get("success"):
+            return decision
+
         if params.dry_run:
             change_rows, _ = sn_query_page(
                 config,
@@ -247,6 +270,8 @@ def approve_change(
                     "sys_id": approval_id,
                     "new_state": "approved",
                     "approver": _unwrap(approval.get("approver")),
+                    "caller": decision.get("caller"),
+                    "basis": decision.get("basis"),
                 },
                 "change_record": {
                     "current": current_change,
@@ -264,18 +289,6 @@ def approve_change(
 
         headers = {"Content-Type": "application/json"}
 
-        # Step 2: PATCH the approval record to "approved".
-        approval_data: Dict[str, Any] = {"state": "approved"}
-        if params.approval_comments:
-            approval_data["comments"] = params.approval_comments
-        approval_update_response = auth_manager.make_request(
-            "PATCH",
-            f"{config.api_url}/table/sysapproval_approver/{approval_id}",
-            json=approval_data,
-            headers=headers,
-        )
-        approval_update_response.raise_for_status()
-
         # Step 3: advance the change_request (override via change_state).
         change_response = auth_manager.make_request(
             "PATCH",
@@ -291,6 +304,9 @@ def approve_change(
         return {
             "success": True,
             "message": f"Change request approved (change_request → {target_state}).",
+            "basis": decision.get("basis"),
+            "approval_state": decision.get("state_after"),
+            "parent_approval": decision.get("parent_approval"),
         }
     except Exception as e:
         logger.error(f"Error approving change: {e}")
@@ -321,6 +337,18 @@ def reject_change(
         if refusal is not None:
             return refusal
 
+        decision = decide_approval(
+            config,
+            auth_manager,
+            approval_id=approval_id,
+            decision="rejected",
+            comments=params.rejection_reason,
+            confirm_on_behalf=params.confirm_on_behalf,
+            dry_run=params.dry_run,
+        )
+        if not decision.get("success"):
+            return decision
+
         if params.dry_run:
             change_rows, _ = sn_query_page(
                 config,
@@ -340,6 +368,8 @@ def reject_change(
                     "sys_id": approval_id,
                     "new_state": "rejected",
                     "approver": _unwrap(approval.get("approver")),
+                    "caller": decision.get("caller"),
+                    "basis": decision.get("basis"),
                     "rejection_reason": params.rejection_reason,
                 },
                 "change_record": {
@@ -357,15 +387,6 @@ def reject_change(
             }
 
         headers = {"Content-Type": "application/json"}
-
-        # Step 2: PATCH the approval record to "rejected".
-        approval_update_response = auth_manager.make_request(
-            "PATCH",
-            f"{config.api_url}/table/sysapproval_approver/{approval_id}",
-            json={"state": "rejected", "comments": params.rejection_reason},
-            headers=headers,
-        )
-        approval_update_response.raise_for_status()
 
         # Step 3: advance the change_request (override via change_state).
         change_response = auth_manager.make_request(
@@ -385,6 +406,9 @@ def reject_change(
         return {
             "success": True,
             "message": f"Change request rejected (change_request → {target_state}).",
+            "basis": decision.get("basis"),
+            "approval_state": decision.get("state_after"),
+            "parent_approval": decision.get("parent_approval"),
         }
     except Exception as e:
         logger.error(f"Error rejecting change: {e}")
@@ -413,6 +437,9 @@ _CHANGE_CREATE_FIELDS = (
     "start_date",
     "end_date",
 )
+# `parent` is resolved to a sys_id by this tool, not passed through as written.
+_CHANGE_CREATE_FIELDS_WITH_PARENT = _CHANGE_CREATE_FIELDS + ("parent",)
+_STANDARD_FIELDS = ("short_description", "assignment_group", "start_date", "end_date", "parent")
 _CHANGE_UPDATE_FIELDS = (
     "short_description",
     "description",
@@ -425,9 +452,11 @@ _CHANGE_UPDATE_FIELDS = (
     "end_date",
     "work_notes",
 )
+_CHANGE_UPDATE_FIELDS_WITH_PARENT = _CHANGE_UPDATE_FIELDS + ("parent",)
 
 
 _APPROVAL_FIELDS = frozenset({"change_id", "state", "work_notes", "dry_run"})
+_DECIDE_FIELDS = _APPROVAL_FIELDS | {"approver_id", "confirm_on_behalf"}
 
 
 class ManageChangeParams(BaseModel):
@@ -436,15 +465,25 @@ class ManageChangeParams(BaseModel):
     Required per action:
       get:      change_id (detail) or filters (list)
       create:   short_description, type ('normal' | 'standard' | 'emergency')
+      list_templates: (none) active standard change templates
+      create_standard: template_id (sys_id or exact name)
       update:   change_id, at least one field
       add_task: change_id, task_short_description
       submit/approve: change_id
       reject:   change_id, work_notes (the reason)
     """
 
-    action: Literal["get", "create", "update", "add_task", "submit", "approve", "reject"] = Field(
-        ...
-    )
+    action: Literal[
+        "get",
+        "create",
+        "update",
+        "add_task",
+        "submit",
+        "approve",
+        "reject",
+        "list_templates",
+        "create_standard",
+    ] = Field(...)
     change_id: Optional[str] = Field(default=None, description="sys_id or CHG number")
 
     # get (list mode) params
@@ -473,6 +512,12 @@ class ManageChangeParams(BaseModel):
     start_date: Optional[str] = Field(default=None)
     end_date: Optional[str] = Field(default=None)
     requested_by: Optional[str] = Field(default=None, description="Create only")
+    template_id: Optional[str] = Field(
+        default=None, description="create_standard: template sys_id or exact name (list_templates)"
+    )
+    parent: Optional[str] = Field(
+        default=None, description="RITM/SCTASK number or sys_id this change is raised from"
+    )
     state: Optional[str] = Field(
         default=None,
         description="Code or label. submit/approve/reject: target (assess/implement/canceled)",
@@ -482,6 +527,11 @@ class ManageChangeParams(BaseModel):
     )
     approver_id: Optional[str] = Field(
         default=None, description="Approver sys_id or name; else first pending (approve/reject)"
+    )
+
+    confirm_on_behalf: Optional[str] = Field(
+        default=None,
+        description="approve/reject for another user: that approver's user_name (else refused)",
     )
 
     # add_task-specific
@@ -498,15 +548,17 @@ class ManageChangeParams(BaseModel):
             {"change_id", "limit", "offset", "timeframe", "query", "count_only", "state", "type"}
             | {"category", "assignment_group"}
         ),
-        "create": frozenset({"type", "dry_run", *_CHANGE_CREATE_FIELDS}),
-        "update": frozenset({"change_id", "dry_run", *_CHANGE_UPDATE_FIELDS}),
+        "create": frozenset({"type", "dry_run", *_CHANGE_CREATE_FIELDS_WITH_PARENT}),
+        "update": frozenset({"change_id", "dry_run", *_CHANGE_UPDATE_FIELDS_WITH_PARENT}),
+        "list_templates": frozenset({"limit", "query"}),
+        "create_standard": frozenset({"template_id", "dry_run", *_STANDARD_FIELDS}),
         "add_task": frozenset(
             {"change_id", "dry_run", "task_short_description", "task_description"}
             | {"task_assigned_to", "task_planned_start_date", "task_planned_end_date"}
         ),
         "submit": _APPROVAL_FIELDS,
-        "approve": _APPROVAL_FIELDS | {"approver_id"},
-        "reject": _APPROVAL_FIELDS | {"approver_id"},
+        "approve": _DECIDE_FIELDS,
+        "reject": _DECIDE_FIELDS,
     }
 
     @model_validator(mode="after")
@@ -516,10 +568,13 @@ class ManageChangeParams(BaseModel):
                 raise ValueError("short_description is required for action='create'")
             if not self.type:
                 raise ValueError("type is required for action='create' (normal/standard/emergency)")
-        elif self.action != "get" and not self.change_id:
+        elif self.action == "create_standard":
+            if not self.template_id:
+                raise ValueError("template_id is required for action='create_standard'")
+        elif self.action not in ("get", "list_templates") and not self.change_id:
             raise ValueError(f"change_id is required for action='{self.action}'")
         if self.action == "update":
-            if not any(getattr(self, f) is not None for f in _CHANGE_UPDATE_FIELDS):
+            if not any(getattr(self, f) is not None for f in _CHANGE_UPDATE_FIELDS_WITH_PARENT):
                 raise ValueError("at least one field must be provided for action='update'")
         elif self.action == "add_task":
             if not self.task_short_description:
@@ -529,6 +584,278 @@ class ManageChangeParams(BaseModel):
         return self
 
 
+# ---------------------------------------------------------------------------
+# parent (RITM / SCTASK), standard change templates
+# ---------------------------------------------------------------------------
+
+_SYS_ID = re.compile(r"^[0-9a-f]{32}$", re.I)
+_PARENT_CLASSES = {"sc_req_item", "sc_task"}
+_PARENT_PREFIXES = ("RITM", "SCTASK")
+_TEMPLATE_TABLE = "std_change_record_producer"
+_TEMPLATE_FIELDS = "sys_id,name,category,current_version,version,short_description"
+
+
+def _cell(row: Dict[str, Any], field: str) -> str:
+    v = row.get(field)
+    if isinstance(v, dict):
+        v = v.get("value")
+    return "" if v is None else str(v)
+
+
+def _shown(row: Dict[str, Any], field: str) -> str:
+    v = row.get(field)
+    if isinstance(v, dict):
+        v = v.get("display_value") or v.get("value")
+    return "" if v is None else str(v)
+
+
+def _resolve_parent(
+    config: ServerConfig, auth_manager: AuthManager, parent: str
+) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """``(sys_id, refusal)``. Never a sys_id that was not read back from the instance."""
+    wanted = parent.strip()
+    if _SYS_ID.match(wanted):
+        query = f"sys_id={wanted.lower()}"
+    elif wanted.upper().startswith(_PARENT_PREFIXES):
+        query = f"number={wanted.upper()}"
+    else:
+        return None, {
+            "success": False,
+            "error": "BAD_PARENT",
+            "message": f"parent '{wanted}' is not a RITM/SCTASK number or a sys_id.",
+        }
+    try:
+        rows, _t = sn_query_page(
+            config,
+            auth_manager,
+            table="task",
+            query=query,
+            fields="sys_id,number,sys_class_name",
+            limit=2,
+            offset=0,
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - an unread parent is not an absent one
+        return None, {
+            "success": False,
+            "error": "PARENT_UNDETERMINED",
+            "message": f"Could not read parent '{wanted}': {str(exc)[:160]}. Nothing was written.",
+        }
+    if not rows:
+        return None, {
+            "success": False,
+            "error": "PARENT_NOT_FOUND",
+            "message": f"parent '{wanted}' is absent or hidden by ACL. Nothing was written.",
+        }
+    if len(rows) > 1:
+        return None, {
+            "success": False,
+            "error": "PARENT_AMBIGUOUS",
+            "message": f"parent '{wanted}' matched more than one task.",
+        }
+    cls = _cell(rows[0], "sys_class_name")
+    if cls not in _PARENT_CLASSES:
+        return None, {
+            "success": False,
+            "error": "BAD_PARENT",
+            "message": f"parent '{wanted}' is a {cls or 'task'}, not a request item or catalog task.",
+        }
+    return _cell(rows[0], "sys_id"), None
+
+
+def _template_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    out = {
+        "sys_id": _cell(row, "sys_id"),
+        "name": _cell(row, "name"),
+        "category": _shown(row, "category"),
+        "current_version": _shown(row, "current_version"),
+    }
+    if _cell(row, "version"):
+        out["version"] = _cell(row, "version")
+    return out
+
+
+def _list_templates(
+    config: ServerConfig, auth_manager: AuthManager, params: "ManageChangeParams"
+) -> Dict[str, Any]:
+    parts = ["active=true", "retired=false"]
+    if params.query:
+        parts.append(params.query)
+    limit = min(params.limit, 100)
+    try:
+        rows, total = sn_query_page(
+            config,
+            auth_manager,
+            table=_TEMPLATE_TABLE,
+            query="^".join(parts),
+            fields=_TEMPLATE_FIELDS,
+            limit=limit,
+            offset=params.offset,
+            display_value="all",
+            orderby="name",
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - never "no templates" for an unread table
+        return {
+            "success": False,
+            "error": "TEMPLATES_UNREADABLE",
+            "message": f"Could not read {_TEMPLATE_TABLE} (Standard Change Catalog not "
+            f"installed, or no access): {str(exc)[:160]}",
+        }
+    return {
+        "success": True,
+        "templates": [_template_row(r) for r in rows],
+        "count": len(rows),
+        "total": total if total is not None else len(rows),
+        "complete": (len(rows) + params.offset >= total) if total is not None else None,
+        "next": "manage_change(action='create_standard', template_id=<sys_id>)",
+    }
+
+
+def _resolve_template(
+    config: ServerConfig, auth_manager: AuthManager, template: str
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    wanted = template.strip()
+    query = f"sys_id={wanted.lower()}" if _SYS_ID.match(wanted) else f"name={wanted}"
+    try:
+        rows, _t = sn_query_page(
+            config,
+            auth_manager,
+            table=_TEMPLATE_TABLE,
+            query=f"{query}^active=true^retired=false",
+            fields=_TEMPLATE_FIELDS,
+            limit=6,
+            offset=0,
+            display_value="all",
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, {
+            "success": False,
+            "error": "TEMPLATE_UNDETERMINED",
+            "message": f"Could not read standard change templates: {str(exc)[:160]}. "
+            "Nothing was created.",
+        }
+    if len(rows) == 1:
+        return rows[0], None
+    if not rows:
+        return None, {
+            "success": False,
+            "error": "TEMPLATE_NOT_FOUND",
+            "message": f"No active standard change template '{wanted}' (absent, retired, or "
+            "hidden by ACL). manage_change(action='list_templates') shows the available ones.",
+        }
+    return None, {
+        "success": False,
+        "error": "TEMPLATE_AMBIGUOUS",
+        "message": f"{len(rows)} templates match '{wanted}'; pass the sys_id of one.",
+        "candidates": [_template_row(r) for r in rows],
+    }
+
+
+def _extract_sys_id(result: Any) -> str:
+    if isinstance(result, list) and result:
+        result = result[0]
+    if not isinstance(result, dict):
+        return ""
+    sid = result.get("sys_id")
+    if isinstance(sid, dict):
+        sid = sid.get("value")
+    return str(sid or "")
+
+
+def _create_standard(
+    config: ServerConfig, auth_manager: AuthManager, params: "ManageChangeParams"
+) -> Dict[str, Any]:
+    assert params.template_id is not None
+    template, refusal = _resolve_template(config, auth_manager, params.template_id)
+    if refusal:
+        return refusal
+    assert template is not None
+    overrides: Dict[str, Any] = {
+        f: getattr(params, f) for f in _STANDARD_FIELDS if getattr(params, f)
+    }
+    if "parent" in overrides:
+        parent_id, refusal = _resolve_parent(config, auth_manager, overrides["parent"])
+        if refusal:
+            return refusal
+        overrides["parent"] = parent_id
+    tpl = _template_row(template)
+    if params.dry_run:
+        preview = build_create_preview(table="change_request", proposed=overrides)
+        preview["template"] = tpl
+        preview["endpoint"] = "POST /api/sn_chg_rest/change/standard/<template sys_id>"
+        return preview
+
+    url = f"{config.instance_url.rstrip('/')}/api/sn_chg_rest/change/standard/{tpl['sys_id']}"
+    try:
+        resp = auth_manager.make_request(
+            "POST", url, json=overrides, headers={"Content-Type": "application/json"}
+        )
+        resp.raise_for_status()
+        created = resp.json().get("result")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Error creating standard change: %s", exc)
+        return {"success": False, "message": f"Error creating standard change: {str(exc)}"}
+    invalidate_query_cache(table="change_request")
+    sys_id = _extract_sys_id(created)
+    if not sys_id:
+        return {
+            "success": True,
+            "created": True,
+            "template": tpl,
+            "verified": False,
+            "message": "The API answered but returned no sys_id; the change was NOT re-read. "
+            "Find it with manage_change(action='get', query=...).",
+        }
+    try:
+        rows, _t = sn_query_page(
+            config,
+            auth_manager,
+            table="change_request",
+            query=f"sys_id={sys_id}",
+            fields="sys_id,number,type,state," + ",".join(overrides),
+            limit=1,
+            offset=0,
+            display_value="all",
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        rows = []
+        reread_error = str(exc)[:160]
+    else:
+        reread_error = "no row returned (hidden by ACL?)"
+    if not rows:
+        return {
+            "success": True,
+            "created": True,
+            "sys_id": sys_id,
+            "template": tpl,
+            "verified": False,
+            "message": f"Created, but the re-read failed: {reread_error}. "
+            "Overrides are unconfirmed.",
+        }
+    rec = rows[0]
+    applied = {}
+    for field, wanted in overrides.items():
+        applied[field] = wanted in (_cell(rec, field), _shown(rec, field))
+    out: Dict[str, Any] = {
+        "success": True,
+        "created": True,
+        "verified": True,
+        "sys_id": sys_id,
+        "number": _cell(rec, "number"),
+        "type": _shown(rec, "type"),
+        "state": _shown(rec, "state"),
+        "template": tpl,
+        "applied": applied,
+    }
+    missed = [f for f, ok in applied.items() if not ok]
+    if missed:
+        out["overrides_not_applied"] = missed
+    return out
+
+
 def _project_change(params: ManageChangeParams, fields: tuple[str, ...]) -> Dict[str, Any]:
     return {f: getattr(params, f) for f in fields if getattr(params, f) is not None}
 
@@ -536,7 +863,7 @@ def _project_change(params: ManageChangeParams, fields: tuple[str, ...]) -> Dict
 @register_tool(
     name="manage_change",
     params=ManageChangeParams,
-    description="Change requests: get/create/update, add a task, submit/approve/reject approval.",
+    description="Change requests: get/create/update, standard templates, tasks, approval.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -560,16 +887,39 @@ def manage_change(
             query=params.query,
             count_only=params.count_only,
         )
-    if params.action == "create":
-        # ManageChangeParams validator guarantees these are present per action.
-        assert params.short_description is not None
-        assert params.type is not None
-        return change_service.create(
+    if params.action == "list_templates":
+        return _list_templates(config, auth_manager, params)
+    if params.action == "create_standard":
+        return _create_standard(config, auth_manager, params)
+    if params.action in ("create", "update"):
+        # One write path: resolve parent, resolve choices, honour dry_run (create
+        # included), write, prove it by re-reading (services/change.verify_written).
+        parent_id: Optional[str] = None
+        if params.parent:
+            parent_id, refusal = _resolve_parent(config, auth_manager, params.parent)
+            if refusal:
+                return refusal
+        if params.action == "create":
+            # ManageChangeParams validator guarantees these are present per action.
+            assert params.short_description is not None
+            assert params.type is not None
+            return change_service.create(
+                config,
+                auth_manager,
+                short_description=params.short_description,
+                type=params.type,
+                parent=parent_id,
+                dry_run=params.dry_run,
+                **_project_change(params, _CHANGE_CREATE_FIELDS[1:]),
+            )
+        assert params.change_id is not None
+        return change_service.update(
             config,
             auth_manager,
-            short_description=params.short_description,
-            type=params.type,
-            **_project_change(params, _CHANGE_CREATE_FIELDS[1:]),
+            change_id=params.change_id,
+            parent=parent_id,
+            dry_run=params.dry_run,
+            **_project_change(params, _CHANGE_UPDATE_FIELDS),
         )
     if params.action == "submit":
         assert params.change_id is not None
@@ -590,6 +940,7 @@ def manage_change(
             ApproveChangeParams(
                 change_id=params.change_id,
                 approver_id=params.approver_id,
+                confirm_on_behalf=params.confirm_on_behalf,
                 approval_comments=params.work_notes,
                 change_state=params.state,
                 dry_run=params.dry_run,
@@ -603,19 +954,11 @@ def manage_change(
             RejectChangeParams(
                 change_id=params.change_id,
                 approver_id=params.approver_id,
+                confirm_on_behalf=params.confirm_on_behalf,
                 rejection_reason=params.work_notes,
                 change_state=params.state,
                 dry_run=params.dry_run,
             ),
-        )
-    if params.action == "update":
-        assert params.change_id is not None
-        return change_service.update(
-            config,
-            auth_manager,
-            change_id=params.change_id,
-            dry_run=params.dry_run,
-            **_project_change(params, _CHANGE_UPDATE_FIELDS),
         )
     # add_task
     assert params.change_id is not None

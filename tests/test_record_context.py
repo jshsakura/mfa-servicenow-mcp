@@ -545,3 +545,73 @@ def test_journal_counts_and_failed_aggregate(cfg, monkeypatch):
     }
     monkeypatch.setattr(rc, "sn_count_by_group", lambda *a, **k: None)
     assert run(cfg, fake, "INC0000001", sections=["journal"])["journal"]["checked"] is False
+
+
+def _approval_fake(record_table, record_row, approver):
+    return Fake(
+        {
+            "sys_number": SYS_NUMBER,
+            record_table: ([record_row], 1),
+            "sysapproval_approver": (
+                [
+                    row(
+                        approver=cell(approver, "Alice Example"),
+                        state=cell("requested", "Requested"),
+                        order="1",
+                    )
+                ],
+                1,
+            ),
+            "sysapproval_group": ([], 0),
+            "sys_user_delegate": ([], 0),
+        }
+    )
+
+
+def test_self_approval_warned_for_assignee(cfg):
+    fake = _approval_fake(
+        "change_request",
+        row(sys_id=CHG, number="CHG0000001", assigned_to=cell(USER_A, "Alice Example")),
+        USER_A,
+    )
+    out = run(cfg, fake, "CHG0000001", sections=["approvals"])
+    chk = out["approvals"]["self_approval_check"]
+    assert out["approvals"]["warnings"][0]["code"] == "SELF_APPROVAL"
+    assert out["approvals"]["warnings"][0]["is"] == "assigned_to"
+    assert chk["checked"] is False  # requested_by was not in the row
+    assert "requested_by" in chk["unchecked_fields"]
+
+
+def test_self_approval_warned_for_requester_by_sys_id_not_label(cfg):
+    fake = _approval_fake(
+        "change_request",
+        row(
+            sys_id=CHG,
+            number="CHG0000001",
+            assigned_to=cell(USER_B, "Alice Example"),
+            requested_by=cell(USER_A, "Someone Else"),
+        ),
+        USER_A,
+    )
+    out = run(cfg, fake, "CHG0000001", sections=["approvals"])
+    warns = out["approvals"]["warnings"]
+    assert [w["is"] for w in warns] == ["requested_by"]
+    assert out["approvals"]["self_approval_check"]["checked"] is True
+
+
+def test_no_self_approval_when_fields_read_and_different(cfg):
+    fake = _approval_fake(
+        "incident",
+        row(sys_id=INC, number="INC0000001", assigned_to=cell(USER_B, "Bob Example")),
+        USER_A,
+    )
+    out = run(cfg, fake, "INC0000001", sections=["approvals"])
+    assert "warnings" not in out["approvals"]
+    assert out["approvals"]["self_approval_check"] == {"checked": True, "warnings": []}
+
+
+def test_self_approval_unchecked_when_assignee_not_read(cfg):
+    fake = _approval_fake("incident", row(sys_id=INC, number="INC0000001"), USER_A)
+    out = run(cfg, fake, "INC0000001", sections=["approvals"])
+    chk = out["approvals"]["self_approval_check"]
+    assert chk["checked"] is False and "assigned_to" in chk["unchecked_fields"]

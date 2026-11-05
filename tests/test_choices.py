@@ -185,9 +185,13 @@ class TestServicesRefuseBeforeWriting:
     def test_change_update_resolves_a_state_word(self, mock_config):
         auth = MagicMock()
         auth.make_request.return_value.json.return_value = {"result": {}}
-        with patch("servicenow_mcp.services.change.invalidate_query_cache"):
+        with (
+            patch("servicenow_mcp.services.change.invalidate_query_cache"),
+            patch("servicenow_mcp.services.change.sn_query_page", return_value=([], None)),
+        ):
             change_svc.update(mock_config, auth, change_id="c1", state="Implement")
-        assert auth.make_request.call_args.kwargs["json"]["state"] == "-1"
+        put = next(c for c in auth.make_request.call_args_list if c.args[0] == "PUT")
+        assert put.kwargs["json"]["state"] == "-1"
 
     def test_incident_resolve_with_an_unknown_close_code_sends_nothing(self, mock_config):
         auth = MagicMock()
@@ -206,9 +210,15 @@ class TestServicesRefuseBeforeWriting:
 
     def test_incident_create_with_a_bad_urgency_sends_nothing(self, mock_config):
         auth = MagicMock()
-        result = incident_svc.create(mock_config, auth, short_description="s", urgency="asap")
-        assert result.success is False
-        assert "incident.urgency" in result.message
+        from servicenow_mcp.tools.incident_tools import ManageIncidentParams, manage_incident
+
+        result = manage_incident(
+            mock_config,
+            auth,
+            ManageIncidentParams(action="create", short_description="s", urgency="asap"),
+        )
+        assert result["success"] is False
+        assert "incident.urgency" in result["message"]
         auth.make_request.assert_not_called()
 
 
@@ -238,7 +248,15 @@ class TestApprovalActionsRefuseBeforeTheFirstWrite:
     def test_state_label_resolves_to_its_code(self, mock_config):
         auth = MagicMock()
         auth.make_request.return_value.json.return_value = {"result": {}}
-        with patch("servicenow_mcp.tools.change_tools.invalidate_query_cache"):
+        # The approval write and its caller check live in decide_approval (own tests);
+        # here it is allowed, so only the change PATCH and its state code remain.
+        with (
+            patch("servicenow_mcp.tools.change_tools.invalidate_query_cache"),
+            patch(
+                "servicenow_mcp.tools.change_tools.decide_approval",
+                return_value={"success": True, "applied": True},
+            ),
+        ):
             manage_change(mock_config, auth, ManageChangeParams(action="approve", change_id="c1"))
         change_patch = auth.make_request.call_args_list[-1]
         assert change_patch.kwargs["json"] == {"state": "-1"}
@@ -263,6 +281,10 @@ class TestApprovalActionParams:
                 "servicenow_mcp.tools.change_tools._find_change_approval", return_value=(row, None)
             ),
             patch("servicenow_mcp.tools.change_tools.invalidate_query_cache"),
+            patch(
+                "servicenow_mcp.tools.change_tools.decide_approval",
+                return_value={"success": True, "applied": True},
+            ) as decide,
         ):
             result = manage_change(
                 mock_config,
@@ -270,6 +292,7 @@ class TestApprovalActionParams:
                 ManageChangeParams(action="reject", change_id="c1", work_notes="no window"),
             )
         assert result["success"] is True
-        approval, change = [c.kwargs["json"] for c in auth.make_request.call_args_list]
-        assert approval == {"state": "rejected", "comments": "no window"}
+        assert decide.call_args.kwargs["decision"] == "rejected"
+        assert decide.call_args.kwargs["comments"] == "no window"
+        (change,) = [c.kwargs["json"] for c in auth.make_request.call_args_list]
         assert change["state"] == "4" and "no window" in change["work_notes"]

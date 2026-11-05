@@ -35,6 +35,7 @@ PACKAGE_DESCRIPTIONS = {
     "portal_developer": "standard plus portal, changeset, script include, and local-sync delivery workflows.",
     "platform_developer": "standard plus workflow, Flow Designer, UI policy, incident/change, and script writes.",
     "full": "Broadest packaged surface: all manage_* workflows plus advanced operations.",
+    "itsm_developer": "Standalone ITSM: records, approvals, catalog/policy config, portal themes, shipping.",
     "asset_manager": "Materials, asset and ITOM work: queries plus checked asset writes; add-ons combine by comma.",
 }
 
@@ -239,6 +240,7 @@ def build_inventory_markdown() -> str:
         "portal_developer",
         "platform_developer",
         "full",
+        "itsm_developer",
         "asset_manager",
     ]:
         lines.append(

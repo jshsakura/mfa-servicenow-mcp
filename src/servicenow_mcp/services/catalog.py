@@ -1,7 +1,8 @@
 """Service catalog (sc_category, sc_cat_item, item_option_new) service layer.
 
 Business logic for create_category / update_category / update_item /
-move_items / create_variable / update_variable operations.
+move_items / create_variable / update_variable operations, plus item
+authoring (create_item / copy_item / variable sets / choices / client scripts).
 ``manage_catalog`` in tools/catalog_tools.py is the sole public entry point.
 """
 
@@ -13,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services.choices import resolve_choice
-from servicenow_mcp.tools._preview import build_update_preview
+from servicenow_mcp.tools._preview import build_create_preview, build_update_preview
 from servicenow_mcp.tools.sn_api import (
     SYS_ID_IN_CHUNK,
     count_response,
@@ -317,7 +318,8 @@ def create_variable(
     config: ServerConfig,
     auth_manager: AuthManager,
     *,
-    catalog_item_id: str,
+    catalog_item_id: Optional[str] = None,
+    variable_set: Optional[str] = None,
     name: str,
     variable_type: str,
     label: str,
@@ -331,13 +333,25 @@ def create_variable(
     max_length: Optional[int] = None,
     min: Optional[int] = None,
     max: Optional[int] = None,
+    map_to_field: Optional[bool] = None,
+    target_field: Optional[str] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Add a form variable to a catalog item."""
+    """Add a form variable to a catalog item OR to a variable set (exactly one)."""
+    if bool(catalog_item_id) == bool(variable_set):
+        return {
+            "success": False,
+            "message": "Exactly one of catalog_item_id or variable_set is required",
+        }
+    if variable_set:
+        refusal = _writable_target(config, auth_manager, "item_option_new_set", variable_set)
+        if refusal is not None:
+            return refusal
     type_code, refusal = resolve_variable_type(config, auth_manager, variable_type)
     if refusal is not None:
         return refusal
     data: Dict[str, Any] = {
-        "cat_item": catalog_item_id,
+        "cat_item" if catalog_item_id else "variable_set": catalog_item_id or variable_set,
         "name": name,
         "type": type_code,
         "question_text": label,
@@ -356,6 +370,13 @@ def create_variable(
     if reference_qualifier:
         data["reference_qual"] = reference_qualifier
     _apply_variable_constraints(data, max_length=max_length, min=min, max=max)
+    if map_to_field is not None:
+        data["map_to_field"] = str(map_to_field).lower()
+    if target_field:
+        data["field"] = target_field
+
+    if dry_run:
+        return build_create_preview(table="item_option_new", proposed=data)
 
     try:
         response = auth_manager.make_request(
@@ -1101,3 +1122,1052 @@ def list_item_variables(
     except Exception as e:
         logger.error(f"Error getting catalog item variables: {e}")
         return []
+
+
+# ---------------------------------------------------------------------------
+# Item authoring — create_item, copy_item, variable sets, choices, client scripts
+# ---------------------------------------------------------------------------
+
+_IO_REF = re.compile(r"IO:([0-9a-fA-F]{32})")
+
+_ITEM_COPY_FIELDS = (
+    "short_description",
+    "description",
+    "category",
+    "sc_catalogs",
+    "flow_designer_flow",
+    "workflow",
+    "delivery_plan",
+)
+_VAR_COPY_FIELDS = (
+    "name",
+    "question_text",
+    "type",
+    "order",
+    "mandatory",
+    "default_value",
+    "reference",
+    "reference_qual",
+    "active",
+    "help_text",
+    "description",
+    "attributes",
+    "scale_min",
+    "scale_max",
+    "read_only",
+    "hidden",
+    "tooltip",
+    "instructions",
+    "choice_table",
+    "choice_field",
+    "choice_direction",
+)
+_CHOICE_COPY_FIELDS = ("text", "value", "order", "inactive")
+_POLICY_COPY_FIELDS = (
+    "short_description",
+    "applies_catalog",
+    "applies_req_item",
+    "applies_sc_task",
+    "applies_target_record",
+    "active",
+    "order",
+    "on_load",
+    "reverse_if_false",
+    "run_scripts",
+    "script_true",
+    "script_false",
+)
+_POLICY_ACTION_COPY_FIELDS = ("order", "mandatory", "visible", "disabled", "cleared")
+_SCRIPT_COPY_FIELDS = (
+    "name",
+    "type",
+    "ui_type",
+    "script",
+    "active",
+    "applies_to",
+    "applies_catalog",
+    "applies_req_item",
+    "applies_sc_task",
+)
+
+
+class _WriteFailed(Exception):
+    def __init__(self, table: str, old_id: str, message: str):
+        super().__init__(message)
+        self.table, self.old_id, self.message = table, old_id, message
+
+
+def _jheaders(auth_manager: AuthManager) -> Dict[str, str]:
+    headers = auth_manager.get_headers()
+    headers["Accept"] = "application/json"
+    headers["Content-Type"] = "application/json"
+    return headers
+
+
+def _table_write(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    method: str,
+    table: str,
+    body: Optional[Dict[str, Any]] = None,
+    sys_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """POST/PATCH/DELETE one row; raises on failure. Returns the ``result`` dict."""
+    url = f"{config.instance_url}/api/now/table/{table}" + (f"/{sys_id}" if sys_id else "")
+    kwargs: Dict[str, Any] = {"headers": _jheaders(auth_manager), "timeout": config.timeout}
+    if body is not None:
+        kwargs["json"] = body
+    response = auth_manager.make_request(method, url, **kwargs)
+    response.raise_for_status()
+    invalidate_query_cache(table=table)
+    if method == "DELETE":
+        return {}
+    return response.json().get("result", {}) or {}
+
+
+def _rows(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    query: str,
+    fields: str,
+    truncated: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Raising read of up to ``_FULL_CAP`` rows; a full page is recorded in ``truncated``."""
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=table,
+        query=query,
+        fields=fields,
+        limit=_FULL_CAP,
+        offset=0,
+        display_value="all",
+        fail_silently=False,
+    )
+    if truncated is not None and len(rows) >= _FULL_CAP:
+        truncated.append(table)
+    return rows
+
+
+def _reread(
+    config: ServerConfig, auth_manager: AuthManager, table: str, sys_id: str, fields: str
+) -> Optional[Dict[str, Any]]:
+    """Read the record back after a write; None when it cannot be read (not 'absent')."""
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query=f"sys_id={sys_id}",
+            fields=fields,
+            limit=1,
+            offset=0,
+            display_value="all",
+            no_count=True,
+            fail_silently=False,
+        )
+    except Exception:
+        return None
+    if not rows:
+        return None
+    return {k: _rv(v) for k, v in rows[0].items()}
+
+
+def _is_customer_package(pkg_value: str, pkg_label: str, scope_label: str) -> bool:
+    """Heuristic: empty package, a scoped (x_) customer app, or one named like its scope."""
+    if not pkg_value:
+        return True
+    low = f"{pkg_label} {scope_label}".lower()
+    if "x_" in low:
+        return True
+    return bool(scope_label) and pkg_label.strip().lower() == scope_label.strip().lower()
+
+
+def _writable_target(
+    config: ServerConfig, auth_manager: AuthManager, table: str, sys_id: str
+) -> Optional[Dict[str, Any]]:
+    """Refusal dict when ``sys_id`` in ``table`` is OOTB/protected or cannot be read, else None.
+
+    This client never edits OOTB in place. An unreadable or missing target is a
+    refusal, not a pass.
+    """
+    try:
+        rows = _rows(
+            config,
+            auth_manager,
+            table,
+            f"sys_id={sys_id}",
+            "sys_id,sys_policy,sys_package,sys_scope",
+        )
+    except Exception as e:
+        return {
+            "success": False,
+            "error": "TARGET_UNREADABLE",
+            "message": f"Could not read {table} {sys_id} to check it is not OOTB: {e}",
+        }
+    if not rows:
+        return {
+            "success": False,
+            "error": "TARGET_NOT_FOUND",
+            "message": f"{table} {sys_id} not found; nothing was written",
+        }
+    row = rows[0]
+    policy = str(_rv(row.get("sys_policy"))).strip().lower()
+    if policy in ("read", "protected"):
+        return {
+            "success": False,
+            "error": "OOTB_PROTECTED",
+            "message": (
+                f"{table} {sys_id} is protected (sys_policy='{policy}'); this client never "
+                "edits OOTB records in place. Copy it and edit the copy."
+            ),
+        }
+    pkg_v, pkg_l = str(_rv(row.get("sys_package"))), str(_dv(row.get("sys_package")))
+    scope_l = str(_dv(row.get("sys_scope")))
+    if not _is_customer_package(pkg_v, pkg_l, scope_l):
+        return {
+            "success": False,
+            "error": "OOTB_PACKAGE",
+            "message": (
+                f"{table} {sys_id} belongs to package '{pkg_l}' (scope '{scope_l}'), not a "
+                "customer package; this client never edits OOTB records in place."
+            ),
+        }
+    return None
+
+
+def _fail(prefix: str, e: Exception) -> Dict[str, Any]:
+    logger.error(f"{prefix}: {e}")
+    return {"success": False, "message": f"{prefix}: {e}"}
+
+
+def create_item(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    name: str,
+    short_description: Optional[str] = None,
+    description: Optional[str] = None,
+    category: Optional[str] = None,
+    sc_catalogs: Optional[str] = None,
+    active: bool = False,
+    flow_designer_flow: Optional[str] = None,
+    workflow: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Create an sc_cat_item (inactive by default). flow_designer_flow and workflow are exclusive."""
+    if flow_designer_flow and workflow:
+        return {
+            "success": False,
+            "error": "ENGINE_CONFLICT",
+            "message": "Set flow_designer_flow or workflow, not both",
+        }
+    body: Dict[str, Any] = {"name": name, "active": str(active).lower()}
+    for k, v in (
+        ("short_description", short_description),
+        ("description", description),
+        ("category", category),
+        ("sc_catalogs", sc_catalogs),
+        ("flow_designer_flow", flow_designer_flow),
+        ("workflow", workflow),
+    ):
+        if v:
+            body[k] = v
+    if dry_run:
+        return build_create_preview(table="sc_cat_item", proposed=body)
+    try:
+        result = _table_write(config, auth_manager, "POST", "sc_cat_item", body)
+    except Exception as e:
+        return _fail("Error creating catalog item", e)
+    sys_id = result.get("sys_id", "")
+    proof = _reread(
+        config,
+        auth_manager,
+        "sc_cat_item",
+        sys_id,
+        "sys_id,name,short_description,category,sc_catalogs,active,flow_designer_flow,workflow",
+    )
+    return {
+        "success": True,
+        "message": f"Created catalog item '{name}' (active={str(active).lower()})",
+        "sys_id": sys_id,
+        "verified": proof is not None,
+        "record": proof,
+    }
+
+
+def create_record_producer(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    name: str,
+    table_name: str,
+    short_description: Optional[str] = None,
+    category: Optional[str] = None,
+    sc_catalogs: Optional[str] = None,
+    script: Optional[str] = None,
+    active: bool = False,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Create an sc_cat_item_producer (inactive by default) that inserts into ``table_name``."""
+    try:
+        found = _rows(config, auth_manager, "sys_db_object", f"name={table_name}", "name")
+    except Exception as e:
+        return {
+            "success": False,
+            "error": "TABLE_UNVERIFIED",
+            "message": f"Could not check that table '{table_name}' exists: {e}. Nothing was written.",
+        }
+    if not any(str(_rv(r.get("name"))) == table_name for r in found):
+        return {
+            "success": False,
+            "error": "TABLE_NOT_FOUND",
+            "message": f"Table '{table_name}' does not exist; nothing was written.",
+        }
+    body: Dict[str, Any] = {
+        "name": name,
+        "table_name": table_name,
+        "active": str(active).lower(),
+    }
+    for k, v in (
+        ("short_description", short_description),
+        ("category", category),
+        ("sc_catalogs", sc_catalogs),
+        ("script", script),
+    ):
+        if v:
+            body[k] = v
+    if dry_run:
+        return build_create_preview(table="sc_cat_item_producer", proposed=body)
+    try:
+        result = _table_write(config, auth_manager, "POST", "sc_cat_item_producer", body)
+    except Exception as e:
+        return _fail("Error creating record producer", e)
+    sys_id = result.get("sys_id", "")
+    proof = _reread(
+        config,
+        auth_manager,
+        "sc_cat_item_producer",
+        sys_id,
+        "sys_id,name,short_description,category,sc_catalogs,active,table_name,script",
+    )
+    return {
+        "success": True,
+        "message": f"Created record producer '{name}' -> {table_name} (active={str(active).lower()})",
+        "sys_id": sys_id,
+        "verified": proof is not None,
+        "record": proof,
+    }
+
+
+def _remap_io(text: str, idmap: Dict[str, str], unmapped: set) -> str:
+    def sub(m: "re.Match[str]") -> str:
+        old = m.group(1)
+        if old in idmap:
+            return "IO:" + idmap[old]
+        unmapped.add(old)
+        return m.group(0)
+
+    return _IO_REF.sub(sub, text or "")
+
+
+def _copy_body(row: Dict[str, Any], fields: Tuple[str, ...]) -> Dict[str, Any]:
+    body: Dict[str, Any] = {}
+    for f in fields:
+        v = _rv(row.get(f))
+        if v not in ("", None):
+            body[f] = v
+    return body
+
+
+def copy_item(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    item_id: str,
+    name: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Copy an item with its variables, choices, set links, UI policies and client scripts.
+
+    Everything is READ first (a read failure writes nothing); then written in
+    order. A write failure stops the copy and reports what exists — no rollback.
+    """
+    truncated: List[str] = []
+    try:
+        src_rows = _rows(
+            config,
+            auth_manager,
+            "sc_cat_item",
+            f"sys_id={item_id}",
+            "sys_id," + ",".join(_ITEM_COPY_FIELDS),
+        )
+        if not src_rows:
+            return {
+                "success": False,
+                "error": "SOURCE_NOT_FOUND",
+                "message": f"{item_id} not found",
+            }
+        src = src_rows[0]
+        variables = _rows(
+            config,
+            auth_manager,
+            "item_option_new",
+            f"cat_item={item_id}^ORDERBYorder",
+            "sys_id," + ",".join(_VAR_COPY_FIELDS),
+            truncated,
+        )
+        var_ids = [_rv(v.get("sys_id")) for v in variables]
+        choices: List[Dict[str, Any]] = []
+        for ch in _chunks(var_ids):
+            choices += _rows(
+                config,
+                auth_manager,
+                "question_choice",
+                f"questionIN{','.join(ch)}",
+                "sys_id,question," + ",".join(_CHOICE_COPY_FIELDS),
+                truncated,
+            )
+        links = _rows(
+            config,
+            auth_manager,
+            "io_set_item",
+            f"sc_cat_item={item_id}",
+            "sys_id,variable_set,order",
+            truncated,
+        )
+        policies = _rows(
+            config,
+            auth_manager,
+            "catalog_ui_policy",
+            f"catalog_item={item_id}",
+            "sys_id,catalog_conditions," + ",".join(_POLICY_COPY_FIELDS),
+            truncated,
+        )
+        pol_ids = [_rv(p.get("sys_id")) for p in policies]
+        actions: List[Dict[str, Any]] = []
+        for ch in _chunks(pol_ids):
+            actions += _rows(
+                config,
+                auth_manager,
+                "catalog_ui_policy_action",
+                f"ui_policyIN{','.join(ch)}",
+                "sys_id,ui_policy,catalog_variable,variable,"
+                + ",".join(_POLICY_ACTION_COPY_FIELDS),
+                truncated,
+            )
+        scripts = _rows(
+            config,
+            auth_manager,
+            "catalog_script_client",
+            f"cat_item={item_id}",
+            "sys_id,cat_variable," + ",".join(_SCRIPT_COPY_FIELDS),
+            truncated,
+        )
+    except Exception as e:
+        return _fail("Could not read the source item; nothing was written", e)
+    if truncated:
+        return {
+            "success": False,
+            "error": "SOURCE_READ_INCOMPLETE",
+            "message": (
+                f"Read of {sorted(set(truncated))} hit the {_FULL_CAP}-row cap, so the copy "
+                "could not be proven complete; nothing was written"
+            ),
+        }
+
+    skipped: List[Dict[str, str]] = []
+    item_body: Dict[str, Any] = {"name": name, "active": "false"}
+    item_body.update(_copy_body(src, _ITEM_COPY_FIELDS))
+    if item_body.get("flow_designer_flow") and item_body.get("workflow"):
+        item_body.pop("workflow")
+        skipped.append(
+            {
+                "table": "sc_cat_item",
+                "id": item_id,
+                "reason": "source has both flow_designer_flow and workflow; copied the flow only",
+            }
+        )
+
+    plan = {
+        "item_option_new": len(variables),
+        "question_choice": len(choices),
+        "io_set_item": len(links),
+        "catalog_ui_policy": len(policies),
+        "catalog_ui_policy_action": len(actions),
+        "catalog_script_client": len(scripts),
+    }
+    if dry_run:
+        preview = build_create_preview(table="sc_cat_item", proposed=item_body)
+        preview["operation"] = "copy_item"
+        preview["source_item"] = item_id
+        preview["would_copy"] = plan
+        preview["skipped"] = skipped
+        return preview
+
+    created: Dict[str, List[Dict[str, str]]] = {}
+    idmap: Dict[str, str] = {}
+    unmapped: set = set()
+
+    def post(table: str, old_id: str, body: Dict[str, Any]) -> str:
+        try:
+            new_id = _table_write(config, auth_manager, "POST", table, body).get("sys_id", "")
+        except Exception as e:
+            raise _WriteFailed(table, old_id, str(e)) from e
+        if not new_id:
+            raise _WriteFailed(table, old_id, "POST returned no sys_id")
+        created.setdefault(table, []).append({"old": old_id, "new": new_id})
+        return new_id
+
+    new_item = ""
+    try:
+        new_item = post("sc_cat_item", item_id, item_body)
+        for v in variables:
+            old = _rv(v.get("sys_id"))
+            body = _copy_body(v, _VAR_COPY_FIELDS)
+            body["cat_item"] = new_item
+            idmap[old] = post("item_option_new", old, body)
+        for c in choices:
+            q = _rv(c.get("question"))
+            if q not in idmap:
+                skipped.append(
+                    {
+                        "table": "question_choice",
+                        "id": _rv(c.get("sys_id")),
+                        "reason": "variable not copied",
+                    }
+                )
+                continue
+            body = _copy_body(c, _CHOICE_COPY_FIELDS)
+            body["question"] = idmap[q]
+            post("question_choice", _rv(c.get("sys_id")), body)
+        for ln in links:
+            body = {"sc_cat_item": new_item, "variable_set": _rv(ln.get("variable_set"))}
+            if _rv(ln.get("order")) != "":
+                body["order"] = _rv(ln.get("order"))
+            post("io_set_item", _rv(ln.get("sys_id")), body)
+        pol_map: Dict[str, str] = {}
+        for p in policies:
+            old = _rv(p.get("sys_id"))
+            body = _copy_body(p, _POLICY_COPY_FIELDS)
+            cond = _rv(p.get("catalog_conditions"))
+            if cond:
+                body["catalog_conditions"] = _remap_io(cond, idmap, unmapped)
+            body["catalog_item"] = new_item
+            pol_map[old] = post("catalog_ui_policy", old, body)
+        for a in actions:
+            pol = _rv(a.get("ui_policy"))
+            if pol not in pol_map:
+                skipped.append(
+                    {
+                        "table": "catalog_ui_policy_action",
+                        "id": _rv(a.get("sys_id")),
+                        "reason": "ui policy not copied",
+                    }
+                )
+                continue
+            body = _copy_body(a, _POLICY_ACTION_COPY_FIELDS)
+            cv = _rv(a.get("catalog_variable"))
+            if cv:
+                body["catalog_variable"] = _remap_io(cv, idmap, unmapped)
+            var = _rv(a.get("variable"))
+            if var:
+                body["variable"] = idmap.get(var, var)
+            body["ui_policy"] = pol_map[pol]
+            body["catalog_item"] = new_item
+            post("catalog_ui_policy_action", _rv(a.get("sys_id")), body)
+        for s in scripts:
+            body = _copy_body(s, _SCRIPT_COPY_FIELDS)
+            cvar = _rv(s.get("cat_variable"))
+            if cvar:
+                body["cat_variable"] = _remap_io(cvar, idmap, unmapped)
+            body["cat_item"] = new_item
+            post("catalog_script_client", _rv(s.get("sys_id")), body)
+    except _WriteFailed as f:
+        return {
+            "success": False,
+            "error": "COPY_INCOMPLETE",
+            "message": (
+                f"Copy stopped at {f.table} (source {f.old_id}): {f.message}. Records already "
+                "created were left in place (no rollback)."
+            ),
+            "new_item_id": new_item,
+            "created": created,
+            "failed": {"table": f.table, "old_id": f.old_id, "error": f.message},
+            "skipped": skipped,
+        }
+
+    notes = ["Linked variable sets are shared with the source item, not copied."]
+    if unmapped:
+        notes.append(
+            "IO: references to variables outside this item (kept as-is, e.g. set variables): "
+            + ", ".join(sorted(unmapped))
+        )
+    proof = _reread(config, auth_manager, "sc_cat_item", new_item, "sys_id,name,active")
+    return {
+        "success": True,
+        "message": f"Copied item {item_id} to {new_item} (active=false)",
+        "new_item_id": new_item,
+        "verified": proof is not None,
+        "record": proof,
+        "created": created,
+        "skipped": skipped,
+        "notes": notes,
+    }
+
+
+_SET_FIELDS = ("title", "internal_name", "description", "type", "order", "display_title", "layout")
+
+
+def _set_body(**kw: Any) -> Dict[str, Any]:
+    body: Dict[str, Any] = {}
+    for k, v in kw.items():
+        if v is None:
+            continue
+        body[k] = str(v).lower() if isinstance(v, bool) else v
+    return body
+
+
+def create_variable_set(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    title: str,
+    internal_name: str,
+    description: Optional[str] = None,
+    set_type: Optional[str] = None,
+    order: Optional[int] = None,
+    display_title: Optional[bool] = None,
+    layout: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Create an item_option_new_set."""
+    body = _set_body(
+        title=title,
+        internal_name=internal_name,
+        description=description,
+        type=set_type,
+        order=order,
+        display_title=display_title,
+        layout=layout,
+    )
+    if dry_run:
+        return build_create_preview(table="item_option_new_set", proposed=body)
+    try:
+        result = _table_write(config, auth_manager, "POST", "item_option_new_set", body)
+    except Exception as e:
+        return _fail("Error creating variable set", e)
+    sys_id = result.get("sys_id", "")
+    proof = _reread(
+        config, auth_manager, "item_option_new_set", sys_id, "sys_id," + ",".join(_SET_FIELDS)
+    )
+    return {
+        "success": True,
+        "message": f"Created variable set '{title}'",
+        "sys_id": sys_id,
+        "verified": proof is not None,
+        "record": proof,
+    }
+
+
+def update_variable_set(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    variable_set: str,
+    title: Optional[str] = None,
+    internal_name: Optional[str] = None,
+    description: Optional[str] = None,
+    set_type: Optional[str] = None,
+    order: Optional[int] = None,
+    display_title: Optional[bool] = None,
+    layout: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Update an item_option_new_set (refused when OOTB/protected)."""
+    body = _set_body(
+        title=title,
+        internal_name=internal_name,
+        description=description,
+        type=set_type,
+        order=order,
+        display_title=display_title,
+        layout=layout,
+    )
+    if not body:
+        return {"success": False, "message": "No update parameters provided"}
+    refusal = _writable_target(config, auth_manager, "item_option_new_set", variable_set)
+    if refusal is not None:
+        return refusal
+    if dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="item_option_new_set",
+            sys_id=variable_set,
+            proposed=body,
+            identifier_fields=["title", "internal_name"],
+        )
+    try:
+        _table_write(config, auth_manager, "PATCH", "item_option_new_set", body, variable_set)
+    except Exception as e:
+        return _fail("Error updating variable set", e)
+    proof = _reread(
+        config,
+        auth_manager,
+        "item_option_new_set",
+        variable_set,
+        "sys_id," + ",".join(_SET_FIELDS),
+    )
+    return {
+        "success": True,
+        "message": f"Updated variable set {variable_set}",
+        "sys_id": variable_set,
+        "verified": proof is not None,
+        "record": proof,
+    }
+
+
+def attach_variable_set(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    catalog_item_id: str,
+    variable_set: str,
+    order: Optional[int] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Link a variable set to an item via io_set_item (idempotent)."""
+    refusal = _writable_target(config, auth_manager, "sc_cat_item", catalog_item_id)
+    if refusal is not None:
+        return refusal
+    try:
+        if not _rows(
+            config, auth_manager, "item_option_new_set", f"sys_id={variable_set}", "sys_id"
+        ):
+            return {
+                "success": False,
+                "error": "SET_NOT_FOUND",
+                "message": f"variable set {variable_set} not found; nothing was written",
+            }
+        existing = _rows(
+            config,
+            auth_manager,
+            "io_set_item",
+            f"sc_cat_item={catalog_item_id}^variable_set={variable_set}",
+            "sys_id,order",
+        )
+    except Exception as e:
+        return _fail("Could not read the current links; nothing was written", e)
+    if existing:
+        return {
+            "success": True,
+            "already_attached": True,
+            "message": "Variable set is already attached; nothing written",
+            "link_ids": [_rv(r.get("sys_id")) for r in existing],
+        }
+    body: Dict[str, Any] = {"sc_cat_item": catalog_item_id, "variable_set": variable_set}
+    if order is not None:
+        body["order"] = str(order)
+    if dry_run:
+        return build_create_preview(table="io_set_item", proposed=body)
+    try:
+        result = _table_write(config, auth_manager, "POST", "io_set_item", body)
+    except Exception as e:
+        return _fail("Error attaching variable set", e)
+    link_id = result.get("sys_id", "")
+    proof = _reread(
+        config, auth_manager, "io_set_item", link_id, "sys_id,sc_cat_item,variable_set,order"
+    )
+    return {
+        "success": True,
+        "already_attached": False,
+        "message": "Attached variable set",
+        "link_id": link_id,
+        "verified": proof is not None,
+        "record": proof,
+    }
+
+
+def detach_variable_set(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    catalog_item_id: str,
+    variable_set: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Delete only the io_set_item row(s) linking the set to the item."""
+    refusal = _writable_target(config, auth_manager, "sc_cat_item", catalog_item_id)
+    if refusal is not None:
+        return refusal
+    try:
+        links = _rows(
+            config,
+            auth_manager,
+            "io_set_item",
+            f"sc_cat_item={catalog_item_id}^variable_set={variable_set}",
+            "sys_id",
+        )
+    except Exception as e:
+        return _fail("Could not read the current links; nothing was deleted", e)
+    ids = [_rv(r.get("sys_id")) for r in links]
+    if not ids:
+        return {
+            "success": True,
+            "not_attached": True,
+            "message": "Variable set was not attached; nothing deleted",
+        }
+    if dry_run:
+        return {
+            "dry_run": True,
+            "operation": "delete",
+            "target": {"table": "io_set_item"},
+            "would_delete": ids,
+            "note": "Only the link rows are deleted; the set and its variables stay.",
+        }
+    deleted: List[str] = []
+    for lid in ids:
+        try:
+            _table_write(config, auth_manager, "DELETE", "io_set_item", None, lid)
+        except Exception as e:
+            out = _fail("Error detaching variable set", e)
+            out["deleted"] = deleted
+            return out
+        deleted.append(lid)
+    return {"success": True, "message": "Detached variable set", "deleted": deleted}
+
+
+def _parent_of_variable(
+    config: ServerConfig, auth_manager: AuthManager, variable_id: str
+) -> Tuple[Optional[Tuple[str, str]], Optional[Dict[str, Any]]]:
+    """Return ``((table, id), None)`` for the variable's owner, else ``(None, refusal)``."""
+    try:
+        rows = _rows(
+            config,
+            auth_manager,
+            "item_option_new",
+            f"sys_id={variable_id}",
+            "sys_id,cat_item,variable_set",
+        )
+    except Exception as e:
+        return None, _fail("Could not read the variable; nothing was written", e)
+    if not rows:
+        return None, {
+            "success": False,
+            "error": "VARIABLE_NOT_FOUND",
+            "message": f"variable {variable_id} not found",
+        }
+    item, vset = _rv(rows[0].get("cat_item")), _rv(rows[0].get("variable_set"))
+    if item:
+        return ("sc_cat_item", item), None
+    if vset:
+        return ("item_option_new_set", vset), None
+    return None, {
+        "success": False,
+        "error": "VARIABLE_ORPHAN",
+        "message": "variable has neither cat_item nor variable_set; cannot check ownership",
+    }
+
+
+def set_choices(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    variable_id: str,
+    choices: List[Dict[str, Any]],
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Make a variable's question_choice rows match the desired list; never hard-deletes."""
+    if not choices:
+        return {"success": False, "message": "choices must be a non-empty list"}
+    desired: Dict[str, Dict[str, Any]] = {}
+    for i, c in enumerate(choices):
+        value, text = c.get("value"), c.get("text")
+        if value in (None, "") or text in (None, ""):
+            return {"success": False, "message": f"choices[{i}] needs both value and text"}
+        value = str(value)
+        if value in desired:
+            return {"success": False, "message": f"duplicate choice value '{value}'"}
+        desired[value] = {
+            "value": value,
+            "text": str(text),
+            "order": str(c["order"]) if c.get("order") is not None else str((i + 1) * 100),
+            "inactive": str(bool(c.get("inactive", False))).lower(),
+        }
+    parent, refusal = _parent_of_variable(config, auth_manager, variable_id)
+    if refusal is not None:
+        return refusal
+    assert parent is not None
+    refusal = _writable_target(config, auth_manager, *parent)
+    if refusal is not None:
+        return refusal
+    truncated: List[str] = []
+    try:
+        current = _rows(
+            config,
+            auth_manager,
+            "question_choice",
+            f"question={variable_id}",
+            "sys_id,value,text,order,inactive",
+            truncated,
+        )
+    except Exception as e:
+        return _fail("Could not read current choices; nothing was written", e)
+    if truncated:
+        return {
+            "success": False,
+            "error": "CHOICES_READ_INCOMPLETE",
+            "message": "Current choices hit the read cap; cannot compute a complete diff",
+        }
+    by_value: Dict[str, Dict[str, Any]] = {}
+    for r in current:
+        v = str(_rv(r.get("value")))
+        if v in by_value:
+            return {
+                "success": False,
+                "error": "AMBIGUOUS_CURRENT_CHOICES",
+                "message": f"variable already has two choice rows with value '{v}'; fix by hand",
+            }
+        by_value[v] = r
+
+    adds: List[Dict[str, Any]] = []
+    updates: List[Dict[str, Any]] = []
+    deactivations: List[Dict[str, Any]] = []
+    unchanged = 0
+    for v, want in desired.items():
+        row = by_value.get(v)
+        if row is None:
+            adds.append(want)
+            continue
+        diff = {k: want[k] for k in ("text", "order") if str(_rv(row.get(k))) != want[k]}
+        if str(_rv(row.get("inactive"))).lower() != want["inactive"]:
+            diff["inactive"] = want["inactive"]
+        if diff:
+            updates.append({"sys_id": _rv(row.get("sys_id")), "value": v, "changes": diff})
+        else:
+            unchanged += 1
+    for v, row in by_value.items():
+        if v not in desired and str(_rv(row.get("inactive"))).lower() != "true":
+            deactivations.append({"sys_id": _rv(row.get("sys_id")), "value": v})
+
+    diff_out = {"add": adds, "update": updates, "deactivate": deactivations, "unchanged": unchanged}
+    if dry_run:
+        return {
+            "dry_run": True,
+            "operation": "set_choices",
+            "variable_id": variable_id,
+            "diff": diff_out,
+        }
+
+    applied: Dict[str, List[Any]] = {"add": [], "update": [], "deactivate": []}
+    try:
+        for a in adds:
+            body = dict(a, question=variable_id)
+            applied["add"].append(
+                _table_write(config, auth_manager, "POST", "question_choice", body).get(
+                    "sys_id", ""
+                )
+            )
+        for u in updates:
+            _table_write(
+                config, auth_manager, "PATCH", "question_choice", u["changes"], u["sys_id"]
+            )
+            applied["update"].append(u["sys_id"])
+        for d in deactivations:
+            _table_write(
+                config, auth_manager, "PATCH", "question_choice", {"inactive": "true"}, d["sys_id"]
+            )
+            applied["deactivate"].append(d["sys_id"])
+    except Exception as e:
+        return {
+            "success": False,
+            "error": "SET_CHOICES_INCOMPLETE",
+            "message": f"Stopped part-way: {e}. Rows already written were left in place.",
+            "applied": applied,
+            "diff": diff_out,
+        }
+    return {
+        "success": True,
+        "message": f"Choices set: {len(adds)} added, {len(updates)} updated, "
+        f"{len(deactivations)} deactivated",
+        "applied": applied,
+        "diff": diff_out,
+    }
+
+
+def create_client_script(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    name: str,
+    script_type: str,
+    script: str,
+    catalog_item_id: Optional[str] = None,
+    variable_set: Optional[str] = None,
+    cat_variable: Optional[str] = None,
+    ui_type: Optional[str] = None,
+    applies_catalog: Optional[bool] = None,
+    applies_req_item: Optional[bool] = None,
+    applies_sc_task: Optional[bool] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Create a catalog_script_client on an item or a variable set."""
+    if bool(catalog_item_id) == bool(variable_set):
+        return {
+            "success": False,
+            "message": "Exactly one of catalog_item_id or variable_set is required",
+        }
+    if script_type not in ("onLoad", "onChange", "onSubmit"):
+        return {"success": False, "message": "script_type must be onLoad, onChange or onSubmit"}
+    if script_type == "onChange" and not cat_variable:
+        return {"success": False, "message": "cat_variable is required for onChange"}
+    if catalog_item_id:
+        p_table, p_id, p_col = "sc_cat_item", catalog_item_id, "cat_item"
+    else:
+        p_table, p_id, p_col = "item_option_new_set", str(variable_set), "variable_set"
+    refusal = _writable_target(config, auth_manager, p_table, p_id)
+    if refusal is not None:
+        return refusal
+    body: Dict[str, Any] = {
+        "name": name,
+        "type": script_type,
+        "script": script,
+        p_col: p_id,
+        "active": "true",
+    }
+    for k, v in (
+        ("cat_variable", cat_variable),
+        ("ui_type", ui_type),
+        ("applies_catalog", applies_catalog),
+        ("applies_req_item", applies_req_item),
+        ("applies_sc_task", applies_sc_task),
+    ):
+        if v is not None:
+            body[k] = str(v).lower() if isinstance(v, bool) else v
+    if dry_run:
+        return build_create_preview(table="catalog_script_client", proposed=body)
+    try:
+        result = _table_write(config, auth_manager, "POST", "catalog_script_client", body)
+    except Exception as e:
+        return _fail("Error creating catalog client script", e)
+    sys_id = result.get("sys_id", "")
+    proof = _reread(
+        config,
+        auth_manager,
+        "catalog_script_client",
+        sys_id,
+        "sys_id,name,type,cat_item,variable_set,cat_variable,active",
+    )
+    return {
+        "success": True,
+        "message": f"Created catalog client script '{name}'",
+        "sys_id": sys_id,
+        "verified": proof is not None,
+        "record": proof,
+        "next_step": (
+            "Later edits to the script body go through download + update_remote_from_local, "
+            "not this action."
+        ),
+    }

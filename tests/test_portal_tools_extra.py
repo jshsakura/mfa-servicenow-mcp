@@ -2289,3 +2289,58 @@ class TestPortalDownloadAnchors:
         assert "local_edits_decision" not in result
         # Back in sync: the record took the live stamps again.
         assert _widget_meta(scope_root)["sys_mod_count"] == "3"
+
+
+# ---------------------------------------------------------------------------
+# A successful 0-row read is not proof of absence (ACL can hide the row)
+# ---------------------------------------------------------------------------
+
+
+class TestZeroRowReadIsNotAbsence:
+    EMPTY = {
+        "success": True,
+        "results": [],
+        "availability": "present",
+        "hidden_rows": "not_checked",
+        "hint": "h",
+    }
+
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_component_code_zero_rows(self, mock_q, mock_config, mock_auth_manager):
+        mock_q.return_value = dict(self.EMPTY)
+        r = get_portal_component_code(
+            mock_config,
+            mock_auth_manager,
+            GetPortalComponentParams(table="sp_widget", sys_id="aaaa1111bbbb2222cccc3333dddd4444"),
+        )
+        assert "No row returned" in r["error"] and "ACL" in r["error"]
+        assert r["availability"] == "present" and r["hidden_rows"] == "not_checked"
+
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_component_code_failed_read_keeps_plain_error(
+        self, mock_q, mock_config, mock_auth_manager
+    ):
+        mock_q.return_value = {"success": False}
+        r = get_portal_component_code(
+            mock_config,
+            mock_auth_manager,
+            GetPortalComponentParams(table="sp_widget", sys_id="aaaa1111bbbb2222cccc3333dddd4444"),
+        )
+        assert "No row returned" not in r["error"] and "availability" not in r
+
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_widget_bundle_zero_rows(self, mock_q, mock_config, mock_auth_manager):
+        mock_q.return_value = dict(self.EMPTY)
+        r = get_widget_bundle(
+            mock_config, mock_auth_manager, GetWidgetBundleParams(widget_id="missing")
+        )
+        assert "No row returned" in r["error"] and r["availability"] == "present"
+
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_resolve_widget_chain_zero_rows(self, mock_q, mock_config, mock_auth_manager):
+        mock_q.return_value = dict(self.EMPTY)
+        r = resolve_widget_chain(
+            mock_config, mock_auth_manager, ResolveWidgetChainParams(widget_id="missing")
+        )
+        assert r["success"] is False and "No row returned" in r["error"]
+        assert r["hidden_rows"] == "not_checked"

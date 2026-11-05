@@ -54,7 +54,19 @@ def test_snap_manage_change_create(mock_config, auth):
     auth.make_request.return_value = _mock_response(
         {"result": {"sys_id": "ch_001", "number": "CHG0001", "state": "new"}}
     )
-    with patch("servicenow_mcp.services.change.invalidate_query_cache"):
+    reread = [
+        {
+            "number": "CHG0001",
+            "short_description": "Patch DB",
+            "type": "normal",
+            "risk": "4",
+            "impact": "3",
+        }
+    ]
+    with (
+        patch("servicenow_mcp.services.change.invalidate_query_cache"),
+        patch("servicenow_mcp.services.change.sn_query_page", return_value=(reread, None)),
+    ):
         result = manage_change(
             mock_config,
             auth,
@@ -73,7 +85,12 @@ def test_snap_manage_change_update(mock_config, auth):
     auth.make_request.return_value = _mock_response(
         {"result": {"sys_id": "ch_001", "state": "2", "short_description": "Patch DB v2"}}
     )
-    with patch("servicenow_mcp.services.change.invalidate_query_cache"):
+    # The state model refused the move: the re-read still shows the old state.
+    reread = [{"number": "CHG0001", "state": "-3", "short_description": "Patch DB v2"}]
+    with (
+        patch("servicenow_mcp.services.change.invalidate_query_cache"),
+        patch("servicenow_mcp.services.change.sn_query_page", return_value=(reread, None)),
+    ):
         result = manage_change(
             mock_config,
             auth,
@@ -108,7 +125,19 @@ def test_snap_manage_change_add_task(mock_config, auth):
 
 def test_snap_manage_change_create_failure(mock_config, auth):
     auth.make_request.side_effect = RuntimeError("boom: connection refused")
-    with patch("servicenow_mcp.services.change.invalidate_query_cache"):
+    reread = [
+        {
+            "number": "CHG0001",
+            "short_description": "Patch DB",
+            "type": "normal",
+            "risk": "4",
+            "impact": "3",
+        }
+    ]
+    with (
+        patch("servicenow_mcp.services.change.invalidate_query_cache"),
+        patch("servicenow_mcp.services.change.sn_query_page", return_value=(reread, None)),
+    ):
         result = manage_change(
             mock_config,
             auth,

@@ -194,7 +194,7 @@ Los proxies con inspección TLS (Zscaler y compañía) y el acceso bloqueado a P
 
 - **Autenticación por navegador** para entornos MFA/SSO (Okta, Entra ID, SAML, MFA)
 - **4 modos de autenticación**: Browser, Basic, OAuth, API Key
-- **76 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
+- **82 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
 - **5 skills de flujo de trabajo** con compuertas de seguridad, delegación a sub-agentes y pipelines verificados
 - **Transporte Streamable HTTP** — mantén stdio como predeterminado, o expón `/mcp` para clientes y puentes con capacidad HTTP
 - **Auditoría de fuentes locales** con informe HTML, grafo de referencias cruzadas, detección de código muerto y conocimiento de dominio autogenerado
@@ -497,10 +497,11 @@ Solo lectura (valores predeterminados seguros):
 
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Descripción |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 34 | ~8.1K | ~9.1K | ⚠️ standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
-| `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 62 | ~18.2K | ~20.4K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + escrituras operativas de incidentes y cambios |
+| `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
+| `platform_developer` | 45 | ~13.7K | ~15.3K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
+| `full` | 68 | ~21.6K | ~24.0K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| `itsm_developer` | 34 | ~11.1K | ~12.5K | ⚠️ ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **Tokens máx.** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken `cl100k_base`; el conteo real de Claude varía ligeramente); usar el paquete más reducido ahorra contexto y costo. **Es el máximo**, no el costo típico: solo lo pagan completo los clientes que cargan todas las tool schemas al inicio. Los clientes con carga diferida de herramientas (p. ej. la búsqueda de herramientas de Claude Code) cargan un schema solo cuando se usa esa herramienta, así que su costo real por solicitud es mucho menor. El número de herramientas cuenta los miembros del paquete; todos los paquetes llevan además `list_tool_packages`, y una configuración multi-instancia añade `list_instances`, `compare_instances` y un parámetro `instance` en cada herramienta — la segunda columna lo mide con tres instancias. Las cifras se miden con tiktoken, no se estiman (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <paquete>` lista la parte de cada herramienta).

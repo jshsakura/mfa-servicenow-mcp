@@ -163,6 +163,10 @@ DEFAULT_SOURCE_TYPE_ORDER = [
     "sp_header_footer",
     "sp_css",
     "ng_template",
+    "sp_theme",
+    "sp_portal",
+    "ux_theme",
+    "ux_style",
     "update_xml",
 ]
 SourceType = Literal[
@@ -188,6 +192,10 @@ SourceType = Literal[
     "sp_header_footer",
     "sp_css",
     "ng_template",
+    "sp_theme",
+    "sp_portal",
+    "ux_theme",
+    "ux_style",
     "update_xml",
 ]
 SpecificSourceType = Literal[
@@ -212,6 +220,10 @@ SpecificSourceType = Literal[
     "sp_header_footer",
     "sp_css",
     "ng_template",
+    "sp_theme",
+    "sp_portal",
+    "ux_theme",
+    "ux_style",
     "update_xml",
 ]
 SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
@@ -676,6 +688,68 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         ],
         "source_fields": ["css"],
         "search_fields": ["name", "css"],
+        "lookup_fields": ["sys_id", "name"],
+    },
+    # Design: portal theme SCSS variables, a portal's own variable overrides,
+    # and Next Experience theme/style JSON. Field names measured on a live instance.
+    "sp_theme": {
+        "table": "sp_theme",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "sys_scope",
+            "sys_scope.scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["css_variables"],
+        "search_fields": ["name", "css_variables"],
+        "lookup_fields": ["sys_id", "name"],
+    },
+    "sp_portal": {
+        "table": "sp_portal",
+        "identifier_field": "url_suffix",
+        "summary_fields": [
+            "sys_id",
+            "url_suffix",
+            "sys_scope",
+            "sys_scope.scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["css_variables"],
+        "search_fields": ["url_suffix", "css_variables"],
+        "lookup_fields": ["sys_id", "url_suffix"],
+    },
+    "ux_theme": {
+        "table": "sys_ux_theme",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "sys_scope",
+            "sys_scope.scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["theme"],
+        "search_fields": ["name", "theme"],
+        "lookup_fields": ["sys_id", "name"],
+    },
+    "ux_style": {
+        "table": "sys_ux_style",
+        "identifier_field": "name",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "sys_scope",
+            "sys_scope.scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        "source_fields": ["style"],
+        "search_fields": ["name", "style"],
         "lookup_fields": ["sys_id", "name"],
     },
     "ng_template": {
@@ -3548,6 +3622,7 @@ _SERVER_SCRIPT_TYPES = ["business_rule", "client_script", "catalog_client_script
 _UI_COMPONENT_TYPES = ["ui_action", "ui_script", "ui_page", "ui_macro"]
 _API_SOURCE_TYPES = ["scripted_rest", "processor"]
 _SECURITY_SOURCE_TYPES = ["acl"]
+_THEME_TYPES = ["sp_theme", "sp_portal", "sp_css", "sp_header_footer", "ux_theme", "ux_style"]
 _ADMIN_SCRIPT_TYPES = [
     "fix_script",
     "scheduled_job",
@@ -3572,6 +3647,7 @@ _SOURCE_FAMILIES: Dict[str, List[str]] = {
     "api": _API_SOURCE_TYPES,  # scripted REST + processors
     "security": _SECURITY_SOURCE_TYPES,  # ACLs
     "admin": _ADMIN_SCRIPT_TYPES,  # fix scripts, scheduled jobs, script actions, notifications, transforms
+    "theme": _THEME_TYPES,  # portal theme/variables/CSS/header-footer, Next Experience theme/style
 }
 _SOURCE_FAMILY_NAMES = sorted(_SOURCE_FAMILIES)
 
@@ -3579,7 +3655,7 @@ _SOURCE_FAMILY_NAMES = sorted(_SOURCE_FAMILIES)
 class DownloadSourcesParams(_ScopeDownloadParams):
     families: List[str] = Field(
         ...,
-        description="Families: script_includes, server_scripts, ui, api, security, admin.",
+        description="Families: script_includes, server_scripts, ui, api, security, admin, theme.",
     )
     acl_script_only: bool = Field(
         default=True, description="security family: only ACLs that have a script."
@@ -3589,7 +3665,7 @@ class DownloadSourcesParams(_ScopeDownloadParams):
 @register_tool(
     "download_server_sources",
     params=DownloadSourcesParams,
-    description="Targeted server-side source families (SIs/BRs/UI/api/security/admin). Whole app: download_app_sources.",
+    description="Targeted source families (SIs/BRs/UI/api/security/admin/theme). Whole app: download_app_sources.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -4380,6 +4456,7 @@ def download_app_sources(
         ["acl"],
         ["fix_script", "scheduled_job", "script_action", "email_notification", "transform_script"],
         ["angular_provider", "sp_header_footer", "sp_css", "ng_template"],
+        ["sp_theme", "sp_portal", "ux_theme", "ux_style"],
         ["sp_page", "sp_instance"],
     ]
     extra_query: Dict[str, str] = {}

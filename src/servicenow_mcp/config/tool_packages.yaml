@@ -7,14 +7,16 @@
 #   service_desk       — standard + operational incident/change writes.
 #   portal_developer   — standard + portal/changeset/script/local-sync writes.
 #   platform_developer — standard + workflow/incident/change/script writes.
+#   itsm_developer     — Standalone ITSM: records, approvals, catalog/policy config, shipping.
 #   asset_manager      — Materials, asset and ITOM work: queries plus manage_asset.
 #   scripting          — Add-on: server-side logic, update sets, XML deployment.
 #   office_files       — Add-on: Excel and attachments.
 #   debug_window       — Add-on: the shared browser.
 #   source_sync        — Add-on: download/diff/push of server-side sources.
+#   portal_design      — Add-on: portal pages, widget instances and widget copies.
 #   full               — Broadest packaged surface, including bundled manage_* flows.
 #
-# Specialised packages (asset_manager) hold only what that job needs; its domain
+# Specialised packages (asset_manager, itsm_developer) hold only what that job needs; their domain
 # knowledge lives in config/<package>.rules.md and in skills, not in tools. Add-ons
 # are general-purpose and combine with any package.
 # Write-capable packages use _extends: standard to avoid duplication. asset_manager and
@@ -152,6 +154,8 @@ portal_developer:
     - preview_portal_component_update
     # Portal CRUD (Page/Layout)
     - scaffold_page
+    # Portal config + its whole theme (variables, includes, header/footer)
+    - get_portal
     # Flow Designer (Read) — unified tool; it has no write actions any more
     - manage_flow_designer
     # Local Sync writes
@@ -197,6 +201,57 @@ service_desk:
     # Catalog browsing is part of service desk surface
     - manage_catalog:
         actions: [list_items, get_item, list_categories, list_item_variables]
+
+# --- ITSM developer: Incident, Problem, Change, Request on OOTB tables ---
+# Standalone on purpose: one profile must be enough to do the job through an LLM
+# (diagnose a record, map what runs on a table, configure catalog items, policies,
+# notifications and rules, test approvals and orders, ship by update set / XML).
+# It does not _extends standard: the portal and source-analysis surface there
+# would be paid for on every request. Domain knowledge: config/itsm_developer.rules.md.
+itsm_developer:
+  - sn_health
+  - sn_query
+  - sn_aggregate
+  - sn_schema
+  - sn_discover
+  - sn_resolve_url
+  # Diagnose
+  - get_record_context
+  - get_table_automation
+  - get_logs
+  - search_server_code
+  - get_metadata_source
+  - manage_flow_designer:
+      actions: [list, get_detail, get_executions, get_action_source]
+  - manage_workflow:
+      actions: [list, get_activities]
+  # Design: a portal's whole theme in one read; edit it via download_server_sources
+  # families=[theme] → diff_local_component → update_remote_from_local
+  - get_portal
+  # Process records (test data and fulfilment)
+  - manage_incident
+  - manage_change
+  - manage_problem
+  - manage_request_item
+  - manage_approval
+  # Configuration
+  - manage_catalog
+  - manage_ui_policy
+  - manage_notification
+  - manage_business_rule
+  - manage_script_include
+  - manage_group
+  # Assignment/approval rules and field choices — configuration, no scripts
+  - manage_task_rule
+  - manage_choice
+  # Ship: update sets, deploy XML, edit sources on disk
+  - manage_session_context
+  - manage_changeset
+  - export_record_xml
+  - verify_deployment_xml
+  - download_server_sources
+  - diff_local_component
+  - update_remote_from_local
 
 # --- HAM + ITOM: materials and asset management, CMDB, discovery, events ---
 # Deliberately almost nothing. Assets, stockrooms, transfer orders, CIs and discovery
@@ -245,6 +300,23 @@ debug_window:
 # --- Add-on (general): edit server-side sources on disk and push them back. ---
 source_sync:
   - download_server_sources
+  - diff_local_component
+  - update_remote_from_local
+
+# --- Add-on (general): portal design past the theme. ---
+# Themes (variables, CSS includes, header/footer bodies) are already reachable from
+# get_portal + download_server_sources families=[theme]. This add-on is the next rungs:
+# page layout and classes, widget-instance CSS/options, and — last — widget copies.
+# Combine for a design phase only: MCP_TOOL_PACKAGE=itsm_developer,portal_design.
+portal_design:
+  - get_portal
+  - get_page
+  - get_widget_instance
+  - get_widget_bundle
+  - download_portal_sources
+  - manage_portal_layout
+  - manage_portal_component
+  - manage_ux_list
   - diff_local_component
   - update_remote_from_local
 
@@ -300,6 +372,12 @@ full:
     - download_table_schema
     # Audit / change reports (rare)
     - audit_pending_changes
-    # ITSM record context (read-only; one call per number)
+    # ITSM: record context, table automation map, process records, approvals
     - get_record_context
+    - get_table_automation
+    - manage_problem
+    - manage_request_item
+    - manage_approval
+    - manage_task_rule
+    - manage_choice
     - get_repo_change_report

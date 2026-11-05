@@ -11,11 +11,14 @@ from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services import incident as incident_service
+from servicenow_mcp.services.choices import resolve_payload_choices
 from servicenow_mcp.services.incident import IncidentResponse
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .sn_api import sn_count, sn_query_page
+from ._preview import build_update_preview
+from .problem_tools import _patch, _resolve_record
+from .sn_api import invalidate_query_cache, sn_count, sn_query_page
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +196,17 @@ _INCIDENT_CREATE_FIELDS = (
     "assigned_to",
     "assignment_group",
 )
+# Link + hold fields. They are not in the service layer's signature, so a call
+# that carries any of them takes the verified path in this module.
+_LINK_FIELDS = {
+    # field -> (table the value lives on, number prefix, human label)
+    "parent_incident": ("incident", "INC", "parent incident"),
+    "problem_id": ("problem", "PRB", "problem"),
+    "rfc": ("change_request", "CHG", "fixing change"),
+    "caused_by": ("change_request", "CHG", "causing change"),
+}
+_EXTRA_FIELDS = tuple(_LINK_FIELDS) + ("hold_reason",)
+_JOURNAL_FIELDS = ("work_notes",)
 _INCIDENT_UPDATE_FIELDS = (
     "short_description",
     "description",
@@ -207,7 +221,7 @@ _INCIDENT_UPDATE_FIELDS = (
     "work_notes",
     "close_notes",
     "close_code",
-)
+) + _EXTRA_FIELDS
 
 
 class ManageIncidentParams(BaseModel):
@@ -252,6 +266,16 @@ class ManageIncidentParams(BaseModel):
     close_notes: Optional[str] = Field(default=None, description="Update only")
     close_code: Optional[str] = Field(default=None, description="Update only")
 
+    parent_incident: Optional[str] = Field(default=None, description="INC number or sys_id")
+    problem_id: Optional[str] = Field(default=None, description="PRB number or sys_id")
+    rfc: Optional[str] = Field(default=None, description="CHG number or sys_id that fixes it")
+    caused_by: Optional[str] = Field(
+        default=None, description="CHG number or sys_id that caused it"
+    )
+    hold_reason: Optional[str] = Field(
+        default=None, description="Required with state On Hold: value or label"
+    )
+
     # Comment-specific
     comment: Optional[str] = Field(default=None, description="Body for comment action")
     is_work_note: bool = Field(
@@ -291,6 +315,178 @@ class ManageIncidentParams(BaseModel):
         return self
 
 
+def _fail(message: str, **extra: Any) -> Dict[str, Any]:
+    return {"success": False, "message": message, **extra}
+
+
+def _raw(value: Any) -> Any:
+    return value.get("value") if isinstance(value, dict) else value
+
+
+def _disp(value: Any) -> Any:
+    return value.get("display_value") if isinstance(value, dict) else value
+
+
+def _on_hold_without_reason(params: ManageIncidentParams) -> bool:
+    """Cheap pre-check for the service path (no network): state On Hold, no hold_reason."""
+    state = str(params.state or "").strip().lower().replace("_", " ")
+    return state in ("3", "on hold") and not params.hold_reason
+
+
+def _build_payload(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: ManageIncidentParams,
+    fields: tuple[str, ...],
+) -> tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    """Resolve links and choices; a refusal means nothing is written."""
+    data = _project(params, fields)
+    for field, (table, prefix, label) in _LINK_FIELDS.items():
+        if field not in data:
+            continue
+        ident = str(data[field]).strip()
+        is_sys_id = len(ident) == 32 and all(c in "0123456789abcdef" for c in ident)
+        if not is_sys_id and ident[:3].upper() != prefix:
+            return data, _fail(
+                f"{field} takes a {prefix} number or a sys_id of the {label}; "
+                f"got {ident!r}. Nothing was written.",
+                field=field,
+            )
+        try:
+            sys_id, _, reason = _resolve_record(config, auth_manager, ident, table)
+        except Exception as e:
+            return data, _fail(f"Could not resolve {field} {ident}: {e}. Nothing was written.")
+        if reason:
+            return data, _fail(reason, field=field, determined=False)
+        data[field] = sys_id
+    refusal = resolve_payload_choices(
+        config,
+        auth_manager,
+        table="incident",
+        data=data,
+        elements=incident_service.INCIDENT_CHOICE_FIELDS + ("hold_reason",),
+    )
+    if refusal is not None:
+        return data, refusal
+    if str(data.get("state", "")) == "3" and not data.get("hold_reason"):
+        return data, _fail(
+            "state On Hold needs hold_reason (the platform rejects it otherwise: "
+            "Awaiting Caller / Change / Problem / Vendor). Nothing was written.",
+            field="hold_reason",
+        )
+    return data, None
+
+
+def _verify(
+    config: ServerConfig, auth_manager: AuthManager, sys_id: str, data: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Re-read the incident and report per-field `applied` (equal to what was sent)."""
+    # written=True: the server accepted the write. A failed re-read is never a
+    # success (unconfirmed) and never a reason to retry (it may duplicate).
+    out: Dict[str, Any] = {"sys_id": sys_id, "incident_id": sys_id, "written": True}
+    checked = {f: v for f, v in data.items() if f not in _JOURNAL_FIELDS}
+    unverifiable = [f for f in data if f in _JOURNAL_FIELDS]
+    if unverifiable:
+        out["unverifiable"] = unverifiable  # journal fields read back empty
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="incident",
+            query=f"sys_id={sys_id}",
+            fields="number," + ",".join(checked),
+            limit=1,
+            offset=0,
+            display_value="all",
+            fail_silently=False,
+        )
+    except Exception as e:
+        out.update(success=False, verified=False, applied=None)
+        out["message"] = (
+            f"Write sent but the re-read failed ({e}); the result is UNVERIFIED — do not retry blindly."
+        )
+        return out
+    if not rows:
+        out.update(success=False, verified=False, applied=None)
+        out["message"] = (
+            "Write sent but the record was not returned on re-read; UNVERIFIED — do not retry blindly."
+        )
+        return out
+    row = rows[0]
+    applied: Dict[str, bool] = {}
+    not_applied: Dict[str, Any] = {}
+    for field, wanted in checked.items():
+        got = row.get(field)
+        ok = str(wanted) in (str(_raw(got)), str(_disp(got)))
+        applied[field] = ok
+        if not ok:
+            not_applied[field] = {"requested": wanted, "actual": _raw(got), "label": _disp(got)}
+    number = _raw(row.get("number"))
+    out.update(verified=True, number=number, incident_number=number, applied=applied)
+    if not_applied:
+        out["not_applied"] = not_applied
+        out["message"] = "The write was accepted but these fields do not hold the requested value."
+    else:
+        out["message"] = "Incident written and confirmed by re-read."
+    out["success"] = not not_applied
+    return out
+
+
+def _write(
+    config: ServerConfig, auth_manager: AuthManager, params: ManageIncidentParams
+) -> Dict[str, Any]:
+    creating = params.action == "create"
+    fields = _INCIDENT_CREATE_FIELDS + _EXTRA_FIELDS if creating else _INCIDENT_UPDATE_FIELDS
+    sys_id: Optional[str] = None
+    if not creating:
+        assert params.incident_id
+        try:
+            sys_id, _, reason = _resolve_record(
+                config, auth_manager, params.incident_id, "incident"
+            )
+        except Exception as e:
+            return _fail(f"Could not resolve {params.incident_id}: {e}. Nothing was written.")
+        if reason:
+            return _fail(reason, determined=False)
+    data, refusal = _build_payload(config, auth_manager, params, fields)
+    if refusal is not None:
+        return refusal
+    if params.dry_run:
+        if creating:
+            return {"success": True, "dry_run": True, "operation": "create", "would_write": data}
+        assert sys_id
+        return build_update_preview(
+            config,
+            auth_manager,
+            table="incident",
+            sys_id=sys_id,
+            proposed=data,
+            identifier_fields=["number", "short_description", "state"],
+        )
+    try:
+        if creating:
+            resp = auth_manager.make_request(
+                "POST",
+                f"{config.api_url}/table/incident",
+                json=data,
+                headers=auth_manager.get_headers(),
+                timeout=config.timeout,
+            )
+            resp.raise_for_status()
+            result = resp.json().get("result", {})
+            invalidate_query_cache(table="incident")
+            sys_id = _raw(result.get("sys_id"))
+            if not sys_id:
+                return _fail("Incident created but no sys_id returned; UNVERIFIED.")
+        else:
+            assert sys_id
+            _patch(config, auth_manager, "incident", sys_id, data)
+    except Exception as e:
+        logger.error(f"Failed to write incident: {e}")
+        return _fail(f"Failed to {params.action} incident: {e}")
+    return _verify(config, auth_manager, sys_id, data)
+
+
 def _project(params: ManageIncidentParams, fields: tuple[str, ...]) -> Dict[str, Any]:
     return {f: getattr(params, f) for f in fields if getattr(params, f) is not None}
 
@@ -320,22 +516,16 @@ def manage_incident(
             query=params.query,
             count_only=params.count_only,
         )
-    if params.action == "create":
-        return incident_service.create(
-            config,
-            auth_manager,
-            **_project(params, _INCIDENT_CREATE_FIELDS),
+    if params.action == "update" and _on_hold_without_reason(params):
+        return _fail(
+            "state On Hold needs hold_reason (the platform rejects it otherwise). "
+            "Nothing was written.",
+            field="hold_reason",
         )
-    if params.action == "update":
-        # ManageIncidentParams validator guarantees these are present for this action.
-        assert params.incident_id is not None
-        return incident_service.update(
-            config,
-            auth_manager,
-            incident_id=params.incident_id,
-            dry_run=params.dry_run,
-            **_project(params, _INCIDENT_UPDATE_FIELDS),
-        )
+    # One write path for create and update: resolve links and choices, honour
+    # dry_run (create included), write, then prove it by re-reading.
+    if params.action in ("create", "update"):
+        return _write(config, auth_manager, params)
     if params.action == "comment":
         assert params.incident_id is not None
         assert params.comment is not None

@@ -36,6 +36,15 @@ class TestChangeTools(unittest.TestCase):
         self.auth_manager.get_headers.return_value = {
             "Authorization": "Basic dGVzdF91c2VyOnRlc3RfcGFzc3dvcmQ="
         }
+        # The caller check + approval write live in approval_tools (own tests in
+        # test_approval_tools.py); here decide_approval is stubbed as "allowed and applied",
+        # so the approval PATCH is no longer one of make_request's calls.
+        patcher = patch(
+            "servicenow_mcp.tools.change_tools.decide_approval",
+            return_value={"success": True, "basis": "approver", "caller": "test_user"},
+        )
+        self.mock_decide = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _make_response(self, json_data):
         mock_response = MagicMock()
@@ -107,8 +116,9 @@ class TestChangeTools(unittest.TestCase):
         result = approve_change(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
-        self.assertEqual(self.auth_manager.make_request.call_count, 2)
-        mock_invalidate.assert_any_call(table="sysapproval_approver")
+        self.assertEqual(self.auth_manager.make_request.call_count, 1)  # change_request only
+        self.assertEqual(self.mock_decide.call_args[1]["approval_id"], "approval123")
+        self.assertEqual(self.mock_decide.call_args[1]["decision"], "approved")
         mock_invalidate.assert_any_call(table="change_request")
 
     @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
@@ -195,19 +205,16 @@ class TestChangeTools(unittest.TestCase):
         result = reject_change(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
-        self.assertEqual(self.auth_manager.make_request.call_count, 2)
+        self.assertEqual(self.auth_manager.make_request.call_count, 1)
 
-        # Verify PATCH calls contain correct data
-        calls = self.auth_manager.make_request.call_args_list
-        first_patch_body = calls[0][1]["json"]
-        self.assertEqual(first_patch_body["state"], "rejected")
-        self.assertEqual(first_patch_body["comments"], "Bad idea")
+        # The approval write moved to decide_approval; the change PATCH is what remains.
+        kw = self.mock_decide.call_args[1]
+        self.assertEqual(kw["decision"], "rejected")
+        self.assertEqual(kw["comments"], "Bad idea")
+        change_patch_body = self.auth_manager.make_request.call_args_list[0][1]["json"]
+        self.assertEqual(change_patch_body["state"], "4")  # Canceled
+        self.assertIn("Bad idea", change_patch_body["work_notes"])
 
-        second_patch_body = calls[1][1]["json"]
-        self.assertEqual(second_patch_body["state"], "4")  # Canceled
-        self.assertIn("Bad idea", second_patch_body["work_notes"])
-
-        mock_invalidate.assert_any_call(table="sysapproval_approver")
         mock_invalidate.assert_any_call(table="change_request")
 
     @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
@@ -268,9 +275,8 @@ class TestChangeTools(unittest.TestCase):
         result = approve_change(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
-        # First PATCH must hit Bob's approval record, not the first row.
-        first_url = self.auth_manager.make_request.call_args_list[0][0][1]
-        self.assertIn("ap_bob", first_url)
+        # The decision must target Bob's approval record, not the first row.
+        self.assertEqual(self.mock_decide.call_args[1]["approval_id"], "ap_bob")
         # The broadened lookup queries document_id OR sysapproval.
         q = mock_query_page.call_args[1]["query"]
         self.assertIn("document_id=cr1", q)
@@ -301,8 +307,8 @@ class TestChangeTools(unittest.TestCase):
         result = approve_change(self.config, self.auth_manager, params)
 
         self.assertTrue(result["success"])
-        second_patch_body = self.auth_manager.make_request.call_args_list[1][1]["json"]
-        self.assertEqual(second_patch_body["state"], "-2")  # Scheduled
+        change_patch_body = self.auth_manager.make_request.call_args_list[0][1]["json"]
+        self.assertEqual(change_patch_body["state"], "-2")  # Scheduled
 
     @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
     @patch("servicenow_mcp.tools.change_tools.sn_query_page")
@@ -320,8 +326,47 @@ class TestChangeTools(unittest.TestCase):
         params = ApproveChangeParams(change_id="cr1")
         approve_change(self.config, self.auth_manager, params)
 
-        first_url = self.auth_manager.make_request.call_args_list[0][0][1]
-        self.assertIn("ap_open", first_url)
+        self.assertEqual(self.mock_decide.call_args[1]["approval_id"], "ap_open")
+
+    # ------------------------------------------------------------------ #
+    # caller verification (delegated to approval_tools.decide_approval)
+    # ------------------------------------------------------------------ #
+
+    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
+    def test_refused_caller_stops_before_change_write(self, mock_query_page, mock_invalidate):
+        """approve on someone else's behalf without confirmation: nothing is written."""
+        mock_query_page.return_value = (
+            [{"sys_id": "ap_bob", "approver": {"value": "u_bob"}, "state": "requested"}],
+            1,
+        )
+        self.mock_decide.return_value = {"success": False, "error": "caller_not_approver"}
+        result = approve_change(
+            self.config,
+            self.auth_manager,
+            ApproveChangeParams(change_id="cr1", approver_id="u_bob"),
+        )
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "caller_not_approver")
+        self.auth_manager.make_request.assert_not_called()
+        mock_invalidate.assert_not_called()
+
+    @patch("servicenow_mcp.tools.change_tools.invalidate_query_cache")
+    @patch("servicenow_mcp.tools.change_tools.sn_query_page")
+    def test_confirm_on_behalf_is_forwarded(self, mock_query_page, mock_invalidate):
+        mock_query_page.return_value = (
+            [{"sys_id": "ap_bob", "approver": {"value": "u_bob"}, "state": "requested"}],
+            1,
+        )
+        self.auth_manager.make_request.return_value = self._make_response({"result": {}})
+        reject_change(
+            self.config,
+            self.auth_manager,
+            RejectChangeParams(
+                change_id="cr1", rejection_reason="no", approver_id="u_bob", confirm_on_behalf="bob"
+            ),
+        )
+        self.assertEqual(self.mock_decide.call_args[1]["confirm_on_behalf"], "bob")
 
 
 if __name__ == "__main__":

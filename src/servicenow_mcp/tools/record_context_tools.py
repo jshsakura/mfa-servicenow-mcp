@@ -57,6 +57,8 @@ _LINK_FIELDS: Dict[str, Tuple[str, ...]] = {
     "sc_task": ("request_item", "request"),
 }
 _BASE_LINK_FIELDS = ("parent", "universal_request")
+# Read with the record but not links: who requested a change (self-approval check).
+_EXTRA_FIELDS: Dict[str, Tuple[str, ...]] = {"change_request": ("requested_by",)}
 _CORE_FIELDS = (
     "sys_class_name",
     "number",
@@ -415,6 +417,49 @@ def _section_links(config, auth_manager, ctx):
     return payload, bool(all_empty and not outgoing)
 
 
+def _self_approval_check(ctx, rows) -> Dict[str, Any]:
+    """Approvers who are also the record's implementer (assigned_to) or requester (change).
+
+    Compared by sys_id, never by display value. A person field that was not read is
+    reported as unchecked: its absence is not a clearance.
+    """
+    row = ctx["row"]
+    roles = [("assigned_to", "assigned_to")]
+    if ctx["table"] == "change_request":
+        roles.append(("requested_by", "requested_by"))
+    people: Dict[str, str] = {}
+    unchecked: List[str] = []
+    for field, role in roles:
+        if field not in row:
+            unchecked.append(field)
+            continue
+        value = _val(row, field)
+        if value:
+            people[role] = value
+    warnings: List[Dict[str, Any]] = []
+    for r in rows:
+        approver = _val(r, "approver")
+        if not approver:
+            continue
+        for role, person in people.items():
+            if approver == person:
+                warnings.append(
+                    {
+                        "code": "SELF_APPROVAL",
+                        "approver": _lab(r, "approver"),
+                        "state": _lab(r, "state"),
+                        "is": role,
+                        "message": f"The approver is the record's {role}; the implementer "
+                        "may not approve their own change.",
+                    }
+                )
+    out: Dict[str, Any] = {"checked": not unchecked, "warnings": warnings}
+    if unchecked:
+        out["unchecked_fields"] = unchecked
+        out["because"] = "not read from the record: " + ", ".join(unchecked)
+    return out
+
+
 def _section_approvals(config, auth_manager, ctx):
     sid = ctx["sys_id"]
     payload: Dict[str, Any] = {}
@@ -451,6 +496,10 @@ def _section_approvals(config, auth_manager, ctx):
             for r in rows
             if _val(r, "state") == "requested"
         ]
+        check = _self_approval_check(ctx, rows)
+        payload["self_approval_check"] = check
+        if check["warnings"]:
+            payload["warnings"] = check["warnings"]
     grows, gtotal, gerr = _page(
         config,
         auth_manager,
@@ -865,7 +914,7 @@ def get_record_context(
     assert table is not None
 
     link_fields = list(_BASE_LINK_FIELDS + _LINK_FIELDS.get(table, ()))
-    fields = list(_CORE_FIELDS) + link_fields
+    fields = list(_CORE_FIELDS) + link_fields + list(_EXTRA_FIELDS.get(table, ()))
     rows, total, err = _page(
         config, auth_manager, table, f"number={number}", "sys_id," + ",".join(fields), 2
     )

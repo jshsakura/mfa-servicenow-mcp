@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from servicenow_mcp.services import incident as incident_service
-from servicenow_mcp.services.incident import IncidentResponse
 
 # Writes to choice columns resolve against sys_choice first; answered by conftest.
 pytestmark = pytest.mark.usefixtures("live_choices")
@@ -34,21 +33,8 @@ def auth(mock_auth):
 
 
 # ---------------------------------------------------------------------------
-# update / add_comment / resolve — error paths
+# add_comment / resolve — error paths (create/update: tools/incident_tools._write)
 # ---------------------------------------------------------------------------
-
-
-def test_update_error_path(mock_config, auth):
-    auth.make_request.side_effect = RuntimeError("PUT failed")
-    with patch("servicenow_mcp.services.incident.resolve_incident_sys_id") as mock_r:
-        mock_r.return_value = ("sys_001", None)
-        with patch("servicenow_mcp.services.incident.invalidate_query_cache"):
-            result = incident_service.update(
-                mock_config, auth, incident_id="INC0001", short_description="x"
-            )
-    assert isinstance(result, IncidentResponse)
-    assert result.success is False
-    assert "PUT failed" in result.message
 
 
 def test_add_comment_error_path(mock_config, auth):

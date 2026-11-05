@@ -117,3 +117,50 @@ def test_subflow_input_mismatch_ignores_same_and_unrelated_names():
     assert "SUBFLOW_INPUT_NAME_MISMATCH" not in _codes(
         {"actions": [], "logic": [], "subflows": diff}
     )
+
+
+def _numeric_close(values, table="sc_req_item / Requested Item"):
+    c = _close(values=values)
+    c["inputs"] = _inp(record="r", table_name=table, values=values)
+    return c
+
+
+def _codes_with(values, resolver, table="sc_req_item / Requested Item"):
+    s = {"actions": [_approval(), _numeric_close(values, table)], "logic": [_if()], "subflows": []}
+    out = _build_flow_summary(s, choice_resolver=resolver)
+    return [w["code"] for w in out["warnings"]], out["warnings"]
+
+
+def test_numeric_closing_state_fires():
+    calls = []
+
+    def resolver(table, elements, values):
+        calls.append((table, elements, values))
+        return {("state", "3"): "Closed Complete"}
+
+    codes, _ = _codes_with("state=3^work_notes=done", resolver)
+    assert "FALL_THROUGH_AUTOCOMPLETE" in codes
+    assert calls == [("sc_req_item", ["state"], ["3"])]
+
+
+def test_numeric_open_state_does_not_fire():
+    codes, _ = _codes_with("state=2", lambda t, e, v: {("state", "2"): "Work in Progress"})
+    assert "FALL_THROUGH_AUTOCOMPLETE" not in codes
+    assert "FALL_THROUGH_UNVERIFIED" not in codes
+
+
+def test_numeric_state_choice_read_fails_is_unverified():
+    codes, warnings = _codes_with("state=3", lambda t, e, v: None)
+    assert "FALL_THROUGH_AUTOCOMPLETE" not in codes
+    w = next(w for w in warnings if w["code"] == "FALL_THROUGH_UNVERIFIED")
+    assert w["severity"] == "low"
+
+
+def test_numeric_state_without_resolver_is_unverified():
+    codes, _ = _codes_with("state=3", None)
+    assert codes.count("FALL_THROUGH_UNVERIFIED") == 1
+
+
+def test_numeric_state_unlabelled_value_is_unverified():
+    codes, _ = _codes_with("state=99", lambda t, e, v: {})
+    assert "FALL_THROUGH_UNVERIFIED" in codes
