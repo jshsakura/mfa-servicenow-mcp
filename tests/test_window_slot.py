@@ -186,6 +186,7 @@ def test_the_reaper_keeps_a_window_another_running_terminal_holds(auth, tmp_path
     liveness = window.Liveness(process=True, port=True, pages=1)
     monkeypatch.setattr(reaper, "window_liveness", lambda state: liveness)
     monkeypatch.setattr(reaper, "read_presence", lambda s: {"idle_ms": 1e9, "dirty": 0})
+    monkeypatch.setattr(reaper, "window_signed_in", lambda endpoint, hosts, **_: False)
     killed = []
     monkeypatch.setattr(reaper, "terminate_pid", lambda pid: killed.append(pid) or True)
     lease = tmp_path / f"debug_slot_{BASE}__w2.lease"

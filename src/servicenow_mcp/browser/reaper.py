@@ -28,6 +28,15 @@ too old to answer, a CDP attach that fails. "No evidence" means keep it. The
 cost of being wrong in that direction is a browser that stays open one more
 launch; the cost in the other direction is somebody's work.
 
+Signed-in windows wait longer
+-----------------------------
+Closing a browser also ends its session, and that session may have cost an MFA
+challenge. So "idle" alone only collects a window proven to hold no session; a
+signed-in one — or one that cannot be told apart from signed-in — waits for
+``SIGNED_IN_IDLE_AFTER_S``. It is the same reading the terminal-exit path uses,
+so a window handed on at exit is not then taken by the next launch half an hour
+later.
+
 Why last-attach and last-touch have to be read together
 -------------------------------------------------------
 Neither alone separates a person from the model. The probe's ``lastHuman`` is
@@ -49,7 +58,9 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from ._offload import PlaywrightUnavailable, cdp_browser, require_playwright, run_off_loop
+from .badge import instance_labels
 from .probe import presence_script
+from .session import window_signed_in
 from .window import (
     KeyedWindow,
     WindowState,
@@ -67,6 +78,13 @@ logger = logging.getLogger(__name__)
 # and the failure it could cause (closing a window in use) is not. Half an hour
 # is longer than any pause inside one debugging session.
 IDLE_AFTER_S = 30 * 60.0
+
+# A window still signed in holds a session that may have cost an MFA challenge,
+# and closing the browser ends it. So it waits much longer: long enough to
+# outlast a meeting or lunch, short enough that a forgotten one still goes the
+# same day. A window that cannot be TOLD to be signed out waits as long — the
+# same reading the terminal-exit path uses (session.window_signed_in).
+SIGNED_IN_IDLE_AFTER_S = 4 * 60 * 60.0
 
 # Attaching to decide is worth a moment, but this runs in front of a window the
 # user is waiting for, so it is kept short and a slow window simply survives.
@@ -224,6 +242,7 @@ def _should_close(
     *,
     now: float,
     idle_after_s: float,
+    signed_in_idle_after_s: float = SIGNED_IN_IDLE_AFTER_S,
 ) -> Tuple[bool, str]:
     """All vetoes, in cheapest-first order. Returns (close?, why)."""
     liveness = window_liveness(state)
@@ -254,13 +273,26 @@ def _should_close(
     idle_ms = presence.get("idle_ms")
     if idle_ms is not None and idle_ms < idle_after_s * 1000.0:
         return False, "someone is at it"
-    return True, "idle"
+
+    # Idle — but only a window proven to hold no session goes at the short
+    # threshold. Signed in, or could not tell, waits for the long one, measured
+    # from the most recent touch by a tool or a person.
+    signed_in = window_signed_in(state.cdp_endpoint, set(instance_labels()) | {state.instance_host})
+    if signed_in is not False:
+        idle_s = now - state.last_used_at
+        if idle_ms is not None:
+            idle_s = min(idle_s, idle_ms / 1000.0)
+        if idle_s < max(idle_after_s, signed_in_idle_after_s):
+            return False, "signed in" if signed_in else "could not tell if signed in"
+        return True, "idle, signed in"
+    return True, "idle, no session"
 
 
 def reap_idle_windows(
     auth_manager: Any,
     *,
     idle_after_s: float = IDLE_AFTER_S,
+    signed_in_idle_after_s: float = SIGNED_IN_IDLE_AFTER_S,
     now: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """Close every window that is provably unused. Returns what was closed.
@@ -283,13 +315,23 @@ def reap_idle_windows(
         if state is None:
             continue
         try:
-            close, why = _should_close(root, key, state, now=moment, idle_after_s=idle_after_s)
+            close, why = _should_close(
+                root,
+                key,
+                state,
+                now=moment,
+                idle_after_s=idle_after_s,
+                signed_in_idle_after_s=signed_in_idle_after_s,
+            )
         except Exception as exc:  # noqa: BLE001 - a decision must never break a launch
             logger.debug("Skipping %s while reaping: %s", key, exc)
             continue
         if not close:
             logger.debug("Keeping debug window %s: %s", key, why)
             continue
+        # Logged, not only returned: the answer goes to whichever terminal
+        # happened to open a window, and the owner of this one is not reading it.
+        logger.info("Closing debug window %s (pid %s): %s", key, state.pid, why)
         if terminate_pid(state.pid):
             closed.append(
                 {
@@ -309,6 +351,7 @@ def reap_idle_windows(
 
 __all__ = [
     "IDLE_AFTER_S",
+    "SIGNED_IN_IDLE_AFTER_S",
     "list_window_keys",
     "read_presence",
     "reap_idle_windows",

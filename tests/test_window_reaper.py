@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from servicenow_mcp.browser import reaper, window
-from servicenow_mcp.browser.reaper import IDLE_AFTER_S, reap_idle_windows
+from servicenow_mcp.browser.reaper import IDLE_AFTER_S, SIGNED_IN_IDLE_AFTER_S, reap_idle_windows
 
 LONG_AGO = IDLE_AFTER_S + 600.0
 
@@ -71,6 +71,19 @@ def _all_alive(monkeypatch, alive=True, pages=1):
 
 def _presence(monkeypatch, value):
     monkeypatch.setattr(reaper, "read_presence", lambda state: value)
+
+
+@pytest.fixture(autouse=True)
+def _no_session(monkeypatch):
+    """The cases below model a window holding no session — the short threshold.
+
+    A signed-in window waits longer; those cases set this explicitly. Left real,
+    the CDP read of a fake endpoint answers None (could not tell), and every
+    closing test would pass for the wrong reason: kept as "could not tell".
+    """
+    sessions = {"answer": False}
+    monkeypatch.setattr(reaper, "window_signed_in", lambda endpoint, hosts, **_: sessions["answer"])
+    return sessions
 
 
 def _killed(monkeypatch):
@@ -287,6 +300,113 @@ def test_a_window_whose_last_tab_was_closed_is_collected(mine, tmp_path, monkeyp
 
     assert killed == [778]
     assert [entry["instance"] for entry in closed] == ["test.example.com"]
+
+
+# ---------------------------------------------------------------------------
+# A signed-in window waits longer: its session may have cost an MFA challenge
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "answer, why", [(True, "signed in"), (None, "could not tell if signed in")]
+)
+def test_an_idle_signed_in_window_is_kept_past_the_short_threshold(
+    mine, monkeypatch, now, caplog, _no_session, answer, why
+):
+    """68 minutes idle, still signed in: the window a live test once closed.
+
+    It belonged to another account and another terminal; the reaper ran because
+    an unrelated window was being opened. Could-not-tell is held the same way —
+    an unread session is not an absent one.
+    """
+    _plant(
+        mine,
+        instance_url="https://test.example.com",
+        username="bob@ex.com",
+        pid=780,
+        last_used_at=now - 68 * 60,
+    )
+    _all_alive(monkeypatch)
+    _presence(monkeypatch, {"idle_ms": 68 * 60 * 1000.0, "dirty": 0, "answered": True})
+    _no_session["answer"] = answer
+    killed = _killed(monkeypatch)
+
+    with caplog.at_level("DEBUG", logger="servicenow_mcp.browser.reaper"):
+        assert reap_idle_windows(mine, now=now) == []
+    assert killed == []
+    assert f"Keeping debug window bob_at_ex_com: {why}" in caplog.text
+
+
+def test_a_signed_in_window_idle_past_the_long_threshold_is_closed_and_logged(
+    mine, tmp_path, monkeypatch, now, caplog, _no_session
+):
+    """Nobody came back for it the same day: it goes, and the log says so."""
+    _plant(
+        mine,
+        instance_url="https://test.example.com",
+        username="bob@ex.com",
+        pid=781,
+        last_used_at=now - SIGNED_IN_IDLE_AFTER_S - 600,
+    )
+    _all_alive(monkeypatch)
+    _presence(monkeypatch, {"idle_ms": None, "dirty": 0, "answered": True})
+    _no_session["answer"] = True
+    killed = _killed(monkeypatch)
+
+    with caplog.at_level("INFO", logger="servicenow_mcp.browser.reaper"):
+        closed = reap_idle_windows(mine, now=now)
+
+    assert killed == [781]
+    assert [entry["instance"] for entry in closed] == ["test.example.com"]
+    assert "Closing debug window bob_at_ex_com (pid 781): idle, signed in" in caplog.text
+    assert not os.path.exists(tmp_path / "debug_window_bob_at_ex_com.json")
+
+
+def test_a_person_at_a_signed_in_window_restarts_its_long_clock(
+    mine, monkeypatch, now, _no_session
+):
+    """No tool attached for five hours, but somebody clicked in it an hour ago."""
+    _plant(
+        mine,
+        instance_url="https://test.example.com",
+        username="bob@ex.com",
+        pid=782,
+        last_used_at=now - SIGNED_IN_IDLE_AFTER_S - 3600,
+    )
+    _all_alive(monkeypatch)
+    _presence(monkeypatch, {"idle_ms": 3600 * 1000.0, "dirty": 0, "answered": True})
+    _no_session["answer"] = True
+    killed = _killed(monkeypatch)
+
+    assert reap_idle_windows(mine, now=now) == []
+    assert killed == []
+
+
+def test_the_session_is_asked_of_every_configured_instance_and_the_windows_own(
+    mine, monkeypatch, now
+):
+    """Same host set as the exit path: a window signed in to any instance counts."""
+    _, state = _plant(
+        mine,
+        instance_url="https://test.example.com",
+        username="bob@ex.com",
+        pid=783,
+        last_used_at=now - LONG_AGO,
+    )
+    _all_alive(monkeypatch)
+    _presence(monkeypatch, {"idle_ms": None, "dirty": 0, "answered": True})
+    monkeypatch.setattr(reaper, "instance_labels", lambda: {"dev.example.com": "dev"})
+    asked = []
+    monkeypatch.setattr(
+        reaper,
+        "window_signed_in",
+        lambda endpoint, hosts, **_: asked.append((endpoint, set(hosts))) or True,
+    )
+    _killed(monkeypatch)
+
+    reap_idle_windows(mine, now=now)
+
+    assert asked == [(state.cdp_endpoint, {"dev.example.com", "test.example.com"})]
 
 
 def test_a_window_that_cannot_report_its_tabs_is_left_alone(mine, tmp_path, monkeypatch, now):
