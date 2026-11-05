@@ -49,8 +49,10 @@ every MCP session and the person watching the screen share — so both tools
 report who the window is afterwards, and open_debug_window says so on the way in
 when it reuses a window someone left impersonating. See browser/impersonate.py.
 
-One window per ACCOUNT, and every instance that account can reach lives in it as
-a tab (window.py::_window_key). So three things this module does are about
+One window per TERMINAL (window_slot.py: each MCP process leases its own, up to
+four, each with its own profile and so its own session), and every instance the
+account can reach lives in it as a tab (window.py::_window_key). Two terminals
+can therefore be two different users at once. So three things this module does are about
 whose tab is whose rather than about the window: a tab on another configured
 instance is never read, driven or navigated away from; a reused window with no
 tab on this instance gets one opened beside the others; and ``reset`` clears one
@@ -91,6 +93,7 @@ from ..browser.server_scripts import ServerScriptBlocked, navigation_rejection, 
 from ..browser.session import api_username, describe_window_user
 from ..browser.session import instance_host as _host_of
 from ..browser.window import (
+    claim_window_slot,
     clear_window_state,
     ensure_window,
     find_window,
@@ -101,7 +104,9 @@ from ..browser.window import (
     window_is_gone,
     window_login_path,
     window_owners_path,
+    window_shared_fallback,
 )
+from ..browser.window_slot import MAX_WINDOWS, number_of
 from ..utils.config import ServerConfig
 from ..utils.registry import register_tool
 
@@ -330,14 +335,23 @@ def _window_account(config: ServerConfig, auth_manager: AuthManager, state: Any)
     return (saved_credentials(config) or ("", ""))[0]
 
 
-def _window_identity(state: Any, config: ServerConfig) -> Dict[str, Any]:
-    """Always echo which window this is.
+def _window_identity(state: Any, config: ServerConfig, auth_manager: Any = None) -> Dict[str, Any]:
+    """Always echo which window this is: its instance, and which terminal's.
 
-    Two instances mean two windows, and acting on the wrong one is the failure
-    this repo guards against everywhere else. The on-screen badge answers it for
-    the user; this answers it for the model.
+    Acting on the wrong window is the failure this repo guards against
+    everywhere else. The on-screen badge answers it for the user (`MCP DEBUG 2`);
+    this answers it for the model.
     """
-    return {"instance_target": state.instance_host or str(config.instance_url or "")}
+    out: Dict[str, Any] = {
+        "instance_target": state.instance_host or str(config.instance_url or ""),
+        "window": number_of(state.profile_dir),
+    }
+    if auth_manager is not None and window_shared_fallback(auth_manager):
+        out["window_shared"] = (
+            f"All {MAX_WINDOWS} windows are held by other running terminals, so this one "
+            "shares window 1 with them — impersonating here changes it for them too."
+        )
+    return out
 
 
 def _window_gone_result(
@@ -385,6 +399,8 @@ def open_debug_window(
     auth_manager: AuthManager,
     params: OpenDebugWindowParams,
 ) -> Dict[str, Any]:
+    # First, before any window path is computed: which window is this terminal's.
+    claim_window_slot(auth_manager)
     target_url = _resolve_url(config, params.url)
 
     # Checked before the window is opened or moved. See _script_surface_refusal:
@@ -461,7 +477,7 @@ def open_debug_window(
         "success": True,
         "opened": opened,
         "reused": not opened,
-        **_window_identity(state, config),
+        **_window_identity(state, config, auth_manager),
         **housekeeping,
     }
 
@@ -719,6 +735,7 @@ def inspect_debug_window(
     auth_manager: AuthManager,
     params: InspectDebugWindowParams,
 ) -> Dict[str, Any]:
+    claim_window_slot(auth_manager)
     if params.screenshot not in SCREENSHOT_MODES:
         return {
             "success": False,
@@ -804,7 +821,7 @@ def inspect_debug_window(
     result: Dict[str, Any] = {
         "success": True,
         "window_open": True,
-        **_window_identity(state, config),
+        **_window_identity(state, config, auth_manager),
         **report,
     }
     if identity.get("window_user"):
@@ -893,6 +910,7 @@ def act_in_debug_window(
     auth_manager: AuthManager,
     params: ActInDebugWindowParams,
 ) -> Dict[str, Any]:
+    claim_window_slot(auth_manager)
     if params.screenshot not in SCREENSHOT_MODES:
         return {
             "success": False,
@@ -1063,7 +1081,7 @@ def act_in_debug_window(
         # caller finds out WHY the click missed.
         "success": failed_step is None,
         "window_open": True,
-        **_window_identity(state, config),
+        **_window_identity(state, config, auth_manager),
         "steps": raw.get("steps", []),
         **report,
     }

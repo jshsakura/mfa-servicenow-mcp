@@ -1,10 +1,11 @@
-"""Lifecycle of the shared debug window (a detached Chromium + CDP port).
+"""Lifecycle of the debug window (a detached Chromium + CDP port).
 
 The window is launched as a plain OS process rather than a Playwright-managed
 browser so it outlives the tool call that opened it. State (pid + port +
 profile) lives in a small JSON file keyed by the ACCOUNT the window signs in as
-(:func:`_window_key`) — one window per person, with every instance they can
-reach living in it as a tab. Cookie isolation between those instances is the
+plus the window number this process leased (:func:`_window_key`,
+window_slot.py) — one window per terminal, with every instance it can reach
+living in it as a tab. Cookie isolation between those instances is the
 browser's job and it does it per domain, so a second Chromium bought nothing
 and cost ~200MB.
 
@@ -15,6 +16,7 @@ The window signs in on its own (see session.py); nothing about the API's
 session is copied into it.
 """
 
+import atexit
 import glob
 import json
 import logging
@@ -34,10 +36,13 @@ from urllib.parse import urlparse
 from ..auth._browser_dom import _singleton_holder_pid
 from ..auth._process import _is_pid_alive
 from ..utils.state_dir import state_dir
+from . import window_slot
 from ._launch_lock import launch_claim
 from ._offload import playwright_session, require_playwright, run_off_loop
 from .launch_budget import check_launch_allowed, record_launch
 from .tab_owner import read_pin
+from .window_slot import claim as _claim_slot
+from .window_slot import held_number, window_suffix
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +228,35 @@ def _window_host(auth_manager: Any) -> str:
 
 
 def _window_key(auth_manager: Any) -> str:
-    """Identity of one window: the ACCOUNT it signs in as. Instances get tabs.
+    """Identity of one window: the account's key plus the window number this
+    process leased (window_slot.py). Window 1 is the bare account key."""
+    base = _base_window_key(auth_manager)
+    return base + window_suffix(held_number(base))
+
+
+def claim_window_slot(auth_manager: Any) -> int:
+    """Lease this process's window (one per terminal) and return its number.
+
+    Called on entry to every debug-window tool, before any path is computed, so
+    every path for the rest of the call names the same window. Never raises.
+    """
+    try:
+        return _claim_slot(_cache_root(auth_manager), _base_window_key(auth_manager))
+    except Exception as exc:  # noqa: BLE001 - a lease must never block the window
+        logger.debug("Could not lease a debug window: %s", exc)
+        return 1
+
+
+def window_shared_fallback(auth_manager: Any) -> bool:
+    """True when every window was held and this process shares window 1."""
+    from .window_slot import is_shared
+
+    return is_shared(_base_window_key(auth_manager))
+
+
+def _base_window_key(auth_manager: Any) -> str:
+    """The ACCOUNT a window signs in as — the part of the key that is not the
+    window number. Instances get tabs.
 
     Deliberately NOT ``_get_instance_user_suffix``. That helper keys SESSION and
     PROFILE files, and for those the profile label is rightly the identity unit
@@ -378,7 +411,11 @@ def _legacy_profile_dir(auth_manager: Any) -> str:
     if not host or not account:
         return ""
     legacy_key = f"{host}_{account.replace('@', '_at_').replace('.', '_')}"
-    if legacy_key == _window_key(auth_manager):
+    # Only window 1 inherits a pre-merge jar: it is the window that existed then.
+    # Handing it to window 2 would sign two terminals into one session.
+    if legacy_key == _window_key(auth_manager) or window_suffix(
+        held_number(_base_window_key(auth_manager))
+    ):
         return ""
     return os.path.join(_cache_root(auth_manager), f"debug_profile_{legacy_key}")
 
@@ -1135,6 +1172,67 @@ def find_window(auth_manager: Any) -> Optional[WindowState]:
     return touch_window(auth_manager, state)
 
 
+class KeyedWindow:
+    """A window addressed by its key rather than by an auth manager.
+
+    The reaper and the exit hook act on windows no auth manager in hand can
+    name. The path helpers only ask a manager for its cache dir and, lacking an
+    account or host, its suffix — so answering both with the key yields exactly
+    ``debug_window_{key}.json``.
+    """
+
+    def __init__(self, root: str, key: str):
+        self._root = root
+        self.key = key
+
+    def _get_cache_dir(self) -> str:
+        return self._root
+
+    def _get_instance_user_suffix(self) -> str:
+        return self.key
+
+
+def close_windows_of_this_process() -> List[str]:
+    """Close the windows this terminal leased. Runs at exit; never raises.
+
+    A terminal's window lives as long as the terminal. Only a window whose lease
+    is still ours is touched (one shared as a fallback never is), and only when
+    its recorded pid is provably that window — the holder of its profile's
+    SingletonLock — so a pid the OS has since handed to something else is never
+    signalled. The profile stays: the next terminal on this number is still
+    signed in and its MFA device still remembered.
+    """
+    closed: List[str] = []
+    for root, key in window_slot.owned_windows():
+        try:
+            if not window_slot.lease_is_mine(root, key):
+                continue  # taken over after we were mistaken for dead: theirs now
+            handle = KeyedWindow(root, key)
+            state = read_window_state(handle)
+            gone = state is None or not _is_pid_alive(state.pid)
+            if state is not None and not gone:
+                if _singleton_holder_pid(state.profile_dir) == state.pid:
+                    terminate_pid(state.pid)
+                    gone = True
+                    closed.append(key)
+            if gone:
+                prefix = os.path.join(root, f"debug_window_{key}")
+                for path in [f"{prefix}.json", f"{prefix}.owners.json"] + glob.glob(
+                    f"{prefix}.*.impersonation.json"
+                ):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+            window_slot.release(root, key)
+        except Exception as exc:  # noqa: BLE001 - an exit hook must not raise
+            logger.debug("Could not close debug window %s at exit: %s", key, exc)
+    return closed
+
+
+atexit.register(close_windows_of_this_process)
+
+
 def ensure_window(
     auth_manager: Any,
     *,
@@ -1199,9 +1297,12 @@ def ensure_window(
 __all__ = [
     "DEBUG_WINDOW_ALWAYS_HEADED",
     "DEFAULT_VIEWPORT",
+    "KeyedWindow",
     "Liveness",
     "WindowState",
+    "claim_window_slot",
     "clear_window_state",
+    "close_windows_of_this_process",
     "ensure_window",
     "find_window",
     "is_window_alive",
@@ -1222,6 +1323,7 @@ __all__ = [
     "window_is_gone",
     "window_liveness",
     "window_profile_dir",
+    "window_shared_fallback",
     "window_state_path",
     "write_window_state",
 ]

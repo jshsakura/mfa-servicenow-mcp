@@ -643,7 +643,9 @@ def badge_accent(seed: str) -> str:
     return _PALETTE[digest % len(_PALETTE)]
 
 
-def badge_init_script(profile: str, account: str = "", window_id: str = "") -> str:
+def badge_init_script(
+    profile: str, account: str = "", window_id: str = "", window_number: int = 1
+) -> str:
     """The badge for this window.
 
     ``profile`` is only the FALLBACK label — the instance a tab is actually on
@@ -662,10 +664,15 @@ def badge_init_script(profile: str, account: str = "", window_id: str = "") -> s
     ``account → impersonated`` in amber. Left empty (an OAuth or API-key profile
     has no browser username to compare against) the badge just names whoever is
     signed in, as before.
+
+    ``window_number`` is which terminal's window this is (window_slot.py). It is
+    drawn only from 2 up — a single window needs no number, and window 1 is the
+    one every earlier release opened.
     """
+    prefix = BADGE_PREFIX if window_number <= 1 else f"{BADGE_PREFIX} {window_number}"
     return _BADGE_TEMPLATE % {
         "host_id": _js_string(BADGE_ELEMENT_ID),
-        "prefix": _js_string(BADGE_PREFIX),
+        "prefix": _js_string(prefix),
         "fallback_name": _js_string((profile or "").strip()),
         "instance_names": json.dumps(instance_labels(), sort_keys=True),
         "instance_accents": json.dumps(instance_accents(), sort_keys=True),

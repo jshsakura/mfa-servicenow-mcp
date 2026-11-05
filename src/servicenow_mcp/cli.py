@@ -713,6 +713,39 @@ def create_config(args) -> ServerConfig:
     )
 
 
+def _close_debug_windows() -> None:
+    """Close the debug window this terminal opened. Never raises.
+
+    atexit covers a normal shutdown; the two exits below skip atexit, so they
+    call this themselves — a terminal's window must not outlive the terminal.
+    """
+    try:
+        from .browser.window import close_windows_of_this_process
+
+        close_windows_of_this_process()
+    except Exception as exc:  # noqa: BLE001 - shutdown must finish regardless
+        logger.debug("Could not close debug windows on shutdown: %s", exc)
+
+
+def _close_debug_windows_on_signal() -> None:
+    """On SIGTERM/SIGHUP (terminal closed, host stopped us): close this
+    terminal's debug window, then die of the same signal exactly as before."""
+    import signal
+
+    def _handler(signum, _frame):
+        _close_debug_windows()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for name in ("SIGTERM", "SIGHUP"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            try:
+                signal.signal(sig, _handler)
+            except (ValueError, OSError) as exc:  # not the main thread / unsupported
+                logger.debug("Could not install %s handler: %s", name, exc)
+
+
 def _start_parent_watchdog() -> None:
     """Exit when the parent process dies (defends against ghost MCP servers).
 
@@ -746,6 +779,7 @@ def _start_parent_watchdog() -> None:
                     parent_pid,
                     current,
                 )
+                _close_debug_windows()
                 os._exit(0)
 
     thread = threading.Thread(target=_watch, daemon=True, name="parent-watchdog")
@@ -974,6 +1008,7 @@ def main():
 
         # Create server controller instance
         mcp_controller = ServiceNowMCP(config)
+        _close_debug_windows_on_signal()
 
         # Get the low-level server instance to run
         server_to_run = mcp_controller.start()

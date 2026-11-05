@@ -45,6 +45,23 @@ def _isolate_workspace_roots(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_window_slots():
+    """Forget which debug window this process leased: a lease is per process,
+    and pytest is one process running many tests against many cache dirs."""
+    from servicenow_mcp.browser import window_slot
+
+    window_slot._held.clear()
+    window_slot._owned.clear()
+    window_slot._shared.clear()
+    window_slot._leases.clear()
+    yield
+    window_slot._held.clear()
+    window_slot._owned.clear()
+    window_slot._shared.clear()
+    window_slot._leases.clear()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_deploy_ledger(tmp_path, monkeypatch):
     """Redirect the deploy-XML dir registry to a per-test file.
 

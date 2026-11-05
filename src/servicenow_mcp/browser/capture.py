@@ -31,6 +31,7 @@ from .probe import PROBE_SCRIPT, dirty_script, drain_script, presence_script
 from .session import read_effective_user
 from .tab_owner import claimed_by_others, drop_pin, write_pin
 from .window import WindowState
+from .window_slot import number_of
 
 logger = logging.getLogger(__name__)
 
@@ -412,7 +413,15 @@ def _probe_scripts(state: WindowState, profile: str, account: str = "") -> Tuple
     # The profile dir IS the window: one directory, one Chromium. That is what
     # the badge colours itself by, so every tab in a window wears one colour
     # while each names its own instance.
-    return (PROBE_SCRIPT, badge_init_script(profile, account, window_id=state.profile_dir))
+    return (
+        PROBE_SCRIPT,
+        badge_init_script(
+            profile,
+            account,
+            window_id=state.profile_dir,
+            window_number=number_of(state.profile_dir),
+        ),
+    )
 
 
 def _install_probe_scripts(

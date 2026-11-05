@@ -51,12 +51,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from ._offload import PlaywrightUnavailable, cdp_browser, require_playwright, run_off_loop
 from .probe import presence_script
 from .window import (
+    KeyedWindow,
     WindowState,
     read_window_state,
     terminate_pid,
     window_liveness,
     window_state_path,
 )
+from .window_slot import lease_held_elsewhere
 
 logger = logging.getLogger(__name__)
 
@@ -103,25 +105,6 @@ def list_window_keys(auth_manager: Any) -> List[str]:
         logger.debug("Cannot list debug-window state in %s: %s", root, exc)
         return []
     return [key for key in (_key_from_state_path(name) for name in entries) if key]
-
-
-class _StateFile:
-    """A window addressed by its files rather than by an auth manager.
-
-    The reaper looks at OTHER configurations' windows, which no auth manager in
-    this process can name. It only needs the two paths, so it stands in for one
-    where ``window.py`` asks for a manager.
-    """
-
-    def __init__(self, root: str, key: str):
-        self._root = root
-        self.key = key
-
-    def _get_cache_dir(self) -> str:
-        return self._root
-
-    def _get_instance_user_suffix(self) -> str:
-        return self.key
 
 
 def _marker_paths(root: str, key: str) -> List[str]:
@@ -246,6 +229,10 @@ def _should_close(
     liveness = window_liveness(state)
     if not liveness.process:
         return False, "not running"
+    if lease_held_elsewhere(root, key):
+        # Another terminal's own window: it was opened for that terminal and
+        # that terminal is still running, however long it has been quiet.
+        return False, "held by a running terminal"
     if now - state.last_used_at < idle_after_s:
         return False, "in use"
     if _impersonation_is_live(root, key, state):
@@ -291,7 +278,7 @@ def reap_idle_windows(
     for key in list_window_keys(auth_manager):
         if key == mine:
             continue
-        handle = _StateFile(root, key)
+        handle = KeyedWindow(root, key)
         state = read_window_state(handle)
         if state is None:
             continue
