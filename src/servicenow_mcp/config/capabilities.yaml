@@ -1,0 +1,55 @@
+# Which instance FEATURE a table belongs to, and how to tell whether it is on.
+#
+# Read at call time by utils/capabilities.py, so a read can say "not installed"
+# instead of "no such table" (which reads as a typo) or "present, 0 rows" (which
+# reads as an answer). Data, not code: a new domain is an entry here.
+#
+#   plugins: v_plugin ids. Any one active => on. Rows read back and none active
+#            => off. No row at all for any id => undetermined (an id that is not
+#            in the catalog may just be the wrong id).
+#   apps:    sys_store_app scopes, same rule on `active`.
+#   tables:  name prefixes (ending in `_`) or exact names owned by the feature.
+#   tables_exist_without_feature: true when the tables are there with the
+#            feature OFF, so a table's presence proves nothing about the
+#            feature and a read of it must be qualified.
+#
+# Only ids and table behaviour measured on a live instance go here — the
+# measured state is noted per domain. An id written from memory produces a
+# confident wrong verdict.
+
+domains:
+  event_management:
+    label: Event Management
+    plugins: [com.snc.service-watch]  # lab 2026-11-04: inactive, em_* absent
+    tables: [em_]
+    tables_exist_without_feature: false
+
+  discovery:
+    label: Discovery
+    plugins: [com.snc.discovery, com.snc.itom.discovery.license]  # lab: license row inactive
+    tables: [discovery_, ecc_agent]
+    tables_exist_without_feature: true  # lab: discovery_* and ecc_agent present, plugin off
+
+  service_mapping:
+    label: Service Mapping
+    plugins: [com.snc.service-mapping]  # lab: inactive
+    tables: [sa_]
+    tables_exist_without_feature: true  # lab: sa_m2m_service_entry_point present, plugin off
+
+  ham_pro:
+    label: Hardware Asset Management (HAM Pro)
+    apps: [sn_hamp]  # lab: 13.1.0 active
+    tables: [sn_hamp_]
+    tables_exist_without_feature: false
+
+  procurement:
+    label: Procurement
+    plugins: [com.snc.procurement]  # lab: active
+    tables: [proc_]
+    tables_exist_without_feature: false
+
+  contract_management:
+    label: Contract Management
+    plugins: [com.snc.contract_management]  # lab: active
+    tables: [clm_]
+    tables_exist_without_feature: false

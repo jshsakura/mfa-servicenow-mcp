@@ -15,6 +15,12 @@ from pydantic import BaseModel, Field
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils import json_fast
+from servicenow_mcp.utils.capabilities import (
+    domain_for_table,
+    feature_state,
+    table_feature,
+    tables_exist_without_feature,
+)
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.query_fields import near_matches, table_columns, unknown_query_fields
 from servicenow_mcp.utils.registry import register_tool
@@ -1472,16 +1478,36 @@ def _unknown_fields_response(
     """The refusal for a read naming a column the table does not have, or None.
 
     `None` covers both "every field exists" and "could not check": only a PROVEN
-    absence stops the call.
+    absence stops the call. A caller that has to tell those apart (a later 403
+    is only an ACL answer if the fields were proven real) uses `_field_check`.
+    """
+    return _field_check(config, auth_manager, table, query, also_check=also_check)[0]
+
+
+def _field_check(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    query: str,
+    *,
+    also_check: Sequence[str] = (),
+) -> Tuple[Optional[Dict[str, Any]], bool]:
+    """``(refusal or None, proven_clean)``.
+
+    ``proven_clean`` is True only when every named field was checked against
+    sys_dictionary and exists. A check that could not run is False — and so is
+    a refusal — so the caller never mistakes "unchecked" for "clean".
     """
     probes = [f"{name}ISNOTEMPTY" for name in also_check]
     checked = "^".join(part for part in [query, *probes] if part)
     unknown_fields = unknown_query_fields(config, auth_manager, table, checked)
+    if unknown_fields is None:
+        return None, False
     if not unknown_fields:
-        return None
+        return None, True
     columns = table_columns(config, auth_manager, table) or set()
     suggestions = {name: near_matches(name, sorted(columns)) for name in unknown_fields}
-    return {
+    refusal = {
         "success": False,
         "error": "unknown_query_fields",
         "table": table,
@@ -1501,32 +1527,190 @@ def _unknown_fields_response(
             "Use sn_schema to list the real columns."
         ),
     }
+    return refusal, False
+
+
+# A read that failed is answered with what the TOOL established about it, so the
+# model never has to interpret a 403 or a 4xx itself. Measured on a lab instance
+# with an under-privileged session: a 403 could not be told apart from "plugin
+# not installed", and a reader that guessed scored an unreadable table as an
+# empty one. `absent` is only ever printed on a sys_db_object read that came
+# back with no row; every other limit is named.
+_BECAUSE_EXISTENCE_UNREAD = (
+    "sys_db_object could not be read, so whether this table exists is unknown — "
+    "not installed, not permitted and a typo all look the same from here"
+)
+_BECAUSE_FORBIDDEN = (
+    "PERMISSION, not a missing feature: the table exists and every queried field "
+    "is real, so this session's ACLs refuse the read. A role granted after this "
+    "session logged in is not in effect until a fresh login"
+)
+
+
+def _not_installed_response(table: str, feature: Dict[str, Any]) -> Dict[str, Any]:
+    """The refusal for a table whose feature was read back as off."""
+    label = feature.get("label") or feature.get("domain")
+    return {
+        "success": False,
+        "error": "feature_not_installed",
+        "table": table,
+        "availability": "not_installed",
+        "feature": feature,
+        "message": (
+            f"'{table}' is not on this instance because {label} is not installed "
+            f"({feature.get('evidence')}). Not a typo and not a permission problem."
+        ),
+        "hint": (
+            f"No other table holds {label} data here — do not retry with a similar name. "
+            "Report that the feature is not on this instance."
+        ),
+    }
+
+
+def _qualify_feature_read(
+    config: ServerConfig, auth_manager: AuthManager, table: str, answer: Dict[str, Any]
+) -> None:
+    """Qualify a SUCCESSFUL read of a table that exists even with its feature off.
+
+    Measured on a lab instance: discovery_* and sa_* tables are there with the
+    Discovery and Service Mapping plugins inactive, so "present, 0 rows" was
+    printed for a feature that is not installed. Only those domains pay the
+    lookup; for every other table this is a dict miss and nothing is added.
+    """
+    domain = domain_for_table(table)
+    if domain is None or not tables_exist_without_feature(domain):
+        return
+    feature = feature_state(config, auth_manager, domain)
+    if feature["state"] == "present":
+        return
+    answer["feature"] = feature
+    if feature["state"] == "absent":
+        label = feature.get("label") or domain
+        answer["availability"] = "not_installed"
+        # Row-level qualifiers describe a table whose rows mean nothing here.
+        for key in ("empty", "hidden_rows", "rows_hidden_by_acl", "later_pages"):
+            answer.pop(key, None)
+        answer["hint"] = (
+            f"{label} is NOT installed ({feature.get('evidence')}). This table exists "
+            f"without it, so its rows — or their absence — say nothing about {label}."
+        )
+
+
+_BECAUSE_FIELDS_UNCHECKED = (
+    "the table exists, but the query's field names could not be checked — on a "
+    "scoped table a column it lacks also answers 403, so this is not proven to be ACL"
+)
+
+
+def _read_failure_verdict(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    exc: Exception,
+    *,
+    fields_clean: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """What a rejected read means, or None when the failure is not a verdict.
+
+    None for anything that is not a 4xx answer to the read itself (network,
+    401, a login bounce) — those take the normal re-auth path. Otherwise one of:
+
+    - the full ``unknown_table`` refusal with ``availability: absent`` — only on
+      a PROVEN absence (sys_db_object read back, no row);
+    - ``{availability: forbidden}`` — table proven to exist, fields proven real,
+      and the read answered 403;
+    - ``{availability: undetermined, because}`` — every other case, naming the
+      limit that was hit.
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status is None or not 400 <= status < 500 or status == 401 or _is_auth_error(exc):
+        return None
+    exists = _table_exists(config, auth_manager, table)
+    if exists is False:
+        # A table that is not there is either a feature that is not installed or
+        # a wrong name, and the two need opposite next steps. Measured: em_alert
+        # on an instance without Event Management came back with did_you_mean
+        # sysevent_alert — a typo answer that sends the caller to unrelated data.
+        feature = table_feature(config, auth_manager, table)
+        if feature and feature["state"] == "absent":
+            return _not_installed_response(table, feature)
+        # ServiceNow answers a misspelled table with a 4xx whose body often does
+        # not survive to the caller; real sessions then tried three more
+        # invented names in a row. Name the absence and the nearest real names.
+        refusal: Dict[str, Any] = {
+            "success": False,
+            "error": "unknown_table",
+            "table": table,
+            "availability": "absent",
+            "did_you_mean": _similar_tables(config, auth_manager, table),
+            "message": f"Table '{table}' does not exist on this instance (not in sys_db_object).",
+            "hint": "Pick a name from did_you_mean, or search with sn_discover.",
+        }
+        if feature and feature["state"] == "undetermined":
+            label = feature.get("label") or feature.get("domain")
+            refusal["feature"] = feature
+            refusal["hint"] = (
+                f"This name belongs to {label}, whose install state could not be read "
+                f"({feature.get('because')}) — the feature may simply not be installed. "
+                "Treat did_you_mean as a guess, not a correction."
+            )
+        return refusal
+    if exists is None:
+        # The catalog is unreadable, but the feature may not be: a feature read
+        # back as off answers the question whatever the table's state.
+        feature = table_feature(config, auth_manager, table)
+        if feature and feature["state"] == "absent":
+            return _not_installed_response(table, feature)
+        return {"availability": "undetermined", "because": _BECAUSE_EXISTENCE_UNREAD}
+    if status == 403:
+        if not fields_clean:
+            return {"availability": "undetermined", "because": _BECAUSE_FIELDS_UNCHECKED}
+        return {"availability": "forbidden", "because": _BECAUSE_FORBIDDEN}
+    return {
+        "availability": "undetermined",
+        "because": f"the table exists; the read itself was rejected with HTTP {status}",
+    }
 
 
 def _unknown_table_response(
     config: ServerConfig, auth_manager: AuthManager, table: str, exc: Exception
 ) -> Optional[Dict[str, Any]]:
-    """A definite "no such table" answer for a rejected read, or None.
+    """The refusal on a PROVEN absence (``unknown_table`` / ``feature_not_installed``), else None."""
+    verdict = _read_failure_verdict(config, auth_manager, table, exc)
+    return verdict if verdict and "error" in verdict else None
 
-    ServiceNow answers a misspelled table with a 4xx whose body often does not
-    survive to the caller, so the tool used to hand back "HTTP Error 400: Bad
-    Request" and leave the model to guess — real sessions then tried three
-    more invented names in a row. Only a PROVEN absence (sys_db_object read
-    back, no row) produces this; a lookup that failed leaves the original error.
+
+def _row_visibility(
+    total_count: Optional[int], offset: int, returned: int, limit: int
+) -> Dict[str, Any]:
+    """Fields saying whether rows were hidden from this session, or ``{}``.
+
+    X-Total-Count counts rows the session's row ACLs then withhold — measured
+    on a lab instance (6 counted / 5 returned; 1 counted / 0 returned). The ACL
+    is applied PER PAGE: the server takes the page window, then drops what the
+    session may not read (sys_security_acl, limit 30, total 1,623: pages of 29
+    and 28). So the hidden count is what is missing from THIS window —
+    ``min(limit, total - offset) - returned`` — and nothing is claimed about
+    pages that were not read. An earlier version reported ``total - returned``
+    and called 1,594 rows on later pages "hidden".
+
+    Without a server count nothing can be said, and a 0-row read says so
+    instead of letting ``count: 0`` stand as an answer.
     """
-    status = getattr(getattr(exc, "response", None), "status_code", None)
-    if status is None or not 400 <= status < 500 or status == 401 or _is_auth_error(exc):
-        return None
-    if _table_exists(config, auth_manager, table) is not False:
-        return None
-    return {
-        "success": False,
-        "error": "unknown_table",
-        "table": table,
-        "did_you_mean": _similar_tables(config, auth_manager, table),
-        "message": f"Table '{table}' does not exist on this instance (not in sys_db_object).",
-        "hint": "Pick a name from did_you_mean, or search with sn_discover.",
-    }
+    if total_count is None:
+        return {"hidden_rows": "not_checked"} if returned == 0 else {}
+    offset = max(offset, 0)
+    window = min(limit, total_count - offset)
+    hidden_here = window - returned
+    if hidden_here > 0:
+        out: Dict[str, Any] = {"rows_hidden_by_acl": hidden_here}
+        if total_count > offset + limit:
+            # Further pages exist and were not read; their hiding is unknown.
+            out["later_pages"] = "not_checked"
+        return out
+    if returned == 0 and total_count == 0:
+        return {"availability": "present", "empty": True}
+    return {}
 
 
 def _is_login_redirect_response(response: requests.Response) -> bool:
@@ -2001,9 +2185,10 @@ def sn_query(
     # combination cost three days on the wrong branch once. Checking first also
     # means a query that cannot do what was asked never runs.
     #
-    # `None` is "could not check", and is deliberately not treated as clean; it
-    # simply does not block. Only a PROVEN absence stops the call.
-    unknown = _unknown_fields_response(config, auth_manager, params.table, params.query or "")
+    # "Could not check" is deliberately not treated as clean; it simply does not
+    # block. Only a PROVEN absence stops the call. `fields_clean` is kept so a
+    # later 403 is only called an ACL answer when the fields were proven real.
+    unknown, fields_clean = _field_check(config, auth_manager, params.table, params.query or "")
     if unknown:
         return unknown
 
@@ -2078,6 +2263,15 @@ def sn_query(
                 "compares untruncated values."
             )
 
+        # From the raw page, not the size-cut one: a row the budget clipped was
+        # readable, and must not be reported as hidden. The total is only a
+        # server count when one was ASKED for — measured on a lab instance, the
+        # header still arrives under sysparm_no_count (alm_hardware: 1,271 rows,
+        # header 1), so trusting it there would print `empty` on a guess.
+        server_total = total_count if params.include_count else None
+        visibility = _row_visibility(server_total, params.offset or 0, len(result), safe_limit)
+        response_data.update(visibility)
+
         if not safe_result:
             # Only reachable after a 2xx (sn_query_page runs with
             # fail_silently=False, so a bad table name raises out to the except
@@ -2085,20 +2279,33 @@ def sn_query(
             # go verify it with sn_schema/sn_discover was advice this path can
             # already rule out, and it led the hint with the one cause that
             # cannot be true. What remains are the causes that still can be.
-            response_data["hint"] = _zero_rows_hint(params.query)
+            hidden = visibility.get("rows_hidden_by_acl")
+            if hidden:
+                response_data["hint"] = (
+                    f"{hidden} row(s) in this page match, and this session's ACLs withhold "
+                    "all of them — they EXIST. Not an empty result; reading them needs a role "
+                    "this session lacks (one granted after login needs a fresh login)."
+                )
+            else:
+                response_data["hint"] = _zero_rows_hint(params.query)
 
+        _qualify_feature_read(config, auth_manager, params.table, response_data)
         return response_data
     except Exception as exc:
-        unknown_table = _unknown_table_response(config, auth_manager, params.table, exc)
-        if unknown_table:
-            unknown_table["query_echo"] = params.query or ""
-            return unknown_table
+        verdict = _read_failure_verdict(
+            config, auth_manager, params.table, exc, fields_clean=fields_clean
+        )
+        if verdict and "error" in verdict:
+            verdict["query_echo"] = params.query or ""
+            return verdict
         response: Dict[str, Any] = {
             "success": False,
             "table": params.table,
             "message": f"Query failed: {exc}",
             "query_echo": params.query or "",
         }
+        if verdict:
+            response.update(verdict)
         hint = _generate_query_hint(params.query or "", str(exc))
         if hint:
             response["hint"] = hint
@@ -2190,7 +2397,7 @@ def sn_aggregate(
     # hands back a whole-table number, and nothing about a number looks wrong.
     named = [part.strip() for part in (params.group_by or "").split(",") if part.strip()]
     named += [part.strip() for part in (params.field or "").split(",") if part.strip()]
-    unknown = _unknown_fields_response(
+    unknown, fields_clean = _field_check(
         config, auth_manager, params.table, params.query or "", also_check=named
     )
     if unknown:
@@ -2217,19 +2424,29 @@ def sn_aggregate(
             isinstance(result, dict) and str((result.get("stats") or {}).get("count")) == "0"
         )
         if empty:
+            # The table answered, so it is present. Whether the stats API counts
+            # rows the session's ACLs withhold has not been measured, so a zero
+            # here is not called empty.
+            answer["availability"] = "present"
+            answer["hidden_rows"] = "not_checked"
             answer["hint"] = _zero_rows_hint(params.query)
+        _qualify_feature_read(config, auth_manager, params.table, answer)
         return answer
     except Exception as exc:
-        unknown_table = _unknown_table_response(config, auth_manager, params.table, exc)
-        if unknown_table:
-            unknown_table["aggregate"] = agg
-            return unknown_table
+        verdict = _read_failure_verdict(
+            config, auth_manager, params.table, exc, fields_clean=fields_clean
+        )
+        if verdict and "error" in verdict:
+            verdict["aggregate"] = agg
+            return verdict
         failed: Dict[str, Any] = {
             "success": False,
             "table": params.table,
             "aggregate": agg,
             "message": f"Aggregate failed: {exc}",
         }
+        if verdict:
+            failed.update(verdict)
         hint = _generate_query_hint(params.query or "", str(exc))
         if hint:
             failed["hint"] = hint
@@ -2352,11 +2569,21 @@ def sn_schema(
         _cache_put(ck, result, ttl=_METADATA_CACHE_TTL_SECONDS)
         return result
     except Exception as exc:
-        return {
+        failed: Dict[str, Any] = {
             "success": False,
             "table": params.table,
             "message": f"Schema fetch failed: {exc}",
         }
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status == 403:
+            # The read refused is sys_dictionary's, not the table's: nothing here
+            # says whether the table exists, so no table verdict is made.
+            failed["availability"] = "undetermined"
+            failed["because"] = (
+                "sys_dictionary is not readable by this session, so the table's "
+                "columns — and whether it exists — are unknown"
+            )
+        return failed
 
 
 # Concept→table aliases. sn_discover does a LIKE on name/label, so UI-level
@@ -2449,11 +2676,23 @@ def sn_discover(
         _cache_put(ck, result, ttl=_METADATA_CACHE_TTL_SECONDS)
         return result
     except Exception as exc:
-        return {
+        failed: Dict[str, Any] = {
             "success": False,
             "keyword": params.keyword,
             "message": f"Discover failed: {exc}",
         }
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status == 403:
+            # Seen on a lab instance with a user_admin-only session: the table
+            # catalog itself is refused. No table is proven absent by that, and
+            # "found nothing" must not be the reading.
+            failed["availability"] = "undetermined"
+            failed["because"] = (
+                "sys_db_object (the table catalog) is not readable by this session, so "
+                "no table can be shown present or absent. Query the table directly with "
+                "sn_query; a role granted after login needs a fresh login"
+            )
+        return failed
 
 
 # ---------------------------------------------------------------------------

@@ -30,16 +30,25 @@ You are answering a materials, asset, CMDB or ITOM question from live tables.
 These are the platform's standard names. HAM, Discovery, Service Mapping and Event
 Management are separately licensed plugins, so any of them can be absent.
 
-Checked once, on one instance with no asset data: the `alm_*`, `cmdb_*`,
-`discovery_status`, `discovery_log`, `discovery_device_history`, `ecc_*`, `svc_ci_assoc`
-and import tables exist, and `alm_asset` declares tag, serial, model, status, stockroom,
-quantity and `ci`. `proc_*`, `discovery_schedule` and `em_*` were absent there, so those
-names are **unproven**: the plugin may be missing, or the name may be wrong.
+Checked on a HAM lab instance (HAM Pro, procurement and contracts on; Discovery, Service
+Mapping and Event Management off): `proc_po`, `ast_contract` and `sn_hamp_*` hold data;
+`em_*` does not exist; `discovery_*`, `ecc_agent` and `sa_*` tables **exist even with
+their plugin off**. So a table being there proves nothing about Discovery or Service
+Mapping.
 
-**Confirm first, once per instance:** `sn_discover(keyword="alm_")`, then
-`sn_schema(table=...)` for the table you will filter on. A missing table does not
-mean there is no data: the work may sit in a custom table. `install_status` and
-`state` values differ by instance, so read `sys_choice` rather than assuming numbers.
+The read tools decide this for you. They check the plugin or app state on the instance
+and put the answer in `availability`. Do not infer it from a table list:
+
+| `availability` | Meaning | Say |
+|---|---|---|
+| `not_installed` | The feature is off; `feature.evidence` names the plugin read back | "X is not on this instance". Do not try a similar table |
+| `forbidden` | The table exists and the session's ACLs refuse it | Which role is missing. A role granted after login needs a fresh login |
+| `absent` | No such table; the feature, if any, is on | A wrong name. Use `did_you_mean` |
+| `undetermined` | `because` names what could not be read | "Not determined", with the reason |
+| `rows_hidden_by_acl: N` | N rows on this page exist but are withheld | Never "fewer rows" |
+
+`sn_schema(table=...)` before you filter on a column. `install_status` and `state`
+values differ by instance, so read `sys_choice` rather than assuming numbers.
 
 ## Materials and assets
 
@@ -69,7 +78,8 @@ mean there is no data: the work may sit in a custom table. `install_status` and
 
 ## Pipeline
 
-1. IDENTIFY the table from the maps above, and CALL `sn_discover` to confirm it exists here.
+1. IDENTIFY the table from the maps above and read it. The answer's `availability` says
+   whether the feature is there; a separate `sn_discover` first is not needed.
 2. Count before reading: `sn_aggregate(table, group_by=...)` for stock by stockroom,
    assets by status, CIs by class. It lists the largest groups and accounts for the rest.
 3. Dot-walk rather than making a second query:
@@ -110,9 +120,10 @@ add-on.
 
 ## ON ERROR
 
-- `unknown_table`: the plugin is absent or the name differs. CALL `sn_discover`, and report it as not determined if nothing fits.
+- `feature_not_installed`: report the feature as not on this instance. Stop; no retry.
+- `unknown_table`: a wrong name. Use `did_you_mean`; when `feature` is `undetermined`, the feature may be missing too, so say so.
 - `unknown_query_fields`: use the suggested name, or CALL `sn_schema`.
-- 403: the account may lack the asset or ITOM read role. Report it; do not read it as empty.
+- `forbidden`: report the permission gap. Do not read it as empty or as not installed.
 
 ## DELEGATE hint
 
