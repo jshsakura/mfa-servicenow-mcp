@@ -13,12 +13,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from test_debug_window import FakePage, _state
 
 from servicenow_mcp.browser import login
 from servicenow_mcp.cli import create_config
 from servicenow_mcp.utils.config import AuthConfig, AuthType, BrowserAuthConfig
 from servicenow_mcp.utils.instances import split_sso_auth_type, sso_locator_url
-from tests.test_debug_window import FakePage, _state
 
 _LOCATOR = "https://dev.example.com/login_locate_sso.do"
 _SSO_FIELD = "input#sso_selector_id"

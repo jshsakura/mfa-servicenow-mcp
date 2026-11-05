@@ -8,10 +8,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
+from test_catalog_authoring import _config, _fake, _own
 
 from servicenow_mcp.services import catalog as svc
 from servicenow_mcp.tools.catalog_tools import ManageCatalogParams, manage_catalog
-from tests.test_catalog_authoring import _config, _fake, _own
 
 ITEM = "aaaa1111bbbb2222cccc3333dddd4444"
 CAT = "aaaa1111bbbb2222cccc3333dddd0010"
