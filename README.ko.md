@@ -501,8 +501,8 @@ python -m servicenow_mcp \
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
 | `platform_developer` | 45 | ~13.7K | ~15.3K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 68 | ~21.6K | ~24.0K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
-| `itsm_developer` | 34 | ~11.1K | ~12.5K | ⚠️ 단독 ITSM 구성: 레코드 진단, 테이블 자동화 파악, 카탈로그·정책·알림 설정, 승인과 테스트 주문, 배정·승인 규칙과 선택지 목록, 포털 테마, 업데이트 세트나 XML로 배포. |
+| `full` | 68 | ~21.8K | ~24.2K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
+| `itsm_developer` | 34 | ~11.3K | ~12.7K | ⚠️ 단독 ITSM 구성: 레코드 진단, 테이블 자동화 파악, 카탈로그·정책·알림 설정, 승인과 테스트 주문, 배정·승인 규칙과 선택지 목록, 포털 테마, 업데이트 세트나 XML로 배포. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 자재·자산·ITOM 업무용 최소 구성: 조회와, 인스턴스에서 먼저 검증하는 자산 쓰기(`manage_asset`). 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **최대 토큰**은 요청마다 해당 패키지의 툴 스키마가 모델 컨텍스트에 더하는 대략적 토큰량입니다(서버의 컴팩트된 스키마를 tiktoken `cl100k_base`로 측정한 값 — 실제 Claude 토큰수는 약간 다릅니다). 가장 좁은 패키지에 머물수록 컨텍스트 예산과 비용을 아낄 수 있습니다. **이 값은 최대치**이며 평소 비용이 아닙니다. 모든 툴 스키마를 처음부터 싣는 클라이언트만 이 전부를 냅니다. 툴 지연 로딩을 지원하는 클라이언트(예: Claude Code의 툴 검색)는 실제로 쓰는 툴의 스키마만 불러오므로, 요청당 실제 비용은 훨씬 적습니다. 도구 수는 패키지 구성원 수입니다. 모든 패키지에 `list_tool_packages`가 함께 붙고, 멀티 인스턴스 구성에서는 `list_instances`, `compare_instances`와 모든 툴의 `instance` 파라미터가 더해집니다 — 두 번째 토큰 열은 인스턴스 3개 기준 실측값입니다. 수치는 추정이 아니라 tiktoken 실측입니다(`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>`로 툴별 내역 확인).
@@ -518,6 +518,7 @@ dev/test/prod를 비교하거나 원하는 곳에 배포해야 할 때 `SERVICEN
 - **툴 surface는 글로벌** — `MCP_TOOL_PACKAGE` 하나로 결정. 서버 프로세스당 active 인스턴스는 항상 하나라 인스턴스별 tool package는 없습니다.
 - **쓰기 권한은 인스턴스별** — alias마다 `allow_writes`. 호출 시점에 active 인스턴스 기준으로 강제됩니다 — 쓰기 도구가 로드돼 있어도 active 인스턴스가 `allow_writes: false`면 거부. 쓰기는 opt-in이라 `allow_writes`를 생략하면 읽기 전용입니다.
 - **자격증명은 인스턴스별 + 글로벌 fallback** — alias에 `username` / `password` / `api_key`(및 `auth_type`)를 넣으면 오버라이드, 없으면 글로벌 `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` 등을 상속합니다. 모든 인스턴스가 같은 로그인을 쓰면 글로벌에 한 번만 넣고 alias는 자격증명 없이 두면 됩니다.
+- **SSO 전용 인스턴스: `auth_type: "sso"`** — 로컬 로그인 폼이 아니라 멀티 프로바이더 SSO 페이지(`login_locate_sso.do`, "Login with SSO")로 로그인하는 인스턴스용입니다. `username`만 넣으세요: `{ "url": "https://acme-qa.service-now.com", "auth_type": "sso", "username": "alice" }`. 브라우저 인증이며 로그인 페이지 기본값이 그 인스턴스의 `login_locate_sso.do`가 됩니다(`login_url`로 변경 가능). `password`는 무시됩니다. 디버그 브라우저는 SSO 페이지에 아이디를 넣고 Submit까지 누르고, 그다음 IdP 로그인(비밀번호, MFA)은 직접 하시면 됩니다 — 비밀번호 칸에는 아무것도 입력하지 않습니다. 이후 세션은 다른 브라우저 로그인과 똑같이 쿠키로 이어집니다.
 
 그 외 규칙:
 
@@ -561,7 +562,7 @@ dev/test drift 확인에는 `compare_instances`를 사용하세요. **다수** �
 | 플래그 | 환경변수 | 기본값 | 설명 |
 |------|---------|--------|------|
 | `--instance-url` | `SERVICENOW_INSTANCE_URL` | *필수* | ServiceNow 인스턴스 URL |
-| `--auth-type` | `SERVICENOW_AUTH_TYPE` | `basic` | 인증 모드: `basic`, `oauth`, `api_key`, `browser` |
+| `--auth-type` | `SERVICENOW_AUTH_TYPE` | `basic` | 인증 모드: `basic`, `oauth`, `api_key`, `browser`, `sso` |
 | `--tool-package` | `MCP_TOOL_PACKAGE` | `standard` | 도구 패키지 |
 | `--server-name` | `SERVICENOW_MCP_SERVER_NAME` | `ServiceNow` | 클라이언트에 광고할 MCP 서버 이름 |
 | `--transport` | `SERVICENOW_MCP_TRANSPORT` | `stdio` | MCP transport: `stdio` 또는 `http` |

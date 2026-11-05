@@ -61,6 +61,8 @@ from .utils.instances import (  # noqa: E402
     resolve_auth_type,
     resolve_env_reference,
     select_active_alias,
+    split_sso_auth_type,
+    sso_locator_url,
 )
 from .version import __version__  # noqa: E402
 
@@ -355,8 +357,8 @@ def parse_args():
     auth_group = parser.add_argument_group("Authentication")
     auth_group.add_argument(
         "--auth-type",
-        choices=["basic", "oauth", "api_key", "browser"],
-        help="Authentication type",
+        choices=["basic", "oauth", "api_key", "browser", "sso"],
+        help="Authentication type (sso = browser login via the SSO locator page)",
         default=os.environ.get("SERVICENOW_AUTH_TYPE", "browser"),
     )
 
@@ -506,8 +508,10 @@ def create_config(args) -> ServerConfig:
     # auth_type on the entry is the only way to change it. Mirrors
     # server._auth_for_instance_entry so active and named instances behave alike.
     active_raw = active_entry.raw if active_entry and active_entry.raw else {}
-    auth_type_value = resolve_auth_type(active_raw, args.auth_type)
-    auth_type = AuthType(auth_type_value.lower())
+    auth_type_value, browser_login = split_sso_auth_type(
+        resolve_auth_type(active_raw, args.auth_type)
+    )
+    auth_type = AuthType(auth_type_value)
     # This will hold the final AuthConfig instance for ServerConfig
     final_auth_config: AuthConfig
 
@@ -616,6 +620,17 @@ def create_config(args) -> ServerConfig:
             or args.browser_login_url
             or os.getenv("SERVICENOW_BROWSER_LOGIN_URL")
         )
+        if browser_login == "sso":
+            # SSO means nothing is typed into the local login form, so a
+            # password has nowhere legitimate to go — drop it rather than keep a
+            # secret that could only ever be used the wrong way.
+            if active_raw.get("password"):
+                logger.warning(
+                    "auth_type 'sso': the configured password is ignored; "
+                    "sign in through the SSO page instead"
+                )
+            browser_password = None
+            browser_login_url = browser_login_url or sso_locator_url(instance_url)
         _explicit_probe = (
             active_raw.get("probe_path")
             or args.browser_probe_path
@@ -687,6 +702,7 @@ def create_config(args) -> ServerConfig:
             username=browser_username,
             password=browser_password,
             login_url=browser_login_url,
+            login=browser_login,
             probe_path=browser_probe_path,
             headless=browser_headless,
             timeout_seconds=browser_timeout,

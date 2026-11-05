@@ -500,8 +500,8 @@ Solo lectura (valores predeterminados seguros):
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + escrituras operativas de incidentes y cambios |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
 | `platform_developer` | 45 | ~13.7K | ~15.3K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 68 | ~21.6K | ~24.0K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
-| `itsm_developer` | 34 | ~11.1K | ~12.5K | ⚠️ ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
+| `full` | 68 | ~21.8K | ~24.2K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
+| `itsm_developer` | 34 | ~11.3K | ~12.7K | ⚠️ ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **Tokens máx.** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken `cl100k_base`; el conteo real de Claude varía ligeramente); usar el paquete más reducido ahorra contexto y costo. **Es el máximo**, no el costo típico: solo lo pagan completo los clientes que cargan todas las tool schemas al inicio. Los clientes con carga diferida de herramientas (p. ej. la búsqueda de herramientas de Claude Code) cargan un schema solo cuando se usa esa herramienta, así que su costo real por solicitud es mucho menor. El número de herramientas cuenta los miembros del paquete; todos los paquetes llevan además `list_tool_packages`, y una configuración multi-instancia añade `list_instances`, `compare_instances` y un parámetro `instance` en cada herramienta — la segunda columna lo mide con tres instancias. Las cifras se miden con tiktoken, no se estiman (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <paquete>` lista la parte de cada herramienta).
@@ -560,7 +560,7 @@ Para la referencia completa (todos los paquetes, detalles de herencia, sintaxis 
 | Flag | Variable de entorno | Predeterminado | Descripción |
 |------|-------------|---------|-------------|
 | `--instance-url` | `SERVICENOW_INSTANCE_URL` | *requerido* | URL de la instancia de ServiceNow |
-| `--auth-type` | `SERVICENOW_AUTH_TYPE` | `basic` | Modo de autenticación: `basic`, `oauth`, `api_key`, `browser` |
+| `--auth-type` | `SERVICENOW_AUTH_TYPE` | `basic` | Modo de autenticación: `basic`, `oauth`, `api_key`, `browser`, `sso` |
 | `--tool-package` | `MCP_TOOL_PACKAGE` | `standard` | Paquete de herramientas a cargar |
 | `--server-name` | `SERVICENOW_MCP_SERVER_NAME` | `ServiceNow` | Nombre del servidor MCP anunciado al cliente |
 | `--transport` | `SERVICENOW_MCP_TRANSPORT` | `stdio` | Transporte MCP: `stdio` o `http` |

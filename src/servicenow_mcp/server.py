@@ -55,6 +55,8 @@ from servicenow_mcp.utils.instances import (
     resolve_env_reference,
     safe_instance_url,
     select_active_alias,
+    split_sso_auth_type,
+    sso_locator_url,
 )
 from servicenow_mcp.utils.progress import use_progress_emitter
 from servicenow_mcp.utils.response_budget import enforce_response_budget, get_response_budget
@@ -910,10 +912,34 @@ class ServiceNowMCP:
         # Browser stays the default when the entry says nothing. Per-profile
         # username/password select WHO (prefill + declared owner for G10),
         # never the auth type — only an explicit auth_type changes it.
-        auth_type = resolve_auth_type(entry, base.type.value)
+        # An entry that says nothing follows the base's auth type, SSO included
+        # (as it would follow basic) — but its login PAGE is its own, below.
+        base_type = "sso" if (base.browser and base.browser.login == "sso") else base.type.value
+        auth_type, login_mode = split_sso_auth_type(resolve_auth_type(entry, base_type))
         parsed = AuthType(auth_type)
         if parsed == AuthType.BROWSER:
             base_browser = base.browser or BrowserAuthConfig()
+            password = _entry_cred(
+                entry,
+                "password",
+                base_browser.password or os.getenv("SERVICENOW_PASSWORD"),
+                required=False,
+            )
+            login_url = _entry_cred(entry, "login_url", base_browser.login_url, required=False)
+            if login_mode == "sso":
+                # Warn only about a password written on THIS entry; a global
+                # one may well belong to the other instances.
+                if entry.get("password"):
+                    logger.warning(
+                        "auth_type 'sso': the configured password is ignored; "
+                        "sign in through the SSO page instead"
+                    )
+                password = None
+                # The base login_url belongs to another instance's host; only
+                # the entry's own override, else this entry's locator page.
+                entry_login_url = _entry_cred(entry, "login_url", None, required=False)
+                entry_url = str(entry.get("url") or entry.get("instance_url") or "")
+                login_url = entry_login_url or (sso_locator_url(entry_url) if entry_url else None)
             return AuthConfig(
                 type=parsed,
                 browser=BrowserAuthConfig(
@@ -927,15 +953,9 @@ class ServiceNowMCP:
                         base_browser.username or os.getenv("SERVICENOW_USERNAME"),
                         required=False,
                     ),
-                    password=_entry_cred(
-                        entry,
-                        "password",
-                        base_browser.password or os.getenv("SERVICENOW_PASSWORD"),
-                        required=False,
-                    ),
-                    login_url=_entry_cred(
-                        entry, "login_url", base_browser.login_url, required=False
-                    ),
+                    password=password,
+                    login_url=login_url,
+                    login=login_mode,
                     probe_path=_entry_cred(
                         entry, "probe_path", base_browser.probe_path, required=False
                     ),

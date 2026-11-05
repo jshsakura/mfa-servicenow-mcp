@@ -83,9 +83,9 @@ from ..browser.impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, 
 from ..browser.impersonate import describe_detected as describe_impersonation
 from ..browser.impersonate import read_marker
 from ..browser.launch_budget import LaunchBudgetExceeded, budget_status
-from ..browser.login import auto_login
+from ..browser.login import auto_login, configured_username
 from ..browser.login import describe as describe_login
-from ..browser.login import saved_credentials
+from ..browser.login import saved_credentials, sso_login
 from ..browser.reaper import reap_idle_windows
 from ..browser.report import compact
 from ..browser.reset import reset_session
@@ -332,7 +332,7 @@ def _window_account(config: ServerConfig, auth_manager: AuthManager, state: Any)
     marker = read_marker(window_impersonation_path(auth_manager), state.started_at)
     if marker and marker.get("original"):
         return str(marker["original"])
-    return (saved_credentials(config) or ("", ""))[0]
+    return configured_username(config)
 
 
 def _window_identity(state: Any, config: ServerConfig, auth_manager: Any = None) -> Dict[str, Any]:
@@ -515,7 +515,7 @@ def open_debug_window(
         # The badge compares against the account this window signed in as, and
         # the marker it was reading a moment ago is now describing a session
         # that was just cleared.
-        account = (saved_credentials(config) or ("", ""))[0]
+        account = configured_username(config)
         result["reset"] = {
             key: wiped[key]
             for key in (
@@ -674,6 +674,7 @@ def open_debug_window(
         credentials=saved_credentials(config),
         marker_path=window_login_path(auth_manager),
         driven_url=str(result.get("url") or ""),
+        sso=sso_login(config),
     )
     # Only "no credentials configured" stays out of the response. The other two
     # quiet statuses — no form, no tab — used to be suppressed as "nothing
@@ -1025,7 +1026,7 @@ def act_in_debug_window(
                 "marker_path": window_impersonation_path(auth_manager),
                 "started_at": state.started_at,
                 "instance_host": state.instance_host,
-                "login_user": (saved_credentials(config) or ("", ""))[0],
+                "login_user": configured_username(config),
                 "allow_discard": params.discard_unsaved_input,
                 # Where to make the switch from when the tab is off the instance
                 # and a relative POST would go to somebody else's site. The

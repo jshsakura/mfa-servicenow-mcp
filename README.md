@@ -504,8 +504,8 @@ Read-only (safe defaults):
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + incident and change operational writes |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
 | `platform_developer` | 45 | ~13.7K | ~15.3K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 68 | ~21.6K | ~24.0K | ⚠️ **Most advanced** — all write tools across all domains at once |
-| `itsm_developer` | 34 | ~11.1K | ~12.5K | ⚠️ Standalone ITSM: diagnose a record, map table automation, configure catalog/policies/notifications, approvals and test orders, assignment/approval rules and choice lists, portal themes, ship by update set or XML. |
+| `full` | 68 | ~21.8K | ~24.2K | ⚠️ **Most advanced** — all write tools across all domains at once |
+| `itsm_developer` | 34 | ~11.3K | ~12.7K | ⚠️ Standalone ITSM: diagnose a record, map table automation, configure catalog/policies/notifications, approvals and test orders, assignment/approval rules and choice lists, portal themes, ship by update set or XML. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materials, asset and ITOM work: queries plus asset writes checked against the instance (`manage_asset`). Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **Max tokens** is the approximate footprint each package's tool schemas add to the model's context per request (measured with tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Staying on the narrowest package keeps the context budget — and cost — down. **This is the maximum**, not a typical cost: it is paid in full only by clients that load every tool schema up front. Clients with deferred tool loading (e.g. Claude Code's tool search) load a schema only when that tool is used, so their real per-request cost is far lower. Tool counts are package members; every package also carries `list_tool_packages`, and a multi-instance setup adds `list_instances`, `compare_instances` and an `instance` parameter on every tool — the second token column measures that with three instances. Figures are measured with tiktoken, not estimated (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` lists every tool's share).
@@ -521,6 +521,7 @@ Two things are global, one is per-instance:
 - **Tool surface is global** — set once with `MCP_TOOL_PACKAGE`. Only one instance is ever active per server process, so there is no per-instance tool package.
 - **Write permission is per-instance** — each alias carries `allow_writes`. It is enforced at call time against the active instance: a write tool can be loaded but still refused if the active instance has `allow_writes: false`. Writes are opt-in: omit `allow_writes` and the instance is read-only.
 - **Credentials are per-instance with global fallback** — put `username` / `password` / `api_key` (and `auth_type`) on an alias to override; omit them and the alias inherits the global `SERVICENOW_USERNAME` / `SERVICENOW_PASSWORD` / etc. So if every instance shares one login, set it once globally and leave the alias entries credential-free.
+- **SSO-only instances: `auth_type: "sso"`** — for an instance whose users sign in through the multi-provider SSO page (`login_locate_sso.do`, "Login with SSO") rather than the local login form. Give it only a `username`: `{ "url": "https://acme-qa.service-now.com", "auth_type": "sso", "username": "alice" }`. It is browser auth whose login page defaults to that instance's `login_locate_sso.do` (`login_url` overrides); a `password` is ignored. The debug browser types the user ID into the SSO page and presses Submit, then the identity provider's own sign-in (password, MFA) is yours — nothing is ever typed into a password field. The session cookies carry it from there, as with any browser login.
 
 Other rules:
 
@@ -564,7 +565,7 @@ For the full reference (all packages, inheritance details, config syntax): [Tool
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|
 | `--instance-url` | `SERVICENOW_INSTANCE_URL` | *required* | ServiceNow instance URL |
-| `--auth-type` | `SERVICENOW_AUTH_TYPE` | `basic` | Auth mode: `basic`, `oauth`, `api_key`, `browser` |
+| `--auth-type` | `SERVICENOW_AUTH_TYPE` | `basic` | Auth mode: `basic`, `oauth`, `api_key`, `browser`, `sso` |
 | `--tool-package` | `MCP_TOOL_PACKAGE` | `standard` | Tool package to load |
 | `--server-name` | `SERVICENOW_MCP_SERVER_NAME` | `ServiceNow` | MCP server name advertised to the client |
 | `--transport` | `SERVICENOW_MCP_TRANSPORT` | `stdio` | MCP transport: `stdio` or `http` |

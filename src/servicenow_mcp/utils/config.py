@@ -3,7 +3,7 @@ Configuration module for the ServiceNow MCP server.
 """
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -47,6 +47,10 @@ class BrowserAuthConfig(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     login_url: Optional[str] = None
+    # "password": the local login form. "sso": the instance's SSO locator page,
+    # set by ``auth_type: "sso"`` — the user ID goes there and nothing else is
+    # typed; the password is never kept for this mode.
+    login: Literal["password", "sso"] = "password"
     probe_path: str = "/api/now/table/sys_user_preference?sysparm_limit=1&sysparm_fields=sys_id"
     headless: bool = False
     timeout_seconds: int = 120

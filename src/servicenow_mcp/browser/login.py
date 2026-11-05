@@ -69,6 +69,17 @@ challenge — the debug window's own persistent profile is what makes the second
 open silent, and that already works. The only thing sharing would have bought
 is what session.py refuses to share for much better reasons.
 
+**SSO (``auth_type: "sso"``) types a user ID and nothing else.** Some
+instances sign people in through a multi-provider SSO page,
+``login_locate_sso.do``: a single "User ID" field whose Submit asks the instance
+which identity provider that user belongs to, then redirects there. The local
+login form on such an instance is the wrong door — its password is not the one
+the user has — so in this mode nothing is ever typed into a password field.
+When the tab is on the instance's login page, it is sent to the locator, the ID
+goes into ``#sso_selector_id``, Submit is clicked, and the rest (the IdP's own
+password, MFA) is the user's. The mode is an explicit config value rather than
+"no password configured", because that already means "sign in by hand".
+
 Credentials come from ``auth.browser`` first, then ``auth.basic``. The second
 is not a fallback so much as a convenience for the common setup where the same
 account is used both ways; on an OAuth or API-key profile there is simply
@@ -80,6 +91,7 @@ import logging
 import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 from ..auth._browser_dom import (
     PASSWORD_SELECTORS,
@@ -90,6 +102,7 @@ from ..auth._browser_dom import (
     _selector_exists,
     _target_label,
 )
+from ..utils.instances import SSO_LOCATOR_PATH
 from ._offload import cdp_browser, require_playwright, run_off_loop
 from .window import WindowState
 
@@ -115,6 +128,19 @@ _VERDICT_STABLE_READS = 3
 # one per candidate, which would multiply the timeout above by six.
 _PASSWORD_UNION = ", ".join(PASSWORD_SELECTORS)
 
+# The multi-provider SSO locator page (login_locate_sso.do). Read from the page
+# itself: one text input, and a Submit button whose onclick runs locateSSO().
+SSO_USER_FIELD = "input#sso_selector_id"
+SSO_SUBMIT_SELECTORS = (
+    "button[onclick*='locateSSO']",
+    "button[type='submit']",
+    "input[type='submit']",
+)
+# An unknown user ID is answered in place, as a GlideUI error message.
+SSO_ERROR_SELECTOR = ".outputmsg_error"
+SSO_VERDICT_S = 10.0
+_SIGN_IN_UNION = f"{_PASSWORD_UNION}, {SSO_USER_FIELD}"
+
 
 def saved_credentials(config: Any) -> Optional[Tuple[str, str]]:
     """Username and password from the server config, or None.
@@ -122,6 +148,10 @@ def saved_credentials(config: Any) -> Optional[Tuple[str, str]]:
     Both must be present: half a credential fills half a form and submits
     nothing useful, which is worse than not trying.
     """
+    if sso_login(config):
+        # Nothing is ever typed into a password field in SSO mode — not even a
+        # password that happens to sit in the basic section.
+        return None
     for holder in ("browser", "basic"):
         section = getattr(getattr(config, "auth", None), holder, None)
         username = getattr(section, "username", None)
@@ -129,6 +159,28 @@ def saved_credentials(config: Any) -> Optional[Tuple[str, str]]:
         if username and password:
             return str(username), str(password)
     return None
+
+
+def sso_login(config: Any) -> Optional[Tuple[str, str]]:
+    """``(user ID, locator URL)`` when the config says ``auth_type: "sso"``.
+
+    The URL may be empty: the window then uses its own instance's locator page.
+    """
+    browser = getattr(getattr(config, "auth", None), "browser", None)
+    if getattr(browser, "login", None) != "sso":
+        return None
+    username = getattr(browser, "username", None)
+    if not username:
+        return None
+    return str(username), str(getattr(browser, "login_url", None) or "")
+
+
+def configured_username(config: Any) -> str:
+    """The account this config signs in as, whichever way it signs in."""
+    sso = sso_login(config)
+    if sso:
+        return sso[0]
+    return (saved_credentials(config) or ("", ""))[0]
 
 
 # ---------------------------------------------------------------------------
@@ -325,19 +377,147 @@ def _credentials_accepted(page: Any) -> Optional[bool]:
         time.sleep(_VERDICT_POLL_S)
 
 
+# ---------------------------------------------------------------------------
+# SSO: the user ID goes to the locator page, nothing else is typed
+# ---------------------------------------------------------------------------
+
+
+def _on_host(page: Any, host: str) -> bool:
+    return bool(host) and (urlparse(str(page.url)).hostname or "").lower() == host.lower()
+
+
+def _sso_field(page: Any) -> Optional[Any]:
+    """The page or frame holding the SSO user-ID field, if one does."""
+    for target in _login_targets(page):
+        if _selector_exists(target, SSO_USER_FIELD):
+            return target
+    return None
+
+
+def _wait_for_sign_in(page: Any) -> bool:
+    """Is the tab asking anyone to sign in — a password form or the SSO field?"""
+    for target in _login_targets(page):
+        if _selector_exists(target, _SIGN_IN_UNION):
+            return True
+    try:
+        page.wait_for_selector(_SIGN_IN_UNION, timeout=int(LOGIN_FORM_WAIT_S * 1000))
+        return True
+    except Exception:  # noqa: BLE001 - not a login page, or already signed in
+        return False
+
+
+def _locator_url(configured: str, instance_host: str) -> str:
+    """The configured locator page — but only on this window's own instance.
+
+    A login_url that points at another host (inherited from another profile, or
+    simply wrong) is not somewhere to send this window's sign-in.
+    """
+    if configured and _host_of(configured) == instance_host.lower():
+        return configured
+    return f"https://{instance_host}{SSO_LOCATOR_PATH}"
+
+
+def _host_of(url: str) -> str:
+    return (urlparse(url).hostname or "").lower()
+
+
+def _sso_verdict(page: Any, locator_url: str) -> Optional[bool]:
+    """Did the locator move on? True=redirected, False=user not found, None=unread.
+
+    ``page.url`` is read rather than evaluated: a redirect tears the document
+    down, and an evaluate that fails mid-navigation is exactly the success case.
+    """
+    locator_path = urlparse(locator_url).path or SSO_LOCATOR_PATH
+    deadline = time.time() + SSO_VERDICT_S
+    while True:
+        try:
+            current = urlparse(str(page.url))
+        except Exception as exc:  # noqa: BLE001 - a closed tab proves nothing
+            logger.debug("Could not read the tab after the SSO submit: %s", exc)
+            return None
+        if current.path != locator_path:
+            return True
+        if any(_selector_exists(t, SSO_ERROR_SELECTOR) for t in _login_targets(page)):
+            return False
+        if time.time() >= deadline:
+            return None
+        time.sleep(_VERDICT_POLL_S)
+
+
+def _sso_sign_in(
+    page: Any, state: WindowState, *, user: str, locator: str, marker_path: str
+) -> Dict[str, Any]:
+    if not _wait_for_sign_in(page):
+        return {"status": "no_login_form", "url": str(page.url)}
+
+    target = _sso_field(page)
+    if target is None:
+        if not _on_host(page, state.instance_host):
+            # Already at the identity provider. Its password is the user's to
+            # type — this mode never fills one.
+            return {"status": "sso_at_idp", "user": user, "url": str(page.url)}
+        # The instance's own login form: the wrong door in SSO mode.
+        locator = _locator_url(locator, state.instance_host)
+        try:
+            page.goto(locator, wait_until="load", timeout=int(LOGIN_TIMEOUT_S * 1000 / 3))
+            page.wait_for_selector(SSO_USER_FIELD, timeout=int(LOGIN_FORM_WAIT_S * 1000))
+        except Exception as exc:  # noqa: BLE001 - reported, never raised
+            logger.info("SSO locator page did not show its user ID field: %s", exc)
+            return {"status": "sso_no_locator", "url": locator}
+        target = _sso_field(page)
+        if target is None:
+            return {"status": "sso_no_locator", "url": locator}
+    locator = str(page.url)
+
+    # Claimed BEFORE the submit, as for a password: a crash mid-submit must
+    # not come back as a loop that keeps driving the user's tab.
+    record_attempt(marker_path, state)
+    try:
+        target.fill(SSO_USER_FIELD, user)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Could not type into the SSO user ID field: %s", exc)
+        return {"status": "fields_not_found", "url": locator}
+    via = _click_first_matching(target, SSO_SUBMIT_SELECTORS)
+    if via:
+        via = f"click {via}"
+    else:
+        try:
+            target.locator(SSO_USER_FIELD).press("Enter")
+            via = "Enter"
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not submit the SSO page with Enter: %s", exc)
+            return {"status": "filled", "user": user, "mode": "sso"}
+
+    moved = _sso_verdict(page, locator)
+    if moved is None:
+        return {"status": "sso_unverified", "user": user, "via": via}
+    if not moved:
+        return {"status": "sso_not_located", "user": user, "url": locator}
+    # The locator found a provider; whatever happens at the IdP is the user's,
+    # and a session that expires later deserves a fresh hand-off.
+    release_attempt(marker_path)
+    return {"status": "sso_redirected", "user": user, "via": via, "url": str(page.url)}
+
+
 def auto_login(
     state: WindowState,
     *,
     credentials: Optional[Tuple[str, str]],
     marker_path: str,
     driven_url: str = "",
+    sso: Optional[Tuple[str, str]] = None,
 ) -> Dict[str, Any]:
     """Fill and submit the login form in the window, at most once per window.
+
+    With ``sso`` (user ID, locator URL) the window is signed in through the SSO
+    locator page instead, and ``credentials`` is not consulted.
 
     Never raises: a window that opened is a success even if signing it in was
     not, and the user can always type the password themselves. Every outcome is
     reported under ``status`` so the caller can say which one happened.
     """
+    if sso:
+        return _auto_login_sso(state, sso=sso, marker_path=marker_path, driven_url=driven_url)
     if not credentials:
         return {"status": "no_credentials"}
     if already_attempted(marker_path, state):
@@ -387,9 +567,73 @@ def auto_login(
         return {"status": "error", "error": str(exc)[:200]}
 
 
+def _auto_login_sso(
+    state: WindowState, *, sso: Tuple[str, str], marker_path: str, driven_url: str
+) -> Dict[str, Any]:
+    if already_attempted(marker_path, state):
+        return {"status": "already_attempted", "mode": "sso"}
+    user, locator = sso
+    require_playwright()
+
+    def _work() -> Dict[str, Any]:
+        with cdp_browser(state.cdp_endpoint) as browser:
+            contexts = browser.contexts
+            if not contexts:
+                return {"status": "no_page"}
+            page, refusal = _login_page(
+                contexts[0].pages,
+                instance_host=state.instance_host,
+                driven_url=driven_url,
+            )
+            if page is None:
+                return {"status": refusal}
+            return _sso_sign_in(page, state, user=user, locator=locator, marker_path=marker_path)
+
+    try:
+        return run_off_loop(_work, timeout_s=LOGIN_TIMEOUT_S)
+    except Exception as exc:  # noqa: BLE001 - a failed login never fails the open
+        logger.info("Debug window SSO sign-in did not complete: %s", exc)
+        return {"status": "error", "error": str(exc)[:200]}
+
+
 def describe(result: Dict[str, Any]) -> Optional[str]:
     """One line for the caller to pass on, or None when there is nothing to say."""
     status = result.get("status")
+    if status == "sso_redirected":
+        return (
+            f"Sent user ID '{result.get('user')}' to the SSO page and it handed the window "
+            "to the identity provider — finish signing in there (password, MFA)."
+        )
+    if status == "sso_at_idp":
+        return (
+            "The window is on the identity provider's sign-in page — sign in there. "
+            "SSO mode never types a password."
+        )
+    if status == "sso_not_located":
+        return (
+            f"The SSO page did not accept user ID '{result.get('user')}' — check the "
+            "username in the config, or sign in in the window. Not retried for this window."
+        )
+    if status == "sso_unverified":
+        return (
+            f"Submitted user ID '{result.get('user')}' on the SSO page but could not tell "
+            "whether it moved on — look at the window."
+        )
+    if status == "sso_no_locator":
+        return (
+            f"Could not open the SSO page ({result.get('url')}) — sign in in the window. "
+            "If this instance's SSO entry page is somewhere else, set login_url."
+        )
+    if status == "already_attempted" and result.get("mode") == "sso":
+        return (
+            "The SSO page already ran for this window and did not hand it on. Sign in in "
+            "the window, or close it and open it again to try once more."
+        )
+    if status == "filled" and result.get("mode") == "sso":
+        return (
+            f"Typed user ID '{result.get('user')}' on the SSO page but found no Submit "
+            "button — press it in the window."
+        )
     if status == "submitted":
         return (
             f"Signed in as '{result.get('user')}' automatically. "
@@ -453,10 +697,13 @@ __all__ = [
     "CREDENTIAL_VERDICT_S",
     "LOGIN_FORM_WAIT_S",
     "LOGIN_TIMEOUT_S",
+    "SSO_USER_FIELD",
     "already_attempted",
     "auto_login",
+    "configured_username",
     "describe",
     "record_attempt",
     "release_attempt",
     "saved_credentials",
+    "sso_login",
 ]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from servicenow_mcp.utils import json_fast
@@ -128,6 +128,31 @@ def resolve_auth_type(entry: dict[str, Any] | None, default_auth_type: str) -> s
     if explicit:
         return str(explicit).strip().lower()
     return str(default_auth_type).strip().lower()
+
+
+# ``auth_type: "sso"`` is browser auth whose login goes through the instance's
+# SSO locator page (``login_locate_sso.do``) instead of the local login form.
+# It is a config spelling, not a fifth AuthType: the session it produces is a
+# browser session like any other, and the auth layer branches on BROWSER.
+SSO_AUTH_TYPE = "sso"
+SSO_LOCATOR_PATH = "/login_locate_sso.do"
+
+
+def split_sso_auth_type(auth_type: str) -> tuple[str, Literal["password", "sso"]]:
+    """``(auth_type, login_mode)`` — ``"sso"`` becomes ``("browser", "sso")``.
+
+    The mode is an explicit marker on purpose. A missing password cannot mean
+    "SSO": it already means "type it yourself", and an SSO user who also has a
+    local password would be indistinguishable from one who forgot to set it.
+    """
+    value = str(auth_type or "").strip().lower()
+    if value == SSO_AUTH_TYPE:
+        return "browser", "sso"
+    return value, "password"
+
+
+def sso_locator_url(instance_url: str) -> str:
+    return f"{str(instance_url).rstrip('/')}{SSO_LOCATOR_PATH}"
 
 
 def select_active_alias(
