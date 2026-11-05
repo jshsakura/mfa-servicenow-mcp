@@ -32,7 +32,7 @@ authenticates.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -173,10 +173,79 @@ def api_username(config: Any) -> Optional[str]:
     return None
 
 
+def _on_login_page(url: str) -> bool:
+    parsed = urlparse(url)
+    path = (parsed.path or "").lower()
+    return (
+        path.endswith("login.do")
+        or path.rstrip("/").endswith("/login")
+        or "id=login" in (parsed.query or "").lower()
+    )
+
+
+def window_signed_in(
+    endpoint: str, hosts: Iterable[str], *, timeout_s: float = 6.0
+) -> Optional[bool]:
+    """Whether a window holds a signed-in ServiceNow session. None = could not tell.
+
+    Asked when a terminal ends, to decide whether its window is worth keeping:
+    a live session may have cost an MFA challenge, and closing the browser ends
+    it. Only a PROVEN empty window may be closed, so the answers are:
+
+    - True — an instance tab names a real user (not guest), impersonation included.
+    - False — nothing to keep: every instance tab is a guest or a login page, or
+      the window has no instance tab and no instance SESSION cookie.
+    - None — anything else: a tab that did not answer, instance session cookies
+      with no tab to read them through, a CDP read that failed or timed out.
+    """
+    wanted = {str(h).lower() for h in hosts if h}
+
+    def on_instance(url: str) -> bool:
+        host = (urlparse(url).hostname or "").lower()
+        return bool(host) and (host in wanted or host.endswith(".service-now.com"))
+
+    def _work() -> Optional[bool]:
+        from ._offload import cdp_browser
+
+        with cdp_browser(endpoint) as browser:
+            pages = [page for context in browser.contexts for page in context.pages]
+            instance_pages = [page for page in pages if on_instance(str(page.url))]
+            unanswered = False
+            for page in instance_pages:
+                who = read_effective_user(page)
+                name = str((who or {}).get("user") or "").strip().lower()
+                if name and name != "guest":
+                    return True
+                if not name and not _on_login_page(str(page.url)):
+                    unanswered = True
+            if instance_pages:
+                return None if unanswered else False
+            # Only SESSION cookies die with the browser; persistent ones (the
+            # remembered-MFA device among them) are on disk in the profile and
+            # survive a close. So only those can be a session worth keeping.
+            for context in browser.contexts:
+                for cookie in context.cookies():
+                    if float(cookie.get("expires", -1) or -1) > 0:
+                        continue
+                    if on_instance("https://" + str(cookie.get("domain") or "").lstrip(".")):
+                        return None  # a session may sit in the jar with no tab showing it
+            return False
+
+    try:
+        from ._offload import require_playwright, run_off_loop
+
+        require_playwright()
+        return run_off_loop(_work, timeout_s=timeout_s)
+    except Exception as exc:  # noqa: BLE001 - an unread window is kept, never closed
+        logger.debug("Could not tell whether the debug window is signed in: %s", exc)
+        return None
+
+
 __all__ = [
     "EFFECTIVE_USER_SCRIPT",
     "api_username",
     "describe_window_user",
     "instance_host",
     "read_effective_user",
+    "window_signed_in",
 ]

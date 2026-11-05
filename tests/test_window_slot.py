@@ -246,8 +246,18 @@ def killed(monkeypatch):
     return seen
 
 
-def test_exit_closes_the_terminals_window_and_releases_it(
-    auth, tmp_path, procs, monkeypatch, killed
+@pytest.fixture
+def signed_in(monkeypatch):
+    """What the window's session reads as at exit. Default: nothing to keep."""
+    from servicenow_mcp.browser import session
+
+    answer = {"value": False}
+    monkeypatch.setattr(session, "window_signed_in", lambda endpoint, hosts: answer["value"])
+    return answer
+
+
+def test_exit_closes_an_empty_window_and_releases_it(
+    auth, tmp_path, procs, monkeypatch, killed, signed_in
 ):
     procs[OTHER_PID] = 2000.0
     _lease(tmp_path, 1, OTHER_PID)
@@ -268,7 +278,7 @@ def test_exit_closes_the_terminals_window_and_releases_it(
 
 
 def test_exit_never_signals_a_pid_that_is_not_the_window(
-    auth, tmp_path, procs, monkeypatch, killed
+    auth, tmp_path, procs, monkeypatch, killed, signed_in
 ):
     window.claim_window_slot(auth)
     _open_window(auth, tmp_path)
@@ -282,7 +292,7 @@ def test_exit_never_signals_a_pid_that_is_not_the_window(
 
 
 def test_a_shared_fallback_window_is_never_closed_at_exit(
-    auth, tmp_path, procs, monkeypatch, killed
+    auth, tmp_path, procs, monkeypatch, killed, signed_in
 ):
     for number in range(1, window_slot.MAX_WINDOWS + 1):
         procs[OTHER_PID + number] = 2000.0
@@ -296,7 +306,7 @@ def test_a_shared_fallback_window_is_never_closed_at_exit(
 
 
 def test_a_window_taken_over_after_we_were_presumed_dead_is_left_alone(
-    auth, tmp_path, procs, monkeypatch, killed
+    auth, tmp_path, procs, monkeypatch, killed, signed_in
 ):
     window.claim_window_slot(auth)
     _open_window(auth, tmp_path)
@@ -312,3 +322,107 @@ def test_no_lease_is_written_without_a_real_cache_dir(tmp_path, procs, monkeypat
     monkeypatch.chdir(tmp_path)
     assert window_slot.claim("<MagicMock name='x'>", BASE) == 1
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("reading", [True, None], ids=["signed-in", "could-not-tell"])
+def test_a_window_with_a_session_to_keep_stays_open_for_the_next_terminal(
+    auth, tmp_path, procs, monkeypatch, killed, signed_in, reading
+):
+    # A live session may have cost an MFA challenge; closing the browser ends it.
+    signed_in["value"] = reading
+    window.claim_window_slot(auth)
+    profile = _open_window(auth, tmp_path)
+    monkeypatch.setattr(window, "_is_pid_alive", lambda pid: pid == 5151)
+    monkeypatch.setattr(window, "_singleton_holder_pid", lambda d: 5151 if d == profile else None)
+
+    assert window.close_windows_of_this_process() == []
+    assert killed == []
+    assert (tmp_path / f"debug_window_{BASE}.json").exists()  # reusable as is
+    assert not (tmp_path / f"debug_slot_{BASE}.lease").exists()  # number handed on
+
+
+# ---------------------------------------------------------------------------
+# Is there a session worth keeping?
+# ---------------------------------------------------------------------------
+
+
+class _Page:
+    def __init__(self, url, user=None):
+        self.url = url
+        self.user = user
+
+
+class _Context:
+    def __init__(self, pages, cookies=()):
+        self.pages = list(pages)
+        self._cookies = list(cookies)
+
+    def cookies(self):
+        return self._cookies
+
+
+def _read_window(monkeypatch, pages, cookies=()):
+    from contextlib import contextmanager
+
+    from servicenow_mcp.browser import _offload, session
+
+    @contextmanager
+    def fake_browser(endpoint):
+        yield SimpleNamespace(contexts=[_Context(pages, cookies)])
+
+    monkeypatch.setattr(_offload, "cdp_browser", fake_browser)
+    monkeypatch.setattr(_offload, "require_playwright", lambda: None)
+    monkeypatch.setattr(_offload, "run_off_loop", lambda fn, timeout_s: fn())
+    monkeypatch.setattr(
+        session,
+        "read_effective_user",
+        lambda page: {"user": page.user} if page.user else None,
+    )
+    return session.window_signed_in("http://127.0.0.1:1", {"dev.example.com"})
+
+
+DEV = "https://dev.example.com"
+
+
+@pytest.mark.parametrize(
+    "pages,cookies,expected",
+    [
+        ([_Page(f"{DEV}/sp", "admin")], (), True),
+        ([_Page(f"{DEV}/sp", "guest"), _Page(f"{DEV}/now/nav", "bob")], (), True),
+        ([_Page(f"{DEV}/sp", "guest")], (), False),
+        ([_Page(f"{DEV}/login.do")], (), False),
+        ([_Page("chrome://new-tab-page/")], (), False),
+        ([_Page("chrome://new-tab-page/")], [{"domain": ".dev.example.com", "expires": -1}], None),
+        (
+            [_Page("chrome://new-tab-page/")],
+            [{"domain": ".dev.example.com", "expires": 1893456000}],
+            False,
+        ),
+        ([_Page(f"{DEV}/incident.do")], (), None),  # did not answer: not proof of empty
+        ([_Page("https://x.service-now.com/sp", "admin")], (), True),
+    ],
+    ids=[
+        "user",
+        "any-tab-signed-in",
+        "guest",
+        "login-page",
+        "blank-no-cookies",
+        "session-cookie-but-no-tab",
+        "only-persistent-cookies",
+        "tab-did-not-answer",
+        "unconfigured-instance-host",
+    ],
+)
+def test_window_signed_in(monkeypatch, pages, cookies, expected):
+    assert _read_window(monkeypatch, pages, cookies) is expected
+
+
+def test_an_unreadable_window_is_could_not_tell(monkeypatch):
+    from servicenow_mcp.browser import _offload, session
+
+    def broken(fn, timeout_s):
+        raise TimeoutError("cdp")
+
+    monkeypatch.setattr(_offload, "require_playwright", lambda: None)
+    monkeypatch.setattr(_offload, "run_off_loop", broken)
+    assert session.window_signed_in("http://127.0.0.1:1", ()) is None

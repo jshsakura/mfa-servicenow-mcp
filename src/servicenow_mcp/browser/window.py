@@ -1193,15 +1193,22 @@ class KeyedWindow:
 
 
 def close_windows_of_this_process() -> List[str]:
-    """Close the windows this terminal leased. Runs at exit; never raises.
+    """When a terminal ends: close its window, or hand it on. Never raises.
 
-    A terminal's window lives as long as the terminal. Only a window whose lease
-    is still ours is touched (one shared as a fallback never is), and only when
-    its recorded pid is provably that window — the holder of its profile's
-    SingletonLock — so a pid the OS has since handed to something else is never
-    signalled. The profile stays: the next terminal on this number is still
-    signed in and its MFA device still remembered.
+    The lease is always released, so the next terminal can take this number. The
+    WINDOW is closed only when it is proven to hold nothing worth keeping — no
+    signed-in session (session.window_signed_in returned False). A signed-in
+    window may have cost an MFA challenge, and closing the browser ends that
+    session; so it stays open for the next terminal to reuse, and the idle reaper
+    collects it if nobody does. Could-not-tell keeps it, for the same reason.
+
+    Only a window whose lease is still ours is considered (one shared as a
+    fallback never is), and only a pid that provably holds that profile's
+    SingletonLock is ever signalled. Returns the keys of the windows closed.
     """
+    from .badge import instance_labels
+    from .session import window_signed_in
+
     closed: List[str] = []
     for root, key in window_slot.owned_windows():
         try:
@@ -1211,10 +1218,14 @@ def close_windows_of_this_process() -> List[str]:
             state = read_window_state(handle)
             gone = state is None or not _is_pid_alive(state.pid)
             if state is not None and not gone:
-                if _singleton_holder_pid(state.profile_dir) == state.pid:
+                hosts = set(instance_labels()) | {state.instance_host}
+                ours = _singleton_holder_pid(state.profile_dir) == state.pid
+                if ours and window_signed_in(state.cdp_endpoint, hosts) is False:
                     terminate_pid(state.pid)
                     gone = True
                     closed.append(key)
+                else:
+                    logger.info("Leaving debug window %s open for the next terminal", key)
             if gone:
                 prefix = os.path.join(root, f"debug_window_{key}")
                 for path in [f"{prefix}.json", f"{prefix}.owners.json"] + glob.glob(
