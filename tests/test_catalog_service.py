@@ -615,3 +615,239 @@ class TestListItemVariables(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _cell(value, display=None):
+    return {"value": value, "display_value": value if display is None else display}
+
+
+class TestGetItemFull(unittest.TestCase):
+    ITEM = "aaaa1111bbbb2222cccc3333dddd4444"
+    SET = "bbbb2222cccc3333dddd4444eeee5555"
+    VAR_OWN = "cccc3333dddd4444eeee5555ffff6666"
+    VAR_SET = "dddd4444eeee5555ffff6666aaaa1111"
+    POL = "eeee5555ffff6666aaaa1111bbbb2222"
+    UNKNOWN_IO = "ffff6666aaaa1111bbbb2222cccc0000"
+
+    def _tables(self, engines=None, cls="sc_cat_item", fail_on=None):
+        engines = engines or {
+            "flow_designer_flow": _cell("ffff6666aaaa1111bbbb2222cccc3333", "Flow A")
+        }
+        item = {
+            "sys_id": _cell(self.ITEM),
+            "flow_designer_flow": _cell(""),
+            "workflow": _cell(""),
+            "delivery_plan": _cell(""),
+            "sys_scope": _cell("aaaa0000bbbb1111cccc2222dddd3333", "My App"),
+            "sys_package": _cell("aaaa0000bbbb1111cccc2222dddd3334", "My App Pkg"),
+            "sys_policy": _cell(""),
+            "sys_class_name": _cell(cls),
+        }
+        item.update(engines)
+        return {
+            "sc_cat_item_producer": [
+                {"table_name": _cell("x_myapp_task"), "script": _cell("answer = 1;")}
+            ],
+            "sc_cat_item": [item],
+            "io_set_item": [{"variable_set": _cell(self.SET, "Set One"), "order": _cell("100")}],
+            "item_option_new_set": [
+                {
+                    "sys_id": _cell(self.SET),
+                    "title": _cell("Set One"),
+                    "internal_name": _cell("set_one"),
+                    "type": _cell("singlerow", "Single Row"),
+                    "order": _cell("100"),
+                }
+            ],
+            "item_option_new": [
+                {
+                    "sys_id": _cell(self.VAR_OWN),
+                    "name": _cell("pick"),
+                    "question_text": _cell("Pick one"),
+                    "type": _cell("5", "Select Box"),
+                    "mandatory": _cell("true"),
+                    "order": _cell("100"),
+                    "default_value": _cell(""),
+                    "reference": _cell(""),
+                    "active": _cell("true"),
+                    "variable_set": _cell(""),
+                    "cat_item": _cell(self.ITEM),
+                },
+                {
+                    "sys_id": _cell(self.VAR_SET),
+                    "name": _cell("note"),
+                    "question_text": _cell("Note"),
+                    "type": _cell("6", "Single Line Text"),
+                    "mandatory": _cell("false"),
+                    "order": _cell("200"),
+                    "default_value": _cell(""),
+                    "reference": _cell(""),
+                    "active": _cell("true"),
+                    "variable_set": _cell(self.SET, "Set One"),
+                    "cat_item": _cell(""),
+                },
+            ],
+            "question_choice": [
+                {
+                    "question": _cell(self.VAR_OWN),
+                    "text": _cell("Red"),
+                    "value": _cell("red"),
+                    "order": _cell("1"),
+                    "inactive": _cell("false"),
+                },
+                {
+                    "question": _cell(self.VAR_OWN),
+                    "text": _cell("Old"),
+                    "value": _cell("old"),
+                    "order": _cell("2"),
+                    "inactive": _cell("true"),
+                },
+            ],
+            "catalog_ui_policy": [
+                {
+                    "sys_id": _cell(self.POL),
+                    "short_description": _cell("Hide note"),
+                    "active": _cell("true"),
+                    "order": _cell("100"),
+                    "applies_catalog": _cell("true"),
+                    "applies_req_item": _cell("false"),
+                    "applies_sc_task": _cell("false"),
+                    "applies_target_record": _cell("false"),
+                    "catalog_conditions": _cell(f"IO:{self.VAR_OWN}=red^IO:{self.UNKNOWN_IO}=x^EQ"),
+                    "catalog_item": _cell(self.ITEM),
+                    "variable_set": _cell(""),
+                }
+            ],
+            "catalog_ui_policy_action": [
+                {
+                    "ui_policy": _cell(self.POL),
+                    "catalog_variable": _cell("IO:" + self.VAR_SET, "Note"),
+                    "variable": _cell(""),
+                    "mandatory": _cell("ignore"),
+                    "visible": _cell("false"),
+                    "disabled": _cell("ignore"),
+                    "order": _cell("100"),
+                }
+            ],
+            "catalog_script_client": [
+                {
+                    "sys_id": _cell("ffff6666aaaa1111bbbb2222cccc3333"),
+                    "name": _cell("On load"),
+                    "type": _cell("onLoad"),
+                    "cat_variable": _cell(""),
+                    "ui_type": _cell("0", "Desktop"),
+                    "applies_to": _cell("item"),
+                    "applies_catalog": _cell("true"),
+                    "applies_req_item": _cell("false"),
+                    "applies_sc_task": _cell("false"),
+                    "active": _cell("true"),
+                    "script": _cell("SECRET BODY"),
+                }
+            ],
+        }
+
+    def _run(self, tables, fail_on=None):
+        calls = []
+
+        def fake(config, auth, *, table, query, fields, display_value=False, **kw):
+            calls.append((table, query, display_value))
+            if table == fail_on:
+                raise RuntimeError("boom")
+            if table == "sc_cat_item" and display_value is True:
+                return ([{"sys_id": self.ITEM, "name": "N"}], 1)
+            return (tables.get(table, []), None)
+
+        with patch("servicenow_mcp.services.catalog.sn_query_page", side_effect=fake):
+            res = svc.get_item(_config(), _auth(), item_id=self.ITEM, detail="full")
+        return res, calls
+
+    def test_full(self):
+        res, calls = self._run(self._tables())
+        d = res["data"]
+        self.assertEqual(d["engine"]["flow_designer_flow"]["label"], "Flow A")
+        self.assertIsNone(d["engine"]["workflow"])
+        self.assertEqual(d["origin"]["sys_package"]["label"], "My App Pkg")
+        self.assertEqual(d["variable_sets"][0]["internal_name"], "set_one")
+        self.assertEqual([v["name"] for v in d["variables"]], ["pick", "note"])
+        self.assertEqual(d["variables"][1]["variable_set_title"], "Set One")
+        self.assertEqual(d["variables"][0]["type"], {"value": "5", "label": "Select Box"})
+        self.assertEqual(
+            d["choices"]["pick"],
+            [
+                {"text": "Red", "value": "red", "order": "1"},
+                {"text": "Old", "value": "old", "order": "2", "inactive": True},
+            ],
+        )
+        pol = d["ui_policies"][0]
+        self.assertEqual(pol["actions"][0]["visible"], "false")
+        self.assertEqual(pol["actions"][0]["variable_label"], "Note")
+        # IO:<sys_id> rendered by variable name; an id not in this item stays raw.
+        self.assertEqual(pol["conditions_readable"], f"pick=red^IO:{self.UNKNOWN_IO}=x^EQ")
+        self.assertEqual(d["client_scripts"][0]["name"], "On load")
+        self.assertNotIn("SECRET BODY", str(d))
+        self.assertIn("download_server_sources", d["client_script_hint"])
+        self.assertNotIn("warnings", d)
+        q = [c[1] for c in calls if c[0] == "catalog_script_client"][0]
+        self.assertTrue(q.startswith(f"cat_item={self.ITEM}^ORvariable_setIN{self.SET}"))
+
+    def test_two_engines_warn(self):
+        t = self._tables(
+            engines={
+                "flow_designer_flow": _cell("ffff6666aaaa1111bbbb2222cccc3333", "Flow A"),
+                "workflow": _cell("aaaa1111ffff6666bbbb2222cccc3333", "Wf A"),
+            }
+        )
+        res, _ = self._run(t)
+        w = res["data"]["warnings"][0]
+        self.assertEqual(w["code"], "MULTIPLE_FULFILMENT_ENGINES")
+        self.assertIn("which runs is decided by the platform", w["message"])
+
+    def test_record_producer(self):
+        res, _ = self._run(self._tables(cls="sc_cat_item_producer"))
+        self.assertEqual(
+            res["data"]["origin"]["producer"], {"table_name": "x_myapp_task", "script_length": 11}
+        )
+        self.assertNotIn("answer = 1", str(res["data"]["origin"]))
+
+    def test_failed_subread_is_unchecked(self):
+        res, _ = self._run(self._tables(), fail_on="catalog_ui_policy")
+        self.assertEqual(res["data"]["ui_policies"], {"checked": False, "because": "boom"})
+        self.assertTrue(res["data"]["variables"])
+        res, _ = self._run(self._tables(), fail_on="io_set_item")
+        d = res["data"]
+        self.assertFalse(d["variable_sets"]["checked"])
+        self.assertFalse(d["variables"]["checked"])
+        self.assertFalse(d["choices"]["checked"])
+        self.assertFalse(d["client_scripts"]["checked"])
+
+    def test_summary_unchanged(self):
+        rec = {"sys_id": "i1", "name": "N", "price": "5"}
+        with (
+            patch(
+                "servicenow_mcp.services.catalog.list_item_variables",
+                return_value=[{"sys_id": "v1"}],
+            ),
+            patch("servicenow_mcp.services.catalog.sn_query_page", return_value=([rec], 1)) as qp,
+        ):
+            res = svc.get_item(_config(), _auth(), item_id="i1")
+        self.assertEqual(qp.call_count, 1)
+        self.assertEqual(
+            res,
+            {
+                "success": True,
+                "message": "Retrieved catalog item: N",
+                "data": {
+                    "sys_id": "i1",
+                    "name": "N",
+                    "short_description": "",
+                    "description": "",
+                    "category": "",
+                    "price": "5",
+                    "active": "",
+                    "order": "",
+                    "delivery_time": "",
+                    "availability": "",
+                    "variables": [{"sys_id": "v1"}],
+                },
+            },
+        )

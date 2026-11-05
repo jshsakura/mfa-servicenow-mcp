@@ -4,7 +4,8 @@ The enterprise-trust artifact: guards prevent accidents, the journal PROVES
 what happened — when, as whom, against which instance, which tool/record,
 with which arguments, and how it ended. One JSONL file per instance host
 (mirrors the LOG_FILE host-separation policy) under
-``~/.mfa_servicenow_mcp/write_journal/``.
+``write_journal/`` under the state dir (``utils/state_dir.py``: the configured
+browser user_data_dir, else ``~/.mfa_servicenow_mcp``).
 
 Design constraints:
 - Best-effort and fire-and-forget: journaling can NEVER fail or slow a write
@@ -26,6 +27,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
+from servicenow_mcp.utils.state_dir import state_dir
+
 logger = logging.getLogger(__name__)
 
 _MAX_BYTES = 5 * 1024 * 1024
@@ -33,7 +36,7 @@ _INLINE_STR_LIMIT = 200
 
 
 def _journal_dir() -> Path:
-    return Path.home() / ".mfa_servicenow_mcp" / "write_journal"
+    return state_dir() / "write_journal"
 
 
 def _compact_value(value: Any) -> Any:

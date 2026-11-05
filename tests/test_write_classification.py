@@ -108,6 +108,7 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "get_logs",
         "get_metadata_source",
         "get_page",
+        "get_record_context",
         "get_portal",
         "get_portal_component_code",
         "get_repo_change_report",

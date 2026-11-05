@@ -20,7 +20,11 @@ from servicenow_mcp.tools.sn_api import read_cache_get, read_cache_put
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .flow_action_read import _compact_action_summary, _try_processflow_action
+from .flow_action_read import (
+    _compact_action_summary,
+    _try_processflow_action,
+    steps_read_problem,
+)
 from .flow_designer_tools import (
     ACTION_DEF_TABLE,
     FLOW_TABLE,
@@ -474,11 +478,17 @@ def _do_read_action(
     pf = _try_processflow_action(config, auth_manager, action_id)
     if pf.get("_error"):
         return {"success": False, "error": pf["_error"]}
-    return {
+    result: Dict[str, Any] = {
         "success": True,
         "action": "read_action",
         "summary": _compact_action_summary(pf.get("action", {}), pf.get("steps")),
     }
+    problem = steps_read_problem(pf)
+    if problem:
+        # Empty `steps` here means "not read", not "no steps".
+        result["steps_read"] = False
+        result["steps_error"] = problem
+    return result
 
 
 # ---------------------------------------------------------------------------

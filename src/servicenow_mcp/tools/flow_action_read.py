@@ -58,10 +58,16 @@ def _try_processflow_action(
         err = action.get("errorMessage")
         if err:
             return {"_error": err}
-        steps = _pf_get_json(
-            auth_manager,
-            f"{config.instance_url}{_PF_ACTION_BASE}/{action_id}/step_instances",
-        )
+        try:
+            steps = _pf_get_json(
+                auth_manager,
+                f"{config.instance_url}{_PF_ACTION_BASE}/{action_id}/step_instances",
+            )
+        except Exception as e:  # noqa: BLE001
+            # The action itself was read; only its steps were not. Say so
+            # rather than failing the call or handing back an empty list.
+            logger.error("processflow step read failed for %s: %s", action_id, e)
+            return {"action": action, "steps": None, "_steps_error": str(e)}
         return {"action": action, "steps": steps}
     except Exception as e:  # noqa: BLE001
         logger.error("processflow action fetch failed for %s: %s", action_id, e)
@@ -176,3 +182,23 @@ def _compact_action_summary(
         "output_variables": _render_variables(action_data.get("outputs", [])),
         "steps": steps,
     }
+
+
+def steps_read_problem(pf: Dict[str, Any]) -> Optional[str]:
+    """Why the step list cannot be trusted, or None when it was genuinely read.
+
+    A read that returned a steps list (even an empty one) is a real answer; a
+    failed call or a payload with no steps list is not, and must not look the same.
+    """
+    if pf.get("_steps_error"):
+        return str(pf["_steps_error"])
+    data = pf.get("steps")
+    if isinstance(data, list):
+        return None
+    if isinstance(data, dict):
+        if isinstance(data.get("steps"), list):
+            return None
+        result = data.get("result")
+        if isinstance(result, dict) and isinstance(result.get("steps"), list):
+            return None
+    return "step_instances response had no steps list"

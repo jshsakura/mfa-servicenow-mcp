@@ -125,6 +125,10 @@ class ManageCatalogParams(BaseModel):
     offset: int = Field(default=0, description="Pagination offset")
     query: Optional[str] = Field(default=None, description="Search query")
     count_only: bool = Field(default=False, description="Return count only")
+    detail: Literal["summary", "full"] = Field(
+        default="summary",
+        description="get_item: full adds engine, origin, sets, variables, choices, policies, scripts",
+    )
 
     # category create + update
     category_id: Optional[str] = Field(default=None)
@@ -170,7 +174,7 @@ class ManageCatalogParams(BaseModel):
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
         "list_items": frozenset({"limit", "offset", "query", "count_only", "active", "category"}),
-        "get_item": frozenset({"item_id"}),
+        "get_item": frozenset({"item_id", "detail"}),
         "list_categories": frozenset({"limit", "offset", "query", "count_only", "active"}),
         "list_item_variables": frozenset({"catalog_item_id"}),
         "create_category": frozenset(
@@ -301,7 +305,7 @@ def manage_catalog(
     if a == "get_item":
         if not params.item_id:
             return {"success": False, "message": "item_id is required for action='get_item'"}
-        return _cat_svc.get_item(config, auth_manager, item_id=params.item_id)
+        return _cat_svc.get_item(config, auth_manager, item_id=params.item_id, detail=params.detail)
     if a == "list_categories":
         return _cat_svc.list_categories(
             config,

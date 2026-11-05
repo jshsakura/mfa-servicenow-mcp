@@ -96,3 +96,61 @@ def test_read_action_surfaces_fetch_error():
         )
     assert result["success"] is False
     assert "not found" in result["error"]
+
+
+def _read_action(pf):
+    cfg = ServerConfig(
+        instance_url="https://test.service-now.com",
+        auth=AuthConfig(type=AuthType.BROWSER, browser=BrowserAuthConfig()),
+    )
+    with patch("servicenow_mcp.tools.flow_tools._try_processflow_action", return_value=pf):
+        return manage_flow_designer(
+            cfg,
+            MagicMock(spec=AuthManager),
+            ManageFlowDesignerParams(action="read_action", flow_id="act1"),
+        )
+
+
+def test_read_action_with_steps_is_unflagged():
+    result = _read_action({"action": _ACTION, "steps": _STEPS})
+    assert "steps_read" not in result
+
+
+def test_read_action_genuinely_empty_steps_is_unflagged():
+    result = _read_action({"action": _ACTION, "steps": {"steps": []}})
+    assert result["summary"]["steps"] == []
+    assert "steps_read" not in result
+
+
+def test_read_action_failed_step_read_is_flagged_with_reason():
+    result = _read_action({"action": _ACTION, "steps": None, "_steps_error": "403 Forbidden"})
+    assert result["success"] is True
+    assert result["steps_read"] is False
+    assert "403" in result["steps_error"]
+
+
+def test_read_action_unrecognised_steps_payload_is_flagged():
+    result = _read_action({"action": _ACTION, "steps": {}})
+    assert result["steps_read"] is False
+
+
+def test_try_processflow_action_keeps_action_when_step_fetch_raises():
+    from servicenow_mcp.tools import flow_action_read as m
+
+    calls = iter([{"id": "act1", "name": "x"}, RuntimeError("boom")])
+
+    def fake(_auth, _url):
+        v = next(calls)
+        if isinstance(v, Exception):
+            raise v
+        return v
+
+    cfg = ServerConfig(
+        instance_url="https://test.service-now.com",
+        auth=AuthConfig(type=AuthType.BROWSER, browser=BrowserAuthConfig()),
+    )
+    with patch.object(m, "_pf_get_json", side_effect=fake):
+        pf = m._try_processflow_action(cfg, MagicMock(spec=AuthManager), "act1")
+    assert pf["action"]["id"] == "act1"
+    assert pf["_steps_error"] == "boom"
+    assert "_error" not in pf

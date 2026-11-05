@@ -58,6 +58,7 @@ from servicenow_mcp.utils.instances import (
 )
 from servicenow_mcp.utils.progress import use_progress_emitter
 from servicenow_mcp.utils.response_budget import enforce_response_budget, get_response_budget
+from servicenow_mcp.utils.state_dir import register_state_dir
 from servicenow_mcp.utils.text_diff import paged_diff
 from servicenow_mcp.utils.tool_utils import get_tool_definitions
 from servicenow_mcp.utils.write_journal import record_write
@@ -683,6 +684,11 @@ class ServiceNowMCP:
             self.config = ServerConfig(**config)
         else:
             self.config = config
+        # State files (download roots, xml dirs, write journal) are per-process:
+        # follow the BASE browser user_data_dir, not per-instance overrides.
+        register_state_dir(
+            self.config.auth.browser.user_data_dir if self.config.auth.browser else None
+        )
 
         self.mcp_server: Server = FastMCP(
             self.config.server_name, version=get_version()
@@ -2308,7 +2314,11 @@ class ServiceNowMCP:
         return value[:max_len] + f"... (truncated, original length: {len(value)})"
 
     def _compare_instances_impl(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        from servicenow_mcp.tools.sn_api import sn_query_page
+        from servicenow_mcp.tools.sn_api import (
+            _field_check,
+            invalidate_query_cache,
+            sn_query_page,
+        )
 
         source = str(arguments.get("source") or "").strip()
         target = str(arguments.get("target") or "").strip()
@@ -2345,42 +2355,112 @@ class ServiceNowMCP:
             field_names.insert(0, key_field)
         effective_fields = ",".join(dict.fromkeys(field_names))
 
-        def fetch(alias: str) -> List[Dict[str, Any]]:
+        # sn_query_page answers from a 30 s cache; a rerun after an outside import
+        # would diff a stale body. Same drop verify_deployment_xml does.
+        invalidate_query_cache(table=table)
+
+        for alias in (source, target):
             ctx = self.instance_contexts[alias]
-            rows, _total = sn_query_page(
+            refusal, _clean = _field_check(ctx["config"], ctx["auth_manager"], table, query)
+            if refusal is not None:
+                return {**refusal, "instance": alias}
+
+        want_scope = "sys_scope" not in field_names
+        fetch_fields = effective_fields + (",sys_scope" if want_scope else "")
+
+        def fetch(alias: str) -> Tuple[List[Dict[str, Any]], Optional[int]]:
+            ctx = self.instance_contexts[alias]
+            rows, total = sn_query_page(
                 ctx["config"],
                 ctx["auth_manager"],
                 table=table,
                 query=query,
-                fields=effective_fields,
+                fields=fetch_fields,
                 limit=limit,
                 offset=0,
                 display_value="all",
+                orderby=key_field,
                 fail_silently=False,
             )
-            return rows
+            return rows, total
 
-        source_rows = fetch(source)
-        target_rows = fetch(target)
-        source_by_key = {
-            self._record_key_value(row, key_field): row
-            for row in source_rows
-            if self._record_key_value(row, key_field)
+        source_rows, source_total = fetch(source)
+        target_rows, target_total = fetch(target)
+
+        def cut_reason(rows: List[Dict[str, Any]], total: Optional[int]) -> Optional[str]:
+            if len(rows) < limit:
+                return None  # a short page is the whole answer
+            if total is None:
+                return "server total unknown"
+            return "fetched less than the server total" if total > len(rows) else None
+
+        cut = {
+            source: cut_reason(source_rows, source_total),
+            target: cut_reason(target_rows, target_total),
         }
-        target_by_key = {
-            self._record_key_value(row, key_field): row
-            for row in target_rows
-            if self._record_key_value(row, key_field)
-        }
-        source_keys = set(source_by_key)
-        target_keys = set(target_by_key)
+        complete = not any(cut.values())
+
+        def scope_of(row: Dict[str, Any]) -> str:
+            value = row.get("sys_scope")
+            if isinstance(value, dict):
+                value = value.get("display_value") or value.get("value")
+            return str(value or "")
+
+        # Scope is only usable if the column came back on every row of both sides.
+        scope_checked = bool(source_rows or target_rows) and all(
+            "sys_scope" in row for row in (*source_rows, *target_rows)
+        )
+
+        def index(rows: List[Dict[str, Any]]):
+            seen: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+            for row in rows:
+                key = self._record_key_value(row, key_field)
+                if key:
+                    seen.setdefault((key, scope_of(row) if scope_checked else ""), []).append(row)
+            by_id = {i: rs[0] for i, rs in seen.items() if len(rs) == 1}
+            dups = {i: len(rs) for i, rs in seen.items() if len(rs) > 1}
+            return by_id, dups
+
+        def label(ident: Tuple[str, str]) -> str:
+            return f"{ident[0]} [{ident[1]}]" if scope_checked and ident[1] else ident[0]
+
+        source_by_key, source_dups = index(source_rows)
+        target_by_key, target_dups = index(target_rows)
+        dup_idents = set(source_dups) | set(target_dups)
+        # A duplicate on either side cannot be paired honestly: leave it out.
+        source_keys = set(source_by_key) - dup_idents
+        target_keys = set(target_by_key) - dup_idents
+        cross_scope: List[Dict[str, Any]] = []
+        if scope_checked:
+            s_scopes: Dict[str, set] = {}
+            t_scopes: Dict[str, set] = {}
+            for k, sc in source_keys:
+                s_scopes.setdefault(k, set()).add(sc)
+            for k, sc in target_keys:
+                t_scopes.setdefault(k, set()).add(sc)
+            for k in sorted(set(s_scopes) & set(t_scopes)):
+                if not (s_scopes[k] & t_scopes[k]):
+                    cross_scope.append(
+                        {
+                            "key": k,
+                            "source_scopes": sorted(s_scopes[k]),
+                            "target_scopes": sorted(t_scopes[k]),
+                        }
+                    )
+            moved = {c["key"] for c in cross_scope}
+            only_source = {i for i in source_keys - target_keys if i[0] not in moved}
+            only_target = {i for i in target_keys - source_keys if i[0] not in moved}
+        else:
+            only_source = source_keys - target_keys
+            only_target = target_keys - source_keys
         shared_keys = sorted(source_keys & target_keys)
         compared_fields = [f for f in field_names if f != key_field and f not in ignore_fields]
 
         changed = []
-        for key in shared_keys:
-            srow = source_by_key[key]
-            trow = target_by_key[key]
+        for ident in shared_keys:
+            key = ident[0]
+            srow = source_by_key[ident]
+            trow = target_by_key[ident]
             changed_fields = []
             diffs: Dict[str, Dict[str, Any]] = {}
             for field in compared_fields:
@@ -2414,6 +2494,8 @@ class ServiceNowMCP:
                             }
             if changed_fields:
                 item: Dict[str, Any] = {"key": key, "fields_changed": changed_fields}
+                if scope_checked:
+                    item["scope"] = ident[1]
                 if output == "full":
                     item["diffs"] = diffs
                 changed.append(item)
@@ -2430,19 +2512,41 @@ class ServiceNowMCP:
             "target_count": len(target_rows),
             "matched": len(shared_keys),
             "changed_count": len(changed),
-            "only_in_source_count": len(source_keys - target_keys),
-            "only_in_target_count": len(target_keys - source_keys),
+            "complete": complete,
+            "scope_checked": scope_checked,
+            "source_total": source_total,
+            "target_total": target_total,
         }
+        if not complete:
+            result["incomplete_because"] = {a: r for a, r in cut.items() if r}
+            result["only_in_unreliable_because"] = (
+                "a side was cut at limit; a record missing from one side may sit beyond "
+                "the cut. Raise limit or narrow query; only_in_*_within_fetched are not facts."
+            )
+            result["only_in_source_within_fetched_count"] = len(only_source)
+            result["only_in_target_within_fetched_count"] = len(only_target)
+        else:
+            result["only_in_source_count"] = len(only_source)
+            result["only_in_target_count"] = len(only_target)
+        if dup_idents:
+            result["duplicate_keys"] = {
+                "source": {label(i): n for i, n in sorted(source_dups.items())},
+                "target": {label(i): n for i, n in sorted(target_dups.items())},
+                "note": "excluded from the diff",
+            }
+        if cross_scope:
+            result["cross_scope_name_matches"] = cross_scope[:50]
         if output != "summary":
+            suffix = "" if complete else "_within_fetched"
             result.update(
                 {
-                    "only_in_source": sorted(source_keys - target_keys)[:50],
-                    "only_in_target": sorted(target_keys - source_keys)[:50],
+                    f"only_in_source{suffix}": sorted(map(label, only_source))[:50],
+                    f"only_in_target{suffix}": sorted(map(label, only_target))[:50],
                     "changed": changed[:50],
                     "truncated": {
                         "changed": len(changed) > 50,
-                        "only_in_source": len(source_keys - target_keys) > 50,
-                        "only_in_target": len(target_keys - source_keys) > 50,
+                        f"only_in_source{suffix}": len(only_source) > 50,
+                        f"only_in_target{suffix}": len(only_target) > 50,
                     },
                 }
             )

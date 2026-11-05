@@ -34,10 +34,10 @@ Complementos — de uso general, no son paquetes por sí solos. Combínalos con 
 
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Cuándo usarlo |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
+| `service_desk` | 34 | ~8.1K | ~9.1K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
 | `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
 | `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
-| `full` | 61 | ~18.2K | ~20.4K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
+| `full` | 62 | ~18.2K | ~20.4K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **Tokens máx.** = la huella aproximada que las tool schemas de cada paquete añaden al contexto del modelo por solicitud (medido con tiktoken cl100k_base; el conteo real de Claude varía ligeramente). Usar el paquete más reducido ahorra contexto y costo. **Es el máximo**, no el costo típico: solo lo pagan completo los clientes que cargan todas las tool schemas al inicio. Los clientes con carga diferida de herramientas (p. ej. la búsqueda de herramientas de Claude Code) cargan un schema solo cuando se usa esa herramienta, así que su costo real por solicitud es mucho menor. El número de herramientas cuenta los miembros del paquete; todos los paquetes llevan además `list_tool_packages`, y una configuración multi-instancia añade `list_instances`, `compare_instances` y un parámetro `instance` en cada herramienta — la segunda columna lo mide con tres instancias. Las cifras se miden con tiktoken, no se estiman (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <paquete>` lista la parte de cada herramienta).

@@ -354,6 +354,60 @@ class TestListDependencies:
         assert "warnings" in out and out["warnings"]
 
 
+class TestListDependenciesHonoursDisplayValue:
+    """The m2m reference columns are KEYS: a display-value read returns names."""
+
+    WIDGET = "aaaa1111bbbb2222cccc3333dddd4444"
+    DEP = "eeee5555ffff6666aaaa7777bbbb8888"
+
+    def _fake_sn_get(self, calls):
+        def fake(
+            config, auth, table, query, fields, limit=20, offset=0, orderby=None, display_value=True
+        ):
+            calls.append((table, query, display_value))
+            if table == "sp_widget":
+                return [{"sys_id": self.WIDGET, "name": "myWidgetA"}], None
+            if table == "m2m_sp_widget_dependency":
+                if display_value:  # what the real API does: names, not sys_ids
+                    return [
+                        {"sys_id": "m1", "sp_widget": "myWidgetA", "sp_dependency": "myDepA"}
+                    ], None
+                return [{"sys_id": "m1", "sp_widget": self.WIDGET, "sp_dependency": self.DEP}], None
+            if table == "sp_dependency":
+                return [{"sys_id": self.DEP, "name": "myDepA", "module": "modA"}], None
+            return [], None
+
+        return fake
+
+    def test_m2m_read_requests_raw_values_and_maps(self):
+        calls = []
+        with patch(f"{DEV}._sn_get", side_effect=self._fake_sn_get(calls)):
+            out = manage_widget_dependency(
+                _config(),
+                MagicMock(),
+                _p(action="list", target="dependency", widget_ids=[self.WIDGET]),
+            )
+        assert out["dependency_map"], "empty map: m2m keys came back as display names"
+        assert out["dependency_map"][0]["widget"]["sys_id"] == self.WIDGET
+        assert out["dependency_map"][0]["dependencies"][0]["sys_id"] == self.DEP
+        m2m = [c for c in calls if c[0] == "m2m_sp_widget_dependency"]
+        assert m2m and all(c[2] is False for c in m2m)
+
+    def test_widget_filter_over_chunk_is_split(self):
+        from servicenow_mcp.tools.widget_dependency_tools import M2M_IN_CHUNK
+
+        refs = [f"ref{i:03d}" for i in range(M2M_IN_CHUNK * 2 + 1)]
+        calls = []
+        with patch(f"{DEV}._sn_get", side_effect=self._fake_sn_get(calls)):
+            manage_widget_dependency(
+                _config(), MagicMock(), _p(action="list", target="dependency", widget_ids=refs)
+            )
+        widget_qs = [c[1] for c in calls if c[0] == "sp_widget"]
+        assert len(widget_qs) == 3
+        assert all(q.split("^OR")[0].count(",") < M2M_IN_CHUNK for q in widget_qs)
+        assert "ref000" in widget_qs[0] and refs[-1] in widget_qs[-1]
+
+
 # ---------------------------------------------------------------------------
 # Record writes: create / update / delete
 # ---------------------------------------------------------------------------

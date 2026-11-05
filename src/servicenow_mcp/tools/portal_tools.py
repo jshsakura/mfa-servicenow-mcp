@@ -282,6 +282,29 @@ def _validate_portal_component_update_data(
     return normalized_data
 
 
+_UNDETERMINED_404 = (
+    "404 on a single-record GET is also what an ACL-denied read returns; not proven absent"
+)
+
+
+class ComponentUndetermined(ValueError):
+    """A single-record GET answered 404: absent OR unreadable, the platform does not say."""
+
+    availability = "undetermined"
+    because = _UNDETERMINED_404
+
+    def __init__(self, table: str, sys_id: str):
+        super().__init__(
+            f"Component {table}/{sys_id} undetermined (availability: undetermined): "
+            f"{_UNDETERMINED_404}"
+        )
+        self.table = table
+        self.sys_id = sys_id
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"success": False, "availability": self.availability, "because": self.because}
+
+
 def _fetch_portal_component_record(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -311,7 +334,7 @@ def _fetch_portal_component_record(
         headers = auth_manager.get_headers()
         direct = auth_manager.make_request("GET", url, headers=headers)
         if direct.status_code == 404:
-            raise ValueError(f"Component not found in {table} with sys_id {sys_id}")
+            raise ComponentUndetermined(table, sys_id)
         if direct.status_code >= 400:
             raise ValueError(
                 f"Failed to fetch {table}/{sys_id}: HTTP {direct.status_code} — {direct.text[:200]}"
@@ -375,6 +398,11 @@ def untruncate_source_fields(
         except ValueError:
             pass  # keep the clipped body rather than failing the read outright
     return record
+
+
+def clipped_fields(record: Dict[str, Any], fields) -> List[str]:
+    """Fields of ``record`` still carrying the sn_query clip marker."""
+    return [f for f in fields if isinstance(record.get(f), str) and _CLIP_MARKER in record[f]]
 
 
 def _summarize_text_preview(value: str, max_length: int | None = None) -> str:
@@ -1984,6 +2012,11 @@ def get_widget_bundle(
         if isinstance(widget.get(f), str):
             widget[f"_{f}_length"] = len(widget[f])
     bundle: Dict[str, Any] = {"widget": widget}
+    _still_clipped = clipped_fields(widget, _body_fields)
+    if _still_clipped:
+        # The raw re-fetch failed, so these bodies are clipped; say so structurally.
+        bundle["truncated_fields"] = _still_clipped
+        bundle["complete"] = False
     if _oversized:
         bundle["large_bodies"] = {
             "fields": _oversized,

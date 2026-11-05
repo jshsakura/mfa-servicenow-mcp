@@ -708,10 +708,72 @@ class TestFetchPortalComponentRecord:
         mock_auth_manager.make_request.return_value.status_code = 404
         from servicenow_mcp.tools.portal_tools import _fetch_portal_component_record
 
-        with pytest.raises(ValueError, match="Component not found"):
+        with pytest.raises(ValueError, match="undetermined") as ei:
             _fetch_portal_component_record(
                 mock_config, mock_auth_manager, "sp_widget", "missing", ["script"]
             )
+        assert "not found" not in str(ei.value).lower()
+        assert ei.value.availability == "undetermined"
+        assert "ACL-denied" in ei.value.because
+        assert ei.value.as_dict()["success"] is False
+
+    @patch("servicenow_mcp.tools.portal_tools.sn_query")
+    def test_200_direct_get_unchanged(self, mock_q, mock_config, mock_auth_manager):
+        mock_q.return_value = {"success": False}
+        resp = mock_auth_manager.make_request.return_value
+        resp.status_code = 200
+        resp.json.return_value = {"result": {"sys_id": "aaaa1111bbbb2222cccc3333dddd4444"}}
+        resp.text = "{}"
+        from servicenow_mcp.tools.portal_tools import _fetch_portal_component_record
+
+        rec = _fetch_portal_component_record(
+            mock_config, mock_auth_manager, "sp_widget", "aaaa1111bbbb2222cccc3333dddd4444", ["x"]
+        )
+        assert rec["sys_id"] == "aaaa1111bbbb2222cccc3333dddd4444"
+
+
+_SID = "aaaa1111bbbb2222cccc3333dddd4444"
+_CLIPPED = "x(truncated, original length: 99999)"
+
+
+def _bundle(mock_config, mock_auth_manager, refetch):
+    from servicenow_mcp.tools.portal_tools import GetWidgetBundleParams, get_widget_bundle
+
+    row = {
+        "name": "w",
+        "id": "w",
+        "template": "t",
+        "script": _CLIPPED,
+        "client_script": "c",
+        "css": "s",
+        "sys_id": _SID,
+    }
+    with (
+        patch(
+            "servicenow_mcp.tools.portal_tools.sn_query",
+            return_value={"success": True, "results": [row]},
+        ),
+        patch("servicenow_mcp.tools.portal_tools._fetch_portal_component_record", refetch),
+    ):
+        return get_widget_bundle(
+            mock_config,
+            mock_auth_manager,
+            GetWidgetBundleParams(
+                widget_id=_SID, include_providers=False, include_dependencies=False
+            ),
+        )
+
+
+class TestWidgetBundleTruncationFlag:
+    def test_refetch_failure_flags_truncated(self, mock_config, mock_auth_manager):
+        out = _bundle(mock_config, mock_auth_manager, MagicMock(side_effect=ValueError("x")))
+        assert out["truncated_fields"] == ["script"]
+        assert out["complete"] is False
+
+    def test_refetch_success_no_flag(self, mock_config, mock_auth_manager):
+        out = _bundle(mock_config, mock_auth_manager, MagicMock(return_value={"script": "full"}))
+        assert "truncated_fields" not in out and "complete" not in out
+        assert out["widget"]["script"] == "full"
 
 
 # ---------------------------------------------------------------------------

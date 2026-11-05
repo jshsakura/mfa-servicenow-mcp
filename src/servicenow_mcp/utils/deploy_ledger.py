@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.utils.atomic_io import atomic_write_text
+from servicenow_mcp.utils.state_dir import state_dir
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,7 @@ def is_confirmed_applied(doc: Dict[str, Any]) -> bool:
 
 def _state_file() -> Path:
     # Same state dir the auth manager and workspace_roots use.
-    return Path.home() / ".mfa_servicenow_mcp" / "xml_dirs.json"
+    return state_dir() / "xml_dirs.json"
 
 
 def _read_state() -> Dict[str, str]:

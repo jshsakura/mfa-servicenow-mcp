@@ -10,6 +10,7 @@ Provides read-only tools for analyzing Flow Designer flows:
 
 import base64
 import binascii
+import difflib
 import gzip
 import hashlib
 import json
@@ -1216,6 +1217,132 @@ def _condition_pill_names(encoded: str) -> List[str]:
     return out
 
 
+_CLOSING_VALUE = re.compile(
+    r"(?:^|[\^,;\s\"'{(])(?:state|stage|approval|incident_state)\w*\s*[=:]\s*"
+    r"(?:closed|approved|complete|resolved)\w*",
+    re.IGNORECASE,
+)
+_CLOSING_ACTION = re.compile(
+    r"\b(?:mark|set)\s+(?:as\s+)?(?:complete|closed|approved)|\b(?:close|complete)\s+task\b",
+    re.IGNORECASE,
+)
+
+
+def _is_closing_action(row: Dict[str, Any]) -> bool:
+    """An action that, by its own type or its written values, completes the record."""
+    if row.get("kind") != "ACTION":
+        return False
+    label = f"{row.get('type') or ''} {row.get('name') or ''}"
+    if _CLOSING_ACTION.search(label):
+        return True
+    if (row.get("type") or "").lower() != "update record":
+        return False
+    inputs = row.get("inputs") or {}
+    return bool(
+        _CLOSING_VALUE.search(str(inputs.get("values") or inputs.get("fields_values") or ""))
+    )
+
+
+def _flow_structure_warnings(tree: List[Dict[str, Any]], orphans: List[Dict[str, Any]]):
+    """Checks that read the tree's shape: fall-through, reject test, subflow inputs."""
+    out: List[Dict[str, Any]] = []
+    live = [r for r in tree if not r.get("deleted")]
+
+    # Fall-through: only claimed when the preceding top-level node is an IF /
+    # ELSE IF and no top-level ELSE exists.
+    top = [r for r in live if int(r.get("depth") or 0) == 0]
+    if len(top) >= 2 and _is_closing_action(top[-1]):
+        logic_types = [(r.get("type") or "").lower() for r in top if r.get("kind") == "LOGIC"]
+        prev = top[-2]
+        if (
+            (prev.get("type") or "").lower() in {"if", "else_if", "elseif", "else if"}
+            and prev.get("kind") == "LOGIC"
+            and "else" not in logic_types
+        ):
+            out.append(
+                {
+                    "code": "FALL_THROUGH_AUTOCOMPLETE",
+                    "severity": "high",
+                    "order": top[-1].get("order", ""),
+                    "ui_id": top[-1].get("ui_id"),
+                    "message": (
+                        "Last top-level step completes the record and follows IF branches "
+                        "with no ELSE — a value matching no branch may complete unapproved."
+                    ),
+                }
+            )
+
+    # Reject test on 'requested': the approval step's state is no longer
+    # 'requested' once it has finished. Needs the pill to name a real Ask For
+    # Approval row in this tree.
+    approval_ids = {
+        r.get("ui_id")
+        for r in live + orphans
+        if r.get("kind") == "ACTION" and (r.get("type") or "").lower() == "ask for approval"
+    }
+    for row in live + orphans:
+        if row.get("kind") != "LOGIC" or row.get("deleted"):
+            continue
+        encoded = row.get("condition_encoded") or row.get("condition") or ""
+        for term in _decode_condition(encoded):
+            if term.get("operator") != "=" or str(term.get("value", "")).strip().lower() != (
+                "requested"
+            ):
+                continue
+            pills = _condition_pill_names(term.get("field", ""))
+            if any(
+                p.endswith(".approval_state") and p[: -len(".approval_state")] in approval_ids
+                for p in pills
+            ):
+                out.append(
+                    {
+                        "code": "REJECT_ON_REQUESTED",
+                        "severity": "high",
+                        "order": row.get("order", ""),
+                        "ui_id": row.get("ui_id"),
+                        "message": (
+                            "Tests an Ask For Approval approval_state against 'requested' — "
+                            "after it completes the state is approved/rejected, so a "
+                            "rejection may fall through."
+                        ),
+                    }
+                )
+                break
+
+    # Same subflow called with near-identical input names (reject / rejected).
+    calls: Dict[str, List[Dict[str, Any]]] = {}
+    for row in live + orphans:
+        if row.get("kind") == "SUBFLOW":
+            key = row.get("subflow_sys_id") or row.get("name") or ""
+            if key:
+                calls.setdefault(key, []).append(row)
+    for group in calls.values():
+        reported = set()
+        for i, a in enumerate(group):
+            for b in group[i + 1 :]:
+                ka = {k for k in (a.get("inputs") or {}) if " " not in k}
+                kb = {k for k in (b.get("inputs") or {}) if " " not in k}
+                for x in sorted(ka - kb):
+                    for y in sorted(kb - ka):
+                        if (x, y) in reported or len(x) < 3 or len(y) < 3:
+                            continue
+                        if difflib.SequenceMatcher(None, x, y).ratio() >= 0.8:
+                            reported.add((x, y))
+                            out.append(
+                                {
+                                    "code": "SUBFLOW_INPUT_NAME_MISMATCH",
+                                    "severity": "medium",
+                                    "order": b.get("order", ""),
+                                    "ui_id": b.get("ui_id"),
+                                    "message": (
+                                        f"Calls of '{b.get('name')}' use inputs '{x}' and "
+                                        f"'{y}' — one may be a misspelt copy that drops the value."
+                                    ),
+                                }
+                            )
+    return out
+
+
 def _detect_flow_warnings(
     tree: List[Dict[str, Any]],
     orphans: List[Dict[str, Any]],
@@ -1369,6 +1496,8 @@ def _detect_flow_warnings(
                     ),
                 }
             )
+
+    warnings.extend(_flow_structure_warnings(tree, orphans))
 
     if deleted_logic:
         warnings.append(

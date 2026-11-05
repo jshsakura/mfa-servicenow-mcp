@@ -82,6 +82,30 @@ LOG_TYPES: Dict[str, Dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 
 
+# syslog.level is a numeric choice (sys_choice, measured on a live instance).
+# Filtering it by label ("error") matches nothing and still returns success.
+_SYSLOG_LEVELS = {
+    "trace": "-2",
+    "debug": "-1",
+    "info": "0",
+    "information": "0",
+    "warning": "1",
+    "warn": "1",
+    "error": "2",
+    "fatal": "3",
+}
+
+
+def _syslog_level_value(level: str) -> Optional[str]:
+    """Numeric syslog level for a name or numeric string; None if unknown."""
+    text = str(level).strip().lower()
+    if text in _SYSLOG_LEVELS:
+        return _SYSLOG_LEVELS[text]
+    if text.lstrip("-").isdigit():
+        return text
+    return None
+
+
 def _clamp_limit(limit: int) -> int:
     return max(1, min(limit, MAX_LOG_LIMIT))
 
@@ -217,7 +241,9 @@ class GetLogsParams(BaseModel):
     # --- Universal filter ---
     contains: Optional[str] = Field(default=None, description="Text search (message/value)")
     # --- system filters ---
-    level: Optional[str] = Field(default=None, description="[system] error|warning|info|debug")
+    level: Optional[str] = Field(
+        default=None, description="[system] trace|debug|info|warning|error|fatal or number"
+    )
     source: Optional[str] = Field(default=None, description="[system/background] Source LIKE")
     # --- journal filters ---
     table: Optional[str] = Field(default=None, description="[journal] Target table")
@@ -269,6 +295,17 @@ def get_logs(
     for param_name, (field_name, operator) in filter_defs.items():
         value = param_dict.get(param_name)
         if value is not None:
+            if log_type == "system" and param_name == "level":
+                numeric = _syslog_level_value(value)
+                if numeric is None:
+                    return {
+                        "success": False,
+                        "message": (
+                            f"Unknown level '{value}'. Valid: "
+                            f"{', '.join(_SYSLOG_LEVELS)} (or a number: -2..3)."
+                        ),
+                    }
+                value = numeric
             query_parts.append(f"{field_name}{operator}{value}")
     if params.query:
         query_parts.append(params.query)

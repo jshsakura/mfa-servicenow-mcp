@@ -361,10 +361,10 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | `core` | 12 | 用于健康检查、schema、发现和关键查询的极简只读基础工具 |
 | `standard` | 31 | **（默认）** 覆盖 incident、change、门户、日志和源码分析的只读包 |
 | `asset_manager` | 7 | ⚠️ 面向物料、资产和 ITOM 工作的最简组合：查询，以及先在实例上校验的资产写入（`manage_asset`）。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
-| `service_desk` | 33 | standard + 事件与变更的操作性写入 |
+| `service_desk` | 34 | standard + 事件与变更的操作性写入 |
 | `portal_developer` | 52 | standard + 门户、变更集、script include 和本地同步交付工作流 |
 | `platform_developer` | 45 | standard + 工作流、Flow Designer、UI policy、incident/change 和脚本写入 |
-| `full` | 61 | 最广泛的打包功能面：所有 `manage_*` 工作流加上高级操作 |
+| `full` | 62 | 最广泛的打包功能面：所有 `manage_*` 工作流加上高级操作 |
 
 要更改，更新 `MCP_TOOL_PACKAGE` 的值：
 

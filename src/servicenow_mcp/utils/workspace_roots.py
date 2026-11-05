@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from servicenow_mcp.utils.atomic_io import atomic_write_text
+from servicenow_mcp.utils.state_dir import state_dir
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,8 @@ _MAX_ROOTS = 20
 
 
 def _state_file() -> Path:
-    # Same state dir the auth manager uses (~/.mfa_servicenow_mcp).
-    return Path.home() / ".mfa_servicenow_mcp" / "download_roots.json"
+    # Same state dir the auth manager uses (honours user_data_dir).
+    return state_dir() / "download_roots.json"
 
 
 def _read_state() -> Dict[str, str]:

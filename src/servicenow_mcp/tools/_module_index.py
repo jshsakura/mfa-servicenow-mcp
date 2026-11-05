@@ -28,6 +28,7 @@ TOOL_MODULE_INDEX = {
     "get_page": "portal_management_tools",
     "get_portal": "portal_management_tools",
     "get_portal_component_code": "portal_tools",
+    "get_record_context": "record_context_tools",
     "get_repo_change_report": "repo_tools",
     "get_repo_file_last_modifier": "repo_tools",
     "get_repo_recent_commits": "repo_tools",

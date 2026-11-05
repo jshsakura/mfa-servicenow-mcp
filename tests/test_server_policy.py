@@ -874,6 +874,122 @@ def test_compare_instances_full_shows_a_difference_deep_in_a_long_body(
     assert (diff["lines_added"], diff["lines_removed"], diff["hunks_total"]) == (1, 1, 1)
 
 
+def _cmp_args(**extra):
+    base = {
+        "source": "dev",
+        "target": "test",
+        "table": "sys_script_include",
+        "key_field": "name",
+        "fields": "name,script",
+    }
+    base.update(extra)
+    return base
+
+
+def _scoped(name, script, scope):
+    return {"name": name, "script": script, "sys_scope": {"value": scope, "display_value": scope}}
+
+
+def test_compare_instances_same_name_in_other_scope_is_not_the_same_record(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    server = _build_multi_server(monkeypatch, tmp_path)
+
+    def fake(config, _auth, **_kw):
+        scope = "x_app_one" if "dev" in config.instance_url else "x_app_two"
+        return ([_scoped("Util", "a" if "dev" in config.instance_url else "b", scope)], 1)
+
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_query_page", fake)
+    result = server._compare_instances_impl(_cmp_args())
+
+    assert result["scope_checked"] is True
+    assert result["matched"] == 0 and result["changed_count"] == 0
+    assert result["cross_scope_name_matches"] == [
+        {"key": "Util", "source_scopes": ["x_app_one"], "target_scopes": ["x_app_two"]}
+    ]
+    assert result["only_in_source"] == [] and result["only_in_target"] == []
+
+
+def test_compare_instances_says_when_scope_could_not_be_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "servicenow_mcp.tools.sn_api.sn_query_page",
+        lambda *_a, **_k: ([{"name": "A", "script": "x"}], 1),
+    )
+    assert server._compare_instances_impl(_cmp_args())["scope_checked"] is False
+
+
+def test_compare_instances_duplicate_keys_are_listed_and_excluded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    server = _build_multi_server(monkeypatch, tmp_path)
+
+    def fake(config, _auth, **_kw):
+        if "dev" in config.instance_url:
+            return ([{"name": "D", "script": "1"}, {"name": "D", "script": "2"}], 2)
+        return ([{"name": "D", "script": "3"}], 1)
+
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_query_page", fake)
+    result = server._compare_instances_impl(_cmp_args())
+
+    assert result["duplicate_keys"]["source"] == {"D": 2}
+    assert result["matched"] == 0 and result["changed_count"] == 0
+    assert result["only_in_target"] == []
+
+
+def test_compare_instances_cut_fetch_is_not_complete_and_only_in_is_not_a_fact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    seen = {}
+
+    def fake(config, _auth, **kw):
+        seen["orderby"] = kw.get("orderby")
+        if "dev" in config.instance_url:
+            return ([{"name": "A", "script": "x"}, {"name": "B", "script": "x"}], 50)
+        return ([{"name": "A", "script": "x"}, {"name": "C", "script": "x"}], 2)
+
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_query_page", fake)
+    result = server._compare_instances_impl(_cmp_args(limit=2))
+
+    assert seen["orderby"] == "name"
+    assert result["complete"] is False
+    assert (result["source_total"], result["target_total"]) == (50, 2)
+    assert "only_in_source" not in result and "only_in_source_count" not in result
+    assert result["only_in_source_within_fetched"] == ["B"]
+    assert "only_in_unreliable_because" in result
+
+
+def test_compare_instances_drops_the_query_cache_first(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    dropped = []
+    monkeypatch.setattr(
+        "servicenow_mcp.tools.sn_api.invalidate_query_cache",
+        lambda **kw: dropped.append(kw),
+    )
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_query_page", lambda *_a, **_k: ([], 0))
+    server._compare_instances_impl(_cmp_args())
+    assert dropped == [{"table": "sys_script_include"}]
+
+
+def test_compare_instances_refuses_a_query_naming_an_unknown_field(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    server = _build_multi_server(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "servicenow_mcp.tools.sn_api._field_check",
+        lambda *_a, **_k: ({"success": False, "error": "unknown_query_fields"}, False),
+    )
+    monkeypatch.setattr(
+        "servicenow_mcp.tools.sn_api.sn_query_page",
+        lambda *_a, **_k: pytest.fail("must not fetch"),
+    )
+    result = server._compare_instances_impl(_cmp_args(query="nopeLIKEx"))
+    assert result["error"] == "unknown_query_fields"
+
+
 class _PathParams(BaseModel):
     path: str = ""
 

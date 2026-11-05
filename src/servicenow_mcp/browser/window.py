@@ -28,12 +28,12 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from ..auth._browser_dom import _singleton_holder_pid
 from ..auth._process import _is_pid_alive
+from ..utils.state_dir import state_dir
 from ._launch_lock import launch_claim
 from ._offload import playwright_session, require_playwright, run_off_loop
 from .launch_budget import check_launch_allowed, record_launch
@@ -171,7 +171,7 @@ def _cache_root(auth_manager: Any) -> str:
             return str(getter())
         except Exception as exc:  # noqa: BLE001 - never fail on a path lookup
             logger.debug("Falling back to default cache dir: %s", exc)
-    return str(Path.home() / ".mfa_servicenow_mcp")
+    return str(state_dir())
 
 
 def _instance_suffix(auth_manager: Any) -> str:

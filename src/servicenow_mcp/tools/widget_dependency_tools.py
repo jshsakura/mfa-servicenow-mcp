@@ -183,9 +183,11 @@ def _widget_refs(params: ManageWidgetDependencyParams) -> List[str]:
     return refs
 
 
-def _widget_filter_query(params: ManageWidgetDependencyParams) -> Optional[str]:
+def _widget_filter_query(
+    params: ManageWidgetDependencyParams, refs: Optional[List[str]] = None
+) -> Optional[str]:
     parts: List[str] = []
-    refs = _widget_refs(params)
+    refs = _widget_refs(params) if refs is None else refs
     if refs:
         ids = ",".join(refs)
         parts.append(f"sys_idIN{ids}^ORidIN{ids}^ORnameIN{ids}")
@@ -263,7 +265,9 @@ def _resolve_widget_sys_id(
     if not widget_ref:
         return None
     query = f"sys_id={widget_ref}^ORid={widget_ref}^ORname={widget_ref}"
-    rows, _ = _sn_get(config, auth_manager, "sp_widget", query, "sys_id", limit=1)
+    rows, _ = _sn_get(
+        config, auth_manager, "sp_widget", query, "sys_id", limit=1, display_value=False
+    )
     if rows:
         return _ref_value(rows[0].get("sys_id"))
     return None
@@ -324,10 +328,31 @@ def _list_dependencies(
     safe_max = min(max(1, params.max_widgets), MAX_DEP_WIDGETS)
     api_calls = 0
     try:
-        widgets, _ = _sn_get(
-            config, auth_manager, "sp_widget", widget_query, "sys_id,name", limit=safe_max
-        )
-        api_calls += 1
+        # The ref filter is an OR chain, which the query layer cannot split on its
+        # own (split_oversized_in refuses ^OR) — so chunk the refs here.
+        refs = _widget_refs(params)
+        ref_chunks = _chunk(refs, M2M_IN_CHUNK) if len(refs) > M2M_IN_CHUNK else [None]
+        widgets: List[Dict[str, Any]] = []
+        seen_widgets: set = set()
+        for ref_chunk in ref_chunks:
+            chunk_q = None if ref_chunk is None else _widget_filter_query(params, ref_chunk)
+            q = chunk_q or widget_query
+            part, _ = _sn_get(
+                config,
+                auth_manager,
+                "sp_widget",
+                q,
+                "sys_id,name",
+                limit=safe_max,
+                display_value=False,
+            )
+            api_calls += 1
+            for w in part:
+                w_key = _ref_value(w.get("sys_id"))
+                if w_key and w_key not in seen_widgets:
+                    seen_widgets.add(w_key)
+                    widgets.append(w)
+        widgets = widgets[:safe_max]
     except Exception as exc:
         return {
             "success": False,
@@ -356,6 +381,7 @@ def _list_dependencies(
                 "sp_widgetIN" + ",".join(chunk),
                 "sys_id,sp_widget,sp_dependency",
                 limit=500,
+                display_value=False,  # these are KEYS: display names never match sys_ids
             )
             api_calls += 1
         except Exception as exc:
@@ -489,7 +515,7 @@ def _link(
         }
 
     query = f"sp_widget={w_sys}^{ref_field}={params.record_id}"
-    existing, _ = _sn_get(config, auth_manager, m2m, query, "sys_id", limit=1)
+    existing, _ = _sn_get(config, auth_manager, m2m, query, "sys_id", limit=1, display_value=False)
     if existing:
         out = {
             "success": True,
@@ -528,7 +554,7 @@ def _unlink(
         }
 
     query = f"sp_widget={w_sys}^{ref_field}={params.record_id}"
-    rows, _ = _sn_get(config, auth_manager, m2m, query, "sys_id", limit=100)
+    rows, _ = _sn_get(config, auth_manager, m2m, query, "sys_id", limit=100, display_value=False)
     if not rows:
         return {
             "success": True,

@@ -126,7 +126,34 @@ class TestGetLogsSystemType(unittest.TestCase):
         )
 
         _, kwargs = mock_qp.call_args
-        self.assertIn("level=error", kwargs["query"])
+        self.assertIn("level=2", kwargs["query"])
+        self.assertNotIn("level=error", kwargs["query"])
+
+    @patch("servicenow_mcp.tools.log_tools.sn_query_page")
+    def test_system_level_names_map_to_numbers(self, mock_qp):
+        mock_qp.return_value = ([], 0)
+        for name, num in [
+            ("warning", "1"),
+            ("WARN", "1"),
+            ("info", "0"),
+            ("Information", "0"),
+            ("debug", "-1"),
+            ("trace", "-2"),
+            ("fatal", "3"),
+            ("2", "2"),
+            ("-1", "-1"),
+        ]:
+            get_logs(self.config, self.auth, GetLogsParams(log_type="system", level=name))
+            _, kwargs = mock_qp.call_args
+            self.assertIn(f"level={num}", kwargs["query"], name)
+
+    @patch("servicenow_mcp.tools.log_tools.sn_query_page")
+    def test_system_unknown_level_refused(self, mock_qp):
+        result = get_logs(self.config, self.auth, GetLogsParams(log_type="system", level="bogus"))
+        self.assertFalse(result["success"])
+        self.assertIn("error", result["message"])
+        self.assertIn("warning", result["message"])
+        mock_qp.assert_not_called()
 
     @patch("servicenow_mcp.tools.log_tools.sn_query_page")
     def test_system_source_filter(self, mock_qp):
@@ -178,7 +205,7 @@ class TestGetLogsSystemType(unittest.TestCase):
 
         _, kwargs = mock_qp.call_args
         query = kwargs["query"]
-        self.assertIn("level=error", query)
+        self.assertIn("level=2", query)
         self.assertIn("sourceLIKEBR", query)
         self.assertIn("messageLIKEfail", query)
         self.assertIn("hoursAgoStart(1)", query)

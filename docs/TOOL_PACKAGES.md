@@ -30,10 +30,10 @@ Add-ons — general-purpose, not packages on their own. Combine with any package
 
 | Package | Tools | Max tokens | Max (3 instances) | When to use |
 | :--- | :---: | :---: | :---: | :--- |
-| `service_desk` | 33 | ~8.1K | ~9.1K | ⚠️ Service desk agents who need to update/close incidents and changes |
+| `service_desk` | 34 | ~8.1K | ~9.1K | ⚠️ Service desk agents who need to update/close incidents and changes |
 | `portal_developer` | 52 | ~15.8K | ~17.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
 | `platform_developer` | 45 | ~13.3K | ~14.8K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 61 | ~18.2K | ~20.4K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
+| `full` | 62 | ~18.2K | ~20.4K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materials, asset and ITOM work: queries plus asset writes checked against the instance (`manage_asset`). Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
 > **Max tokens** is the approximate footprint each package's tool schemas add to the model's context per request (tiktoken `cl100k_base` over the server's compacted schemas; actual Claude counts vary slightly). Prefer the narrowest package to keep context and cost down. **This is the maximum**, not a typical cost: it is paid in full only by clients that load every tool schema up front. Clients with deferred tool loading (e.g. Claude Code's tool search) load a schema only when that tool is used, so their real per-request cost is far lower. Tool counts are package members; every package also carries `list_tool_packages`, and a multi-instance setup adds `list_instances`, `compare_instances` and an `instance` parameter on every tool — the second token column measures that with three instances. Figures are measured with tiktoken, not estimated (`uv run --no-sync --with tiktoken python scripts/measure_tool_tokens.py <package>` lists every tool's share).
@@ -98,4 +98,4 @@ No silent failures — the LLM knows exactly which package to request.
 
 ## Full tool list
 
-For the complete list of all 75 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).
+For the complete list of all 76 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).

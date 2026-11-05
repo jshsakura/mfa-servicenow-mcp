@@ -192,6 +192,8 @@ service_desk:
   _tools:
     # Bundled (Phase 2 — manage_incident covers create/update/comment/resolve)
     - manage_incident
+    # One number → links, approvals, RITM variables, SLA, flow runs (read-only)
+    - get_record_context
     # Catalog browsing is part of service desk surface
     - manage_catalog:
         actions: [list_items, get_item, list_categories, list_item_variables]
@@ -298,4 +300,6 @@ full:
     - download_table_schema
     # Audit / change reports (rare)
     - audit_pending_changes
+    # ITSM record context (read-only; one call per number)
+    - get_record_context
     - get_repo_change_report
