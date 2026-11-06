@@ -199,6 +199,23 @@ def _read(config, auth_manager, table: str, query: str, fields: str, limit: int 
     return rows
 
 
+# Tables the PLATFORM writes as a side effect of a dictionary insert. Our read
+# cache never sees those writes, so any read of them after a write must be fresh —
+# a cached pre-write page once made a new Form Layout record invisible to the undo.
+_SIDE_EFFECT_TABLES = (
+    "sys_documentation",
+    "sys_ui_element",
+    "sys_ui_section",
+    "sys_update_xml",
+    "sys_dictionary",
+)
+
+
+def _fresh() -> None:
+    for t in _SIDE_EFFECT_TABLES:
+        invalidate_query_cache(table=t)
+
+
 def _write(config, auth_manager, method: str, table: str, sys_id: Optional[str], data) -> str:
     url = f"{config.api_url}/table/{table}" + (f"/{sys_id}" if sys_id else "")
     resp = auth_manager.make_request(
@@ -375,6 +392,7 @@ _SECTION_CAP = 500
 
 def _form_entries(config, auth_manager, table: str) -> Tuple[List[str], set]:
     """(this table's form section ids, sys_ids of their Form Layout update records). Raises."""
+    _fresh()
     sections = _read(
         config, auth_manager, "sys_ui_section", f"name={table}", "sys_id", _SECTION_CAP
     )
@@ -414,7 +432,6 @@ def _undo_form_placement(
                 "DELETE", url, headers=auth_manager.get_headers(), timeout=config.timeout
             ).raise_for_status()
             out["elements_removed"] += 1
-        invalidate_query_cache(table="sys_ui_element")
         _, after = _form_entries(config, auth_manager, table)
         for sys_id in sorted(after - before):
             url = f"{config.api_url}/table/sys_update_xml/{sys_id}"
@@ -422,7 +439,6 @@ def _undo_form_placement(
                 "DELETE", url, headers=auth_manager.get_headers(), timeout=config.timeout
             ).raise_for_status()
             out["entries_removed"] += 1
-        invalidate_query_cache(table="sys_update_xml")
         _, final = _form_entries(config, auth_manager, table)
         left = sorted(final - before)
     except Exception as e:
@@ -575,6 +591,7 @@ def _create_field(config, auth_manager, p: ManageDictionaryParams) -> Dict[str, 
     except Exception as e:
         return _fail(f"Failed to create the field: {e}")
     out: Dict[str, Any] = {"success": True, "sys_id": sys_id}
+    _fresh()
     if form_before is not None:
         out["form_placement_undo"] = _undo_form_placement(
             config, auth_manager, p.table, p.element, form_before
@@ -626,6 +643,7 @@ def _create_field(config, auth_manager, p: ManageDictionaryParams) -> Dict[str, 
 
 def _finish(config, auth_manager, p, data, wanted, out) -> Dict[str, Any]:
     """Re-read everything a create claims, and say what each read proved."""
+    _fresh()
     try:
         rows = _read(
             config,
@@ -662,6 +680,20 @@ def _finish(config, auth_manager, p, data, wanted, out) -> Dict[str, Any]:
         out["labels"] = f"unread: {e}"
     form = _form_side_effect(config, auth_manager, p.table, p.element)
     out["form_layout"] = form
+    undo = out.get("form_placement_undo")
+    if undo is not None and not undo.get("undone"):
+        out["success"] = False
+        out["form_undo_note"] = (
+            "Undoing the form placement did not finish"
+            + (f" ({undo['error']})" if undo.get("error") else "")
+            + (
+                f"; Form Layout record(s) {', '.join(undo['entries_left'])} this call created "
+                "are still in the update set — remove them (manage_changeset remove_file) "
+                "unless the form layout is part of the task."
+                if undo.get("entries_left")
+                else "."
+            )
+        )
     if not form.get("checked"):
         out["form_layout_note"] = (
             "Could not check whether the platform added the field to a form; look at "

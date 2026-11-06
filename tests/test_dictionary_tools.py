@@ -48,6 +48,8 @@ class Fake:
         self.ui_elements = []
         self.layout_entries = []
         self.fail_delete = False
+        self.entries_stick = False
+        self.cache = {}
         self.rows = 5
         self.capture = [
             {
@@ -67,6 +69,17 @@ class Fake:
                 k, v = part.split("=", 1)
                 out[k] = v
         return out
+
+    def cached_query(self, config, auth, *, table, query, fields, **kw):
+        """Like sn_query_page: a page is served from cache until its table is invalidated."""
+        key = (table, query, fields)
+        if key not in self.cache:
+            self.cache[key] = self.query(config, auth, table=table, query=query, fields=fields)
+        rows, total = self.cache[key]
+        return [dict(r) for r in rows], total
+
+    def invalidate(self, *, table=None):
+        self.cache = {k: v for k, v in self.cache.items() if table and k[0] != table}
 
     def query(self, config, auth, *, table, query, fields, **kw):
         q = self._q(query)
@@ -126,7 +139,7 @@ class Fake:
             if table == "sys_ui_element":
                 self.ui_elements = [e for e in self.ui_elements if e["sys_id"] != sid]
                 self._recapture()
-            else:
+            elif not self.entries_stick:
                 self.layout_entries = [e for e in self.layout_entries if e["sys_id"] != sid]
             return resp
         if method == "POST" and table == "sys_dictionary" and self.form:
@@ -171,10 +184,10 @@ def env():
     am = MagicMock()
     am.make_request.side_effect = fake.request
     with (
-        patch.object(dt, "sn_query_page", side_effect=fake.query),
+        patch.object(dt, "sn_query_page", side_effect=fake.cached_query),
         patch.object(dt, "sn_count", side_effect=fake.count),
         patch.object(dt, "table_ancestry", side_effect=lambda c, a, t: ANC.get(t, [])),
-        patch.object(dt, "invalidate_query_cache"),
+        patch.object(dt, "invalidate_query_cache", side_effect=fake.invalidate),
     ):
         yield fake, lambda **kw: manage_dictionary(config, am, ManageDictionaryParams(**kw))
 
@@ -406,3 +419,21 @@ def test_preview_warns_about_the_form_layout(env):
     _, call = env
     r = call(**{**NEW, "confirm_column": None})
     assert "Form Layout" in r["note"]
+
+
+def test_element_removed_but_record_left_is_never_success(env):
+    fake, call = env
+    fake.entries_stick = True  # the new Form Layout record survives its delete
+    r = call(**NEW)
+    assert r["form_placement_undo"]["undone"] is False
+    assert r["form_placement_undo"]["entries_left"]
+    assert r["form_layout"]["added_to_form"] is False  # element gone, record not
+    assert r["success"] is False and "remove_file" in r["form_undo_note"]
+
+
+def test_reads_after_a_write_bypass_the_query_cache(env, monkeypatch):
+    """A cached pre-write page hid the new Form Layout record from the undo (lab)."""
+    fake, call = env
+    monkeypatch.setattr(dt, "_fresh", lambda: None)  # the bug: no invalidation
+    broken = call(**NEW)
+    assert broken["form_placement_undo"]["entries_removed"] == 0  # reproduces it
