@@ -526,7 +526,7 @@ def _apply_update_set(
             return {"success": False, **resolved}
         update_set_id = resolved["sys_id"]
     assert update_set_id  # narrowed: set by param or resolved above
-    return _set_and_verify(
+    result = _set_and_verify(
         config,
         auth_manager,
         endpoint=_UPDATESET_ENDPOINT,
@@ -534,6 +534,14 @@ def _apply_update_set(
         expected_id=update_set_id,
         label="update set",
     )
+    if result.get("success"):
+        # An explicit, verified pick IS the answer G11 would ask for — so the
+        # create → select → write sequence never meets the question.
+        from servicenow_mcp.policies.write_guards import note_update_set_chosen
+
+        current = result.get("current") or {}
+        note_update_set_chosen(config, update_set_id, str(current.get("name") or ""))
+    return result
 
 
 def get_current_update_set(

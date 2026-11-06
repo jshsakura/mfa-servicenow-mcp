@@ -687,6 +687,7 @@ MCP startup failed: handshaking with MCP server failed: connection closed: initi
 | 并发编辑 (G3/G8) | 盲目覆盖**另一个用户**在过去 10 分钟内编辑过的记录。覆盖 `sn_write`、`manage_portal_component` 以及 `manage_*` 更新工具——包括 `manage_script_include`、`manage_flow_designer`、`manage_workflow`、`manage_kb_article`、`manage_portal_layout` 和 `manage_widget_dependency`。由对 `sys_updated_by`/`sys_updated_on` 的**实时远程读取**决定——绝非本地副本。 | `SERVICENOW_CONCURRENT_EDIT_GUARD=off`；时间窗口通过 `SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN`（默认 `10`） |
 | 源码推送漂移（实时锚点 + update-set HOLD） | 用 `update_remote_from_local` 将编辑后的源码推回会增加两项时间窗口无法捕捉的检查：一项是将远程当前的 `sys_updated_on` 与下载时记录的值进行**与时间无关**的比较（捕捉数小时甚至**数天**之后的覆盖），以及一项对该记录是否被**保留在另一个用户未提交的 update set 中**的实时检查。 | 用 `force=true` 推送越过已检测到的漂移 |
 | 重复创建 (G9) | 在 ServiceNow 不强制唯一的表（`sys_update_set`、`wf_workflow`、`sys_user_group`、`sys_user`）上，悄无声息地创建第二条同名记录。 | 传入 `allow_duplicate='true'` 以仍然创建 |
+| 更新集确认 (G11) | 向本会话中无人选择的更新集（`Default`、上一个任务的集、被其他会话切换的集）写入配置。每个集的首次写入**只停一次**并询问：显示当前集、你进行中的集和最近的集名称，并给出继续 / 切换 / 新建三种调用。仅限浏览器认证；数据记录类工具不受影响。 | `confirm_update_set='<集名称>'`（会话内按集记住，`Default` 不记住） |
 | Flow Designer 原始写入 (G6) | 对会破坏 flow 快照的 `sys_hub_*` 表进行原始 `sn_write`——强制使用 `manage_flow_designer`。 | — |
 | 发布类 (G7) | 意外的发布/提交/推送——需要第二次 `confirm_publish='approve'`。 | — |
 | 跨实例推送 | 将从实例 A 下载的本地源码推送到实例 B（来源从 `_settings.json` / `_manifest.json` 读取）。 | 从正确的实例重新下载 |

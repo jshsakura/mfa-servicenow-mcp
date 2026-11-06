@@ -36,6 +36,14 @@ This layer adds only what the above can't catch:
        failed/denied existence read fails open (never blocks a create on a
        missing read).
 
+  G11 — Update-set confirmation (ask, don't block)
+       The first config write into an update set this process has not seen
+       chosen stops ONCE and asks: here is the current set, continue / switch
+       to one of yours / create a new one (with your recent set names so a
+       name can be proposed in the team's own pattern). A set picked through
+       manage_session_context counts as chosen, so create → select → write
+       never sees it. Approve with confirm_update_set='<that set's name>'.
+
 Removed (delegated to ServiceNow / session):
   G1, G2, G5 — Update set membership/size policing. Each user's session
                writes only to their own current update set. Self-management.
@@ -887,6 +895,255 @@ def _g10_session_identity(ctx: WriteGuardContext) -> None:
 
 
 # ---------------------------------------------------------------------------
+# G11 — Update-set confirmation (asks once per set, never a wall)
+# ---------------------------------------------------------------------------
+# The update set is session state that outlives the task that picked it: the
+# previous task's set is still current when the next task starts, another
+# terminal can switch it, and a fresh session sits in Default. The post-write
+# stamp (update_set_context) only reports that AFTER the change was captured,
+# when the fix is a move_file instead of a choice. G11 moves the question in
+# front of the first write — once per (instance, set), so a deliberate choice
+# costs one round-trip and then gets out of the way.
+
+CONFIRM_UPDATE_SET_FIELD = "confirm_update_set"
+
+# Writes to tables ServiceNow does not capture into update sets (task / data
+# records), plus the tools that ARE the remedy. A tool not listed here is
+# assumed to be captured: asking about a set that did not matter costs one
+# retry, skipping one that did costs the deploy.
+_UPDATE_SET_EXEMPT_TOOLS = frozenset(
+    {
+        "manage_changeset",
+        "manage_session_context",
+        "manage_incident",
+        "manage_change",
+        "approve_change",
+        "submit_change_for_approval",
+        "manage_problem",
+        "manage_request_item",
+        "manage_approval",
+        "manage_asset",
+        "manage_user",
+        "manage_group",
+        "manage_kb_article",
+        "manage_project",
+        "create_project",
+        "update_project",
+        "manage_epic",
+        "create_epic",
+        "update_epic",
+        "manage_story",
+        "create_story",
+        "update_story",
+        "create_story_dependency",
+        "delete_story_dependency",
+        "manage_scrum_task",
+        "create_scrum_task",
+        "update_scrum_task",
+        # The debug browser's own session has its own picker; the API session's
+        # set says nothing about where a click in that window is captured.
+        "act_in_debug_window",
+        "inspect_debug_window",
+    }
+)
+
+# (instance_url, update_set sys_id) pairs this process has seen chosen or
+# approved. Process memory on purpose: a restart is a new session, and a new
+# session is exactly when the leftover set deserves the question again.
+_CONFIRMED_UPDATE_SETS: set = set()
+
+
+def _instance_key(config: Any) -> str:
+    return str(getattr(config, "instance_url", "") or "").rstrip("/").lower()
+
+
+def note_update_set_chosen(config: Any, sys_id: str, name: str = "") -> None:
+    """Record that the caller explicitly picked this set (manage_session_context).
+
+    Picking Default is not a choice worth remembering — it is the one set whose
+    captures never ship, so it keeps asking.
+    """
+    if not sys_id:
+        return
+    from servicenow_mcp.tools.session_context_tools import is_default_update_set
+
+    if is_default_update_set({"name": name}):
+        return
+    _CONFIRMED_UPDATE_SETS.add((_instance_key(config), sys_id))
+
+
+def _recent_update_sets(
+    ctx: WriteGuardContext, created_by: Optional[str]
+) -> Optional[List[Dict[str, str]]]:
+    """Most recently created sets (any state) — by *created_by*, or by anyone
+    except Default when None. None when unreadable."""
+    try:
+        from servicenow_mcp.tools.sn_api import sn_query_page
+
+        if created_by:
+            query = "sys_created_by=" + created_by.replace("^", "").replace("=", "")
+        else:
+            query = "name!=Default"
+        rows, _ = sn_query_page(
+            ctx.server.config,
+            ctx.server.auth_manager,
+            table="sys_update_set",
+            query=query,
+            fields="sys_id,name,state,application",
+            limit=8,
+            offset=0,
+            display_value="all",
+            orderby="-sys_created_on",
+            fail_silently=False,
+        )
+    except Exception:
+        logger.debug("G11 recent update set read failed", exc_info=True)
+        return None
+    out = []
+    for row in rows or []:
+        state_raw, state_label = _ref_pair(row.get("state"))
+        _app_id, app = _ref_pair(row.get("application"))
+        out.append(
+            {
+                "sys_id": _flat(row.get("sys_id")),
+                "name": _flat(row.get("name")),
+                # Raw choice value first ("in progress"), so it compares against
+                # the fixed closed-state vocabulary rather than a localized label.
+                "state": (state_raw or state_label).strip().lower(),
+                "application": app,
+            }
+        )
+    return out
+
+
+def _g11_update_set_confirmation(ctx: WriteGuardContext) -> None:
+    """G11 — ask which update set before the first captured write into it.
+
+    Browser auth only (the current set is session state the Table API cannot
+    see). Fail-open when the set cannot be read; SERVICENOW_WRITE_GUARDS_FAIL=
+    closed asks instead.
+    """
+    if ctx.tool_name in _UPDATE_SET_EXEMPT_TOOLS:
+        return
+    try:
+        if ctx.server.config.auth.type.value != "browser":
+            return
+    except Exception:
+        return
+
+    from servicenow_mcp.tools.session_context_tools import (
+        get_current_update_set,
+        is_default_update_set,
+        split_picker_label,
+    )
+
+    config = ctx.server.config
+    us = get_current_update_set(config, ctx.server.auth_manager)
+    if not us or not us.get("sys_id"):
+        if _fail_closed():
+            raise PolicyViolation(
+                "G11",
+                f"Could not read this session's current update set, and "
+                f"{ENV_WRITE_GUARDS_FAIL}=closed blocks writes whose capture target is "
+                f"unknown. Check it with manage_session_context(action='get'), then retry.",
+            )
+        return
+
+    sys_id = us["sys_id"]
+    key = (_instance_key(config), sys_id)
+    if key in _CONFIRMED_UPDATE_SETS:
+        return
+
+    name, _ = split_picker_label(str(us.get("name") or ""))
+    name = name.strip() or sys_id
+    approval = str(ctx.arguments.get(CONFIRM_UPDATE_SET_FIELD) or "").strip().lower()
+    if approval and approval in {name.lower(), sys_id.lower()}:
+        if not is_default_update_set(us):
+            _CONFIRMED_UPDATE_SETS.add(key)
+        return
+
+    rec = _fetch_one(
+        ctx.server, "sys_update_set", f"sys_id={sys_id}", "sys_id,application,sys_created_by"
+    )
+    _scope_id, scope = _ref_pair((rec or {}).get("application"))
+    owner = _flat((rec or {}).get("sys_created_by")).strip()
+    me = (_current_username(ctx.server) or "").strip()
+
+    lines: List[str] = []
+    if is_default_update_set(us):
+        lines.append(
+            f"Current update set is 'Default'{f' ({scope})' if scope else ''}. Changes "
+            f"captured there never promote — this write would land on this instance only."
+        )
+    else:
+        whose = ""
+        if owner and me and owner.lower() != me.lower():
+            whose = f", created by {owner}, not you ('{me}')"
+        lines.append(
+            f"This write would be captured into update set '{name}' "
+            f"(sys_id {sys_id}{f', scope {scope}' if scope else ''}{whose}). It has not "
+            f"been chosen in this session — it may be left over from an earlier task "
+            f"or switched by another session."
+        )
+
+    recent = _recent_update_sets(ctx, me) if me else None
+    if recent is None:
+        lines.append(
+            "Your other update sets could not be listed"
+            + ("" if me else " (session user unresolved)")
+            + " — check manually before choosing."
+        )
+    else:
+        open_sets = [
+            r for r in recent if r["sys_id"] != sys_id and r["state"] not in _CLOSED_STATES_FOR_G11
+        ]
+        if open_sets:
+            listed = "; ".join(
+                f"'{r['name']}' ({r['application'] or 'scope ?'}, {r['state'] or 'state ?'}, "
+                f"{r['sys_id']})"
+                for r in open_sets[:5]
+            )
+            lines.append(f"Your open sets: {listed}.")
+        elif not recent:
+            # Said, not omitted: a missing list reads as "nothing to choose from"
+            # only when the reader is told the list was read and came back empty.
+            lines.append(f"You ('{me}') have created no update sets on this instance.")
+        names = [r["name"] for r in recent if r["name"]]
+        if names:
+            lines.append(
+                "Your recent set names (newest first, for a new name in the same "
+                f"pattern): {', '.join(repr(n) for n in names[:6])}."
+            )
+        if len(names) < 3:
+            # Too few of your own to show a pattern — the team's naming lives in
+            # everyone's sets, so show the instance's latest instead.
+            team = _recent_update_sets(ctx, None)
+            team_names = list(
+                dict.fromkeys(
+                    r["name"] for r in (team or []) if r["name"] and r["name"] not in names
+                )
+            )
+            if team_names:
+                lines.append(
+                    "Recent set names on this instance (anyone, newest first — the team's "
+                    f"naming pattern): {', '.join(repr(n) for n in team_names[:6])}."
+                )
+
+    lines.append(
+        "ASK THE USER which of these — do not pick for them: "
+        f"(1) continue in '{name}': retry with {CONFIRM_UPDATE_SET_FIELD}='{name}'; "
+        "(2) switch: manage_session_context(action='set_update_set', update_set_id=...); "
+        "(3) new set: propose a name, get approval, then manage_changeset(action='create', "
+        "name=..., application=<scope>) and set_update_set. Nothing was written."
+    )
+    raise PolicyViolation("G11", " ".join(lines))
+
+
+# States that cannot receive a capture — same vocabulary as the push check.
+_CLOSED_STATES_FOR_G11 = frozenset({"complete", "committed", "closed", "ignore", "released"})
+
+
+# ---------------------------------------------------------------------------
 # Update-set awareness (NON-blocking)
 # ---------------------------------------------------------------------------
 # Surface WHERE a write is captured (which update set + scope) so the user is
@@ -1141,6 +1398,7 @@ def run_post_confirm_guards(server: Any, tool_name: str, arguments: Dict[str, An
     # Identity first: with the wrong user logged in, the concurrent-edit and
     # duplicate reads below would themselves run (and reason) as that user.
     _g10_session_identity(ctx)
+    _g11_update_set_confirmation(ctx)
     _g3_concurrent_edit(ctx)
     _g8_generic_concurrent_edit(ctx)
     _g8_registry_concurrent_edit(ctx)
@@ -1155,5 +1413,10 @@ def strip_guard_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def strip_post_confirm_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
-    """Remove post-confirm guard fields (allow_duplicate) before the tool runs."""
-    return {k: v for k, v in arguments.items() if k != ALLOW_DUPLICATE_FIELD}
+    """Remove post-confirm guard fields (allow_duplicate, confirm_update_set)
+    before the tool runs."""
+    return {
+        k: v
+        for k, v in arguments.items()
+        if k not in (ALLOW_DUPLICATE_FIELD, CONFIRM_UPDATE_SET_FIELD)
+    }

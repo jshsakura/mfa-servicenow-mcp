@@ -688,6 +688,7 @@ confirm 게이트 외에도, 모든 쓰기는 **ServiceNow에 도달하기 전�
 | 동시 수정 (G3/G8) | **다른 사용자**가 최근 10분 내 수정한 레코드를 모르고 덮어쓰기. `sn_write`, `manage_portal_component`, `manage_*` 업데이트 계열 커버. 로컬 사본이 아닌 **원격 실시간 조회**(`sys_updated_by`/`sys_updated_on`)로 판정. | `SERVICENOW_CONCURRENT_EDIT_GUARD=off`; 윈도우는 `SERVICENOW_CONCURRENT_EDIT_WINDOW_MIN`(기본 `10`) |
 | 소스 푸시 드리프트 (라이브 앵커 + 업데이트 셋 HOLD) | 편집한 소스를 `update_remote_from_local`로 되돌려 푸시할 때, 시간 윈도우로는 못 잡는 두 가지 검사를 추가합니다: 원격의 현재 `sys_updated_on`을 다운로드 시 기록한 값과 **시간 무관**하게 대조(수 시간, 심지어 **수 일** 뒤의 덮어쓰기도 포착), 그리고 레코드가 **다른 사용자의 미커밋 업데이트 셋에 잡혀(HOLD)** 있는지 실시간 확인. | 감지된 드리프트를 무시하고 푸시하려면 `force=true` |
 | 중복 생성 (G9) | ServiceNow가 유니크를 강제하지 않는 테이블(`sys_update_set`, `wf_workflow`, `sys_user_group`, `sys_user`)에 같은 이름으로 조용히 또 만들기. | `allow_duplicate='true'`를 넘기면 생성 |
+| 업데이트 셋 확인 (G11) | 이번 세션에서 아무도 고르지 않은 업데이트 셋에 설정을 쓰기 — `Default`(이관 안 됨), 이전 작업의 셋, 다른 세션이 바꿔 놓은 셋. 셋마다 첫 쓰기에서 **한 번만** 멈추고 물어봅니다: 현재 셋, 내 진행 중 셋, 내 최근 셋 이름(같은 패턴으로 새 이름 제안용)을 보여 주고 계속 / 전환 / 새로 만들기를 호출 형태로 제시합니다. 브라우저 인증 전용, 데이터 레코드 도구(incident, user, asset 등)는 제외. `manage_session_context(action='set_update_set')`로 고른 셋은 이미 답한 것으로 봅니다. | `confirm_update_set='<셋 이름>'` (세션 동안 셋별로 기억, `Default`는 기억 안 함) |
 | Flow Designer 직접 쓰기 (G6) | 플로우 스냅샷을 깨는 `sys_hub_*` 직접 `sn_write` — `manage_flow_designer` 강제. | — |
 | Publish 계열 (G7) | 실수 publish/commit/push — 별도 `confirm_publish='approve'` 필요. | — |
 | 인스턴스 간 푸시 | A에서 받은 로컬 소스를 B로 푸시(출처는 `_settings.json`/`_manifest.json`에서 읽음). | 올바른 인스턴스에서 재다운로드 |
