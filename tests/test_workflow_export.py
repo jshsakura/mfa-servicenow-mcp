@@ -204,3 +204,34 @@ def test_export_is_classified_as_a_read():
     from servicenow_mcp.policies.write_guards import MANAGE_READ_ACTIONS
 
     assert "export" in MANAGE_READ_ACTIONS["manage_workflow"]
+
+
+def test_snapshot_says_edits_go_nowhere(config, tmp_path):
+    _export(config, tmp_path, Fake(_tables()))
+    root = tmp_path / "wf_workflow" / "Order_flow"
+    assert "changes nothing on the server" in (root / "outline.md").read_text()
+    data = json.loads((root / "workflow.json").read_text())
+    assert "changes nothing on the server" in data["snapshot"] and data["exported_at"]
+
+
+def test_reexport_reports_whether_the_server_changed(config, tmp_path):
+    first = _export(config, tmp_path, Fake(_tables()))
+    assert "previous_export" not in first
+    same = _export(config, tmp_path, Fake(_tables()))
+    assert same["previous_export"]["changed_on_server"] is False
+    tables = _tables()
+    tables["sys_variable_value"][0]["value"] = "current.state = 3;\n"
+    moved = _export(config, tmp_path, Fake(tables))
+    assert moved["previous_export"]["changed_on_server"] is True
+    assert "re-checked" in moved["previous_export"]["note"]
+
+
+def test_reexport_drops_script_files_of_removed_activities(config, tmp_path):
+    _export(config, tmp_path, Fake(_tables()))
+    root = tmp_path / "wf_workflow" / "Order_flow"
+    old_files = list((root / "activities").rglob("*.js"))
+    assert old_files
+    tables = _tables()
+    tables["sys_variable_value"] = []  # the scripted activity's variables are gone
+    _export(config, tmp_path, Fake(tables))
+    assert not any(f.exists() for f in old_files)

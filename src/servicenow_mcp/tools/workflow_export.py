@@ -24,7 +24,10 @@ pushable — a migration reads the old engine, it does not edit it.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
@@ -208,6 +211,8 @@ def _outline(payload: Dict[str, Any]) -> str:
     lines = [
         f"# {payload['workflow'].get('name', '')} — legacy workflow outline",
         "",
+        f"> Snapshot exported {payload.get('exported_at', '')}. {_SNAPSHOT_NOTE}",
+        "",
         f"- version: {version.get('name', '')} (published={version.get('published', '')}, "
         f"active={version.get('active', '')})",
         f"- trigger: table `{trig['table'] or '-'}`; condition "
@@ -234,6 +239,23 @@ def _outline(payload: Dict[str, Any]) -> str:
     if not starts:
         lines += ["**No Begin activity in this version — the walk had no start.**", ""]
     return "\n".join(lines)
+
+
+_SNAPSHOT_NOTE = (
+    "Read-only snapshot of the server. Editing these files changes nothing on the server; "
+    "re-export to refresh."
+)
+
+
+def _previous_export(wf_dir) -> Optional[Dict[str, Any]]:
+    """The export already in *wf_dir* (same workflow — _held_by_other ran first), or None."""
+    existing = wf_dir / "workflow.json"
+    if not existing.exists():
+        return None
+    try:
+        return json.loads(existing.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
 def _held_by_other(wf_dir, workflow_id: str) -> bool:
@@ -346,6 +368,11 @@ def export_workflow(
     # Workflow names are not unique. Never overwrite another workflow's export.
     if _held_by_other(wf_dir, workflow_id):
         wf_dir = wf_dir.with_name(f"{wf_dir.name}.{workflow_id[:8]}")
+    previous = _previous_export(wf_dir)
+    if previous is not None:
+        # A snapshot is replaced whole: script files of activities that no longer
+        # exist must not linger beside the new ones as if they were still live.
+        shutil.rmtree(wf_dir / "activities", ignore_errors=True)
 
     cond_name = {c["sys_id"]: c.get("name", "") for c in conditions}
     vars_by_act: Dict[str, List[Dict[str, Any]]] = {}
@@ -424,7 +451,32 @@ def export_workflow(
         running = f"unread ({exc})"
 
     complete = all(p["complete"] for p in proof.values())
+    content_sha = hashlib.sha256(
+        json.dumps(
+            {
+                "a": activities,
+                "t": edges,
+                "trigger": version,
+                "s": stages,
+                # Script bodies sit in files; hash the values themselves, not their sizes.
+                "v": sorted(
+                    (
+                        str(v.get("document_key") or ""),
+                        str(v.get("variable.element") or v.get("variable") or ""),
+                        str(v.get("value") or ""),
+                    )
+                    for v in variables
+                ),
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    exported_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     payload = {
+        "snapshot": _SNAPSHOT_NOTE,
+        "exported_at": exported_at,
+        "content_sha": content_sha,
         "workflow": {k: wf.get(k, "") for k in ("sys_id", "name", "description", "template")},
         "scope": scope,
         "version": version,
@@ -464,8 +516,20 @@ def export_workflow(
         "trigger": payload["trigger"],
         "running_contexts": running,
         "complete": complete,
-        "note": "Reference copy, not pushable. Read outline.md first, then workflow.json.",
+        "note": "Read-only snapshot (edits here change nothing on the server). Read outline.md "
+        "first, then workflow.json.",
     }
+    if previous is not None:
+        changed = previous.get("content_sha") != content_sha
+        result["previous_export"] = {
+            "exported_at": previous.get("exported_at", "unknown"),
+            "changed_on_server": changed if previous.get("content_sha") else "unknown",
+        }
+        if changed:
+            result["previous_export"]["note"] = (
+                "The server's workflow differs from the copy that was on disk — anything "
+                "derived from the old copy should be re-checked against this one."
+            )
     if not complete:
         short = [k for k, p in proof.items() if not p["complete"]]
         result["warning"] = (
