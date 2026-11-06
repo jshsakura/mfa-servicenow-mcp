@@ -4,11 +4,11 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from test_workflow_export import A_SCRIPT, WF, Fake, _tables
 
 from servicenow_mcp.tools import workflow_export as we
 from servicenow_mcp.tools import workflow_verify as wv
 from servicenow_mcp.tools.workflow_tools import ManageWorkflowParams, manage_workflow
-from tests.test_workflow_export import A_SCRIPT, WF, Fake, _tables
 
 # A checkout copies every activity under a new sys_id.
 A_COPY = "aaaa9999bbbb0000cccc1111dddd2222"
