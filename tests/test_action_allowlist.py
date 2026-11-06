@@ -389,6 +389,7 @@ class TestHiddenActionsAreNamed:
             "list_versions",
             "get_activities",
             "export",
+            "verify",
         }
         assert "confirm" not in wf.input_schema["properties"]
         assert "More actions: platform_developer package." in wf.description

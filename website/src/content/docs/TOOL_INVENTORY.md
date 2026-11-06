@@ -359,7 +359,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_workflow` | R/W | LEGACY Workflow engine ONLY (wf_workflow/wf_activity); export writes a version's full graph to disk. Flow Designer ->... | core (get_activities, list), standard (get_activities, list), portal_developer (export, get, get_activities, list, list_versions), platform_developer, service_desk (get_activities, list), itsm_developer (export, get_activities, list), full |
+| `manage_workflow` | R/W | LEGACY Workflow engine ONLY (wf_workflow/wf_activity); export writes a version's full graph to disk; verify checks ed... | core (get_activities, list), standard (get_activities, list), portal_developer (export, get, get_activities, list, list_versions, verify), platform_developer, service_desk (get_activities, list), itsm_developer (export, get_activities, list, verify), full |
 
 ### Xml Export Tools (1)
 

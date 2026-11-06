@@ -34,6 +34,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.tools.sn_api import SYS_ID_IN_CHUNK, sn_count, sn_query_all, sn_query_page
 from servicenow_mcp.utils.atomic_io import atomic_write_text
 from servicenow_mcp.utils.config import ServerConfig
+from servicenow_mcp.utils.source_layout import normalize_source_eol
 
 # Values of these variable types are programs; they go to files, in full.
 _SCRIPT_TYPES = {"script", "script_plain", "email_script"}
@@ -53,6 +54,10 @@ _VARIABLE_FIELDS = (
 _CONDITION_FIELDS = "sys_id,activity,name,condition,else_flag,order,short_description"
 _TRANSITION_FIELDS = "sys_id,from,to,condition"
 _STAGE_FIELDS = "sys_id,name,value,order"
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _num(value: Any) -> float:
@@ -159,7 +164,11 @@ def _outline(payload: Dict[str, Any]) -> str:
             continue
         seen.add(aid)
         order.append(aid)
-        queue.extend(t["to"] for t in out_edges.get(aid, []) if t["to"] not in seen)
+        # A transition may name an activity outside this version; label() reports
+        # it, but it has no block of its own to walk into.
+        queue.extend(
+            t["to"] for t in out_edges.get(aid, []) if t["to"] in by_id and t["to"] not in seen
+        )
     orphans = [a["sys_id"] for a in activities if a["sys_id"] not in seen]
     number = {aid: i + 1 for i, aid in enumerate(order + orphans)}
 
@@ -270,15 +279,13 @@ def _held_by_other(wf_dir, workflow_id: str) -> bool:
     return held != workflow_id
 
 
-def export_workflow(
+def read_live_graph(
     config: ServerConfig,
     auth_manager: AuthManager,
     workflow_id: str,
     version_id: Optional[str] = None,
-    output_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    from servicenow_mcp.tools.source_tools import _resolve_scope_root, _safe_filename
-
+    """Every read an export or a verify needs, or ``{"error": ...}``. Nothing partial."""
     wf_rows, _ = sn_query_page(
         config,
         auth_manager,
@@ -291,12 +298,12 @@ def export_workflow(
         fail_silently=False,
     )
     if not wf_rows:
-        return {"success": False, "error": f"No wf_workflow with sys_id {workflow_id}."}
+        return {"error": f"No wf_workflow with sys_id {workflow_id}."}
     wf = wf_rows[0]
     version = _pick_version(config, auth_manager, workflow_id, version_id)
     if not version:
         which = f"version {version_id}" if version_id else "published version"
-        return {"success": False, "error": f"No {which} for workflow {workflow_id}."}
+        return {"error": f"No {which} for workflow {workflow_id}."}
     vid = version["sys_id"]
 
     proof: Dict[str, Any] = {}
@@ -356,11 +363,38 @@ def export_workflow(
     except Exception as exc:
         # A partial export would read as the whole workflow. Write nothing.
         return {
-            "success": False,
-            "error": f"Export read failed ({exc}); nothing written — a partial graph is not "
+            "error": f"Read failed ({exc}); nothing written or judged — a partial graph is not "
             "a smaller workflow, it is a wrong one. Retry.",
             "reads_done": proof,
         }
+    return {
+        "workflow": wf,
+        "version": version,
+        "proof": proof,
+        "activities": acts,
+        "variables": variables,
+        "conditions": conditions,
+        "transitions": transitions,
+        "stages": stages,
+    }
+
+
+def export_workflow(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    workflow_id: str,
+    version_id: Optional[str] = None,
+    output_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    from servicenow_mcp.tools.source_tools import _resolve_scope_root, _safe_filename
+
+    graph = read_live_graph(config, auth_manager, workflow_id, version_id)
+    if "error" in graph:
+        return {"success": False, **{k: v for k, v in graph.items()}}
+    wf, version, proof = graph["workflow"], graph["version"], graph["proof"]
+    acts, variables = graph["activities"], graph["variables"]
+    conditions, transitions, stages = graph["conditions"], graph["transitions"], graph["stages"]
+    vid = version["sys_id"]
 
     scope = str(wf.get("sys_scope.scope") or "global")
     _, scope_root = _resolve_scope_root(config, scope, output_dir)
@@ -369,6 +403,28 @@ def export_workflow(
     if _held_by_other(wf_dir, workflow_id):
         wf_dir = wf_dir.with_name(f"{wf_dir.name}.{workflow_id[:8]}")
     previous = _previous_export(wf_dir)
+    if previous:
+        # The script files are where a migration edit is drafted. Replacing the
+        # snapshot must never destroy one that has not reached the server yet.
+        from servicenow_mcp.tools.workflow_verify import (
+            live_script_index,
+            local_scripts,
+            pending_local_edits,
+        )
+
+        pending = pending_local_edits(
+            local_scripts(wf_dir, previous), live_script_index(acts, variables)
+        )
+        if pending:
+            return {
+                "success": False,
+                "error": "LOCAL_EDITS_PENDING",
+                "message": f"{len(pending)} script file(s) in {wf_dir} differ from the live "
+                "workflow and may be unapplied edits; nothing was written. Apply them in the "
+                "Workflow Editor and run action='verify', or move the folder aside, then "
+                "re-export.",
+                "files": pending,
+            }
     if previous is not None:
         # A snapshot is replaced whole: script files of activities that no longer
         # exist must not linger beside the new ones as if they were still live.
@@ -395,13 +451,18 @@ def export_workflow(
             vtype = v.get("variable.internal_type") or ""
             if vtype in _SCRIPT_TYPES and raw:
                 rel = f"activities/{folder}/{_safe_filename(element)}.js"
-                atomic_write_text(wf_dir / rel, raw)
+                # LF on disk like every other download: the server stores CRLF or LF
+                # depending on the edit path, and a hash of bytes the reader never
+                # sees would mark every untouched file as edited.
+                body = normalize_source_eol(raw)
+                atomic_write_text(wf_dir / rel, body)
                 files_written += 1
                 values[element] = {
                     "type": vtype,
                     "file": rel,
-                    "chars": len(raw),
-                    "lines": raw.count("\n") + (0 if raw.endswith("\n") else 1),
+                    "sha256": _sha(body),
+                    "chars": len(body),
+                    "lines": body.count("\n") + (0 if body.endswith("\n") else 1),
                 }
             else:
                 values[element] = {"type": vtype, "value": raw}

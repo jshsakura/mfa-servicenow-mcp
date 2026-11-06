@@ -1305,6 +1305,7 @@ class ManageWorkflowParams(BaseModel):
       delete_activity:    activity_id
       reorder_activities: NOT SUPPORTED — wf_activity has no order field
       export:             workflow_id (version_id optional) — full graph to disk
+      verify:             workflow_id — did the exported script edits reach the server
     """
 
     action: Literal[
@@ -1313,6 +1314,7 @@ class ManageWorkflowParams(BaseModel):
         "list_versions",
         "get_activities",
         "export",
+        "verify",
         "create",
         "update",
         "activate",
@@ -1338,7 +1340,8 @@ class ManageWorkflowParams(BaseModel):
     version_id: Optional[str] = Field(default=None, description="Specific version for activities")
     published_only: bool = Field(default=False, description="Only published versions")
     output_dir: Optional[str] = Field(
-        default=None, description="export: omit — the default path is canonical and reused."
+        default=None,
+        description="export/verify: omit — the default path is canonical and reused.",
     )
 
     # Activity identifier
@@ -1374,6 +1377,7 @@ class ManageWorkflowParams(BaseModel):
         "list_versions": frozenset({"workflow_id", "published_only"}),
         "get_activities": frozenset({"workflow_id", "version_id"}),
         "export": frozenset({"workflow_id", "version_id", "output_dir"}),
+        "verify": frozenset({"workflow_id", "output_dir"}),
         "create": frozenset({"name", "description", "table", "active", "attributes", "dry_run"}),
         "update": frozenset(
             {"workflow_id", "name", "description", "table", "active", "attributes", "dry_run"}
@@ -1402,9 +1406,9 @@ class ManageWorkflowParams(BaseModel):
         a = self.action
         if a in ("list", "get", "list_versions", "get_activities"):
             pass
-        elif a == "export":
+        elif a in ("export", "verify"):
             if not self.workflow_id:
-                raise ValueError("workflow_id is required for action='export'")
+                raise ValueError(f"workflow_id is required for action='{a}'")
         elif a == "create":
             if not self.name:
                 raise ValueError("name is required for action='create'")
@@ -1442,7 +1446,7 @@ class ManageWorkflowParams(BaseModel):
 @register_tool(
     name="manage_workflow",
     params=ManageWorkflowParams,
-    description="LEGACY Workflow engine ONLY (wf_workflow/wf_activity); export writes a version's full graph to disk. Flow Designer -> manage_flow_designer.",
+    description="LEGACY Workflow engine ONLY (wf_workflow/wf_activity); export writes a version's full graph to disk; verify checks edits applied in the editor. Flow Designer -> manage_flow_designer.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -1509,6 +1513,11 @@ def manage_workflow(
         return export_workflow(
             config, auth_manager, params.workflow_id, params.version_id, params.output_dir
         )
+    if a == "verify":
+        assert params.workflow_id is not None
+        from servicenow_mcp.tools.workflow_verify import verify_workflow
+
+        return verify_workflow(config, auth_manager, params.workflow_id, params.output_dir)
     if a == "create":
         assert params.name is not None
         create_kwargs: Dict[str, Any] = {"name": params.name, "dry_run": params.dry_run}

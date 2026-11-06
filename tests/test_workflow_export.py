@@ -235,3 +235,12 @@ def test_reexport_drops_script_files_of_removed_activities(config, tmp_path):
     tables["sys_variable_value"] = []  # the scripted activity's variables are gone
     _export(config, tmp_path, Fake(tables))
     assert not any(f.exists() for f in old_files)
+
+
+def test_transition_to_an_activity_outside_the_version_does_not_break_the_outline(config, tmp_path):
+    tables = _tables()
+    tables["wf_transition"].append({"from": A_SCRIPT, "to": "gone1111", "condition": C_SCRIPT})
+    r = _export(config, tmp_path, Fake(tables))
+    assert r["success"] is True
+    outline = (tmp_path / "wf_workflow" / "Order_flow" / "outline.md").read_text()
+    assert "<not in this version: gone1111>" in outline
