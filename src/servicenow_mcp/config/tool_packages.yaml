@@ -181,6 +181,7 @@ platform_developer:
     - manage_changeset
     - manage_session_context
     - manage_ui_policy
+    - manage_dictionary
     - manage_portal_layout
     - manage_portal_component
     # Incident writes — manage_incident covers create/update/comment/resolve
@@ -244,6 +245,8 @@ itsm_developer:
   # Assignment/approval rules and field choices — configuration, no scripts
   - manage_task_rule
   - manage_choice
+  # Table columns + labels (sys_dictionary / sys_documentation); no type change or delete
+  - manage_dictionary
   # Ship: update sets, deploy XML, edit sources on disk
   - manage_session_context
   - manage_changeset
@@ -380,4 +383,5 @@ full:
     - manage_approval
     - manage_task_rule
     - manage_choice
+    - manage_dictionary
     - get_repo_change_report

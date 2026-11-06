@@ -364,12 +364,12 @@ Establece `MCP_TOOL_PACKAGE` para elegir un conjunto de herramientas. Predetermi
 |---------|:-----:|-------------|
 | `core` | 12 | Elementos esenciales mínimos de solo lectura para estado, esquema, descubrimiento y búsquedas clave |
 | `standard` | 31 | **(Predeterminado)** Paquete de solo lectura para incidentes, cambios, portal, registros y análisis de fuentes |
-| `itsm_developer` | 34 | ⚠️ ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
+| `itsm_developer` | 35 | ⚠️ ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
 | `asset_manager` | 7 | ⚠️ Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 34 | standard + escrituras operativas de incidentes y cambios |
 | `portal_developer` | 53 | standard + flujos de trabajo de portal, changeset, script include y entrega de sincronización local |
-| `platform_developer` | 45 | standard + escrituras de flujos de trabajo, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 68 | La superficie empaquetada más amplia: todos los flujos de trabajo `manage_*` más operaciones avanzadas |
+| `platform_developer` | 46 | standard + escrituras de flujos de trabajo, Flow Designer, UI policy, incidentes/cambios y scripts |
+| `full` | 69 | La superficie empaquetada más amplia: todos los flujos de trabajo `manage_*` más operaciones avanzadas |
 
 Para cambiarlo, actualiza el valor de `MCP_TOOL_PACKAGE`:
 

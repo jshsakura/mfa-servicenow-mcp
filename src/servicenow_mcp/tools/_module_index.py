@@ -45,6 +45,7 @@ TOOL_MODULE_INDEX = {
     "manage_change": "change_tools",
     "manage_changeset": "changeset_tools",
     "manage_choice": "choice_tools",
+    "manage_dictionary": "dictionary_tools",
     "manage_epic": "epic_tools",
     "manage_flow_designer": "flow_tools",
     "manage_group": "user_tools",

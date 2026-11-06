@@ -353,6 +353,7 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_problem": frozenset({"get"}),
     "manage_task_rule": frozenset({"list", "get"}),
     "manage_choice": frozenset({"list"}),
+    "manage_dictionary": frozenset({"get"}),
     "manage_request_item": frozenset({"get"}),
     "manage_approval": frozenset({"list"}),
     "manage_project": frozenset({"list"}),
