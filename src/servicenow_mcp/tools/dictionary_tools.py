@@ -69,6 +69,10 @@ class ManageDictionaryParams(BaseModel):
     mandatory: Optional[bool] = Field(default=None)
     read_only: Optional[bool] = Field(default=None)
     comments: Optional[str] = Field(default=None, description="Field description (Comments)")
+    add_to_form: bool = Field(
+        default=False,
+        description="create_field: keep the form placement the platform adds (default: undo it)",
+    )
 
     language: str = Field(default="en", description="set_label: language code")
     label: Optional[str] = Field(default=None, description="set_label: label text")
@@ -101,6 +105,7 @@ class ManageDictionaryParams(BaseModel):
                 "mandatory",
                 "read_only",
                 "comments",
+                "add_to_form",
                 "confirm_column",
                 "dry_run",
             }
@@ -324,6 +329,110 @@ def _capture(config, auth_manager, table: str, element: str) -> Dict[str, Any]:
     }
 
 
+def _form_side_effect(config, auth_manager, table: str, element: str) -> Dict[str, Any]:
+    """Form sections the platform appended the new column to, and their update-set entry.
+
+    Measured on live instances: inserting a sys_dictionary row (script or REST)
+    appends the column to a section of the table's Default view and captures that
+    WHOLE section as a Form Layout record — importing it replaces the target's
+    section with this instance's. Never silent.
+    """
+    try:
+        rows = _read(
+            config,
+            auth_manager,
+            "sys_ui_element",
+            f"element={element}^sys_ui_section.name={table}",
+            "sys_id,position,sys_ui_section,sys_ui_section.view",
+            20,
+        )
+        sections = []
+        for r in rows:
+            sid = _s(r.get("sys_ui_section"))
+            cap = _read(
+                config,
+                auth_manager,
+                "sys_update_xml",
+                f"name=sys_ui_section_{sid}",
+                "update_set.name",
+                5,
+            )
+            sections.append(
+                {
+                    "section": sid,
+                    "view": _s(r.get("sys_ui_section.view")),
+                    "position": _s(r.get("position")),
+                    "form_layout_in_sets": sorted({_s(c.get("update_set.name")) for c in cap}),
+                }
+            )
+    except Exception as e:
+        return {"checked": False, "error": str(e)}
+    return {"checked": True, "added_to_form": bool(sections), "sections": sections}
+
+
+_SECTION_CAP = 500
+
+
+def _form_entries(config, auth_manager, table: str) -> Tuple[List[str], set]:
+    """(this table's form section ids, sys_ids of their Form Layout update records). Raises."""
+    sections = _read(
+        config, auth_manager, "sys_ui_section", f"name={table}", "sys_id", _SECTION_CAP
+    )
+    if len(sections) >= _SECTION_CAP:
+        raise RuntimeError(f"{table} has {_SECTION_CAP}+ form sections; snapshot would be partial")
+    ids = [_s(r.get("sys_id")) for r in sections if _s(r.get("sys_id"))]
+    if not ids:
+        return [], set()
+    names = ",".join(f"sys_ui_section_{i}" for i in ids)
+    entries = _read(config, auth_manager, "sys_update_xml", f"nameIN{names}", "sys_id", 1000)
+    return ids, {_s(e.get("sys_id")) for e in entries}
+
+
+def _undo_form_placement(
+    config, auth_manager, table: str, element: str, before: set
+) -> Dict[str, Any]:
+    """Remove what the platform added to the form for the new column, and only that.
+
+    Order matters: deleting the element re-captures its section, so the element
+    goes first and the Form Layout record second. Only a record that did not exist
+    before this call is removed — one already in a set holds someone's form work,
+    and it falls back to the pre-create layout by the re-capture alone.
+    """
+    out: Dict[str, Any] = {"elements_removed": 0, "entries_removed": 0}
+    try:
+        elements = _read(
+            config,
+            auth_manager,
+            "sys_ui_element",
+            f"element={element}^sys_ui_section.name={table}",
+            "sys_id",
+            20,
+        )
+        for e in elements:
+            url = f"{config.api_url}/table/sys_ui_element/{_s(e.get('sys_id'))}"
+            auth_manager.make_request(
+                "DELETE", url, headers=auth_manager.get_headers(), timeout=config.timeout
+            ).raise_for_status()
+            out["elements_removed"] += 1
+        invalidate_query_cache(table="sys_ui_element")
+        _, after = _form_entries(config, auth_manager, table)
+        for sys_id in sorted(after - before):
+            url = f"{config.api_url}/table/sys_update_xml/{sys_id}"
+            auth_manager.make_request(
+                "DELETE", url, headers=auth_manager.get_headers(), timeout=config.timeout
+            ).raise_for_status()
+            out["entries_removed"] += 1
+        invalidate_query_cache(table="sys_update_xml")
+        _, final = _form_entries(config, auth_manager, table)
+        left = sorted(final - before)
+    except Exception as e:
+        return {**out, "undone": False, "error": str(e)}
+    out["undone"] = not left
+    if left:
+        out["entries_left"] = left
+    return out
+
+
 def _mismatch(row: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
     return {
         k: {"requested": v, "actual": _s(row.get(k))}
@@ -434,7 +543,14 @@ def _create_field(config, auth_manager, p: ManageDictionaryParams) -> Dict[str, 
                 + (f"; {p.reference} exists" if p.reference else ""),
             ],
             "note": "Every table extending this one gets the column too. It is captured in "
-            "your current update set and travels with it.",
+            "your current update set and travels with it. The platform also appends it to "
+            f"a section of {p.table}'s Default view form and captures that whole section "
+            "(Form Layout) in the same set; "
+            + (
+                "add_to_form=true keeps that."
+                if p.add_to_form
+                else "this call undoes that placement right after the create."
+            ),
         }
         if p.dry_run:
             return {"success": True, "dry_run": True, **preview}
@@ -447,11 +563,27 @@ def _create_field(config, auth_manager, p: ManageDictionaryParams) -> Dict[str, 
             **preview,
         }
 
+    form_before: Optional[set] = None
+    form_snapshot_error = ""
+    if not p.add_to_form:
+        try:
+            _, form_before = _form_entries(config, auth_manager, p.table)
+        except Exception as e:
+            form_snapshot_error = str(e)
     try:
         sys_id = _write(config, auth_manager, "POST", "sys_dictionary", None, data)
     except Exception as e:
         return _fail(f"Failed to create the field: {e}")
     out: Dict[str, Any] = {"success": True, "sys_id": sys_id}
+    if form_before is not None:
+        out["form_placement_undo"] = _undo_form_placement(
+            config, auth_manager, p.table, p.element, form_before
+        )
+    elif form_snapshot_error:
+        out["form_placement_undo"] = {
+            "undone": False,
+            "error": f"not attempted — the pre-create snapshot failed ({form_snapshot_error})",
+        }
 
     # Labels: the platform writes the en row from column_label; add what is missing.
     label_results: Dict[str, str] = {}
@@ -528,6 +660,26 @@ def _finish(config, auth_manager, p, data, wanted, out) -> Dict[str, Any]:
             out["labels_not_applied"] = missing
     except Exception as e:
         out["labels"] = f"unread: {e}"
+    form = _form_side_effect(config, auth_manager, p.table, p.element)
+    out["form_layout"] = form
+    if not form.get("checked"):
+        out["form_layout_note"] = (
+            "Could not check whether the platform added the field to a form; look at "
+            f"{p.table}'s form layout and the update set for a Form Layout entry."
+        )
+    elif form["added_to_form"] and p.add_to_form:
+        out["form_layout_note"] = (
+            f"{p.element} is on {p.table}'s form as asked (add_to_form=true); that section's "
+            "Form Layout is in the update set and replaces the target's section on import."
+        )
+    elif form["added_to_form"]:
+        out["success"] = False
+        out["form_layout_note"] = (
+            f"The platform added {p.element} to {p.table}'s form and captured that whole "
+            "section (Form Layout) in the update set, and undoing it did not finish — "
+            "importing it replaces the target's section with this one. Remove the element "
+            "and its new Form Layout entry, or keep them only if the layout is part of the task."
+        )
     out["column"] = _column_proof(config, auth_manager, p.table, p.element)
     if out["column"]["proven"] is False:
         out["success"] = False

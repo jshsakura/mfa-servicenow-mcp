@@ -44,6 +44,10 @@ class Fake:
         self.writes = []
         self.auto_en = True  # the platform writes the en label from column_label
         self.column_real = True
+        self.form = True  # the platform appends a new column to the form
+        self.ui_elements = []
+        self.layout_entries = []
+        self.fail_delete = False
         self.rows = 5
         self.capture = [
             {
@@ -83,9 +87,25 @@ class Fake:
             return [r for r in self.docs if keep(r)], None
         if table == "sys_glide_object":
             return ([{"name": q["name"]}] if q["name"] in self.types else []), None
+        if table == "sys_ui_section":
+            return [{"sys_id": "sec1"}], None
         if table == "sys_update_xml":
+            if query.startswith("name=sys_ui_section_") or query.startswith(
+                "nameINsys_ui_section_"
+            ):
+                return [dict(e) for e in self.layout_entries], None
             return list(self.capture), None
+        if table == "sys_ui_element":
+            el = query.split("element=")[1].split("^")[0]
+            return [dict(e) for e in self.ui_elements if e["element"] == el], None
         raise AssertionError(table)
+
+    def _recapture(self):
+        """The platform rewrites the section's Form Layout record in the current set."""
+        if not any(e["update_set.name"] == "Sprint 12 fixes" for e in self.layout_entries):
+            self.layout_entries.append(
+                {"sys_id": f"new{len(self.layout_entries)}", "update_set.name": "Sprint 12 fixes"}
+            )
 
     def count(self, config, auth, table, query=""):
         if not query:
@@ -99,6 +119,27 @@ class Fake:
         self.writes.append((method, table, json))
         resp = MagicMock()
         store = self.dictionary if table == "sys_dictionary" else self.docs
+        if method == "DELETE":
+            sid = url.rsplit("/", 1)[1]
+            if self.fail_delete:
+                raise RuntimeError("HTTP 403")
+            if table == "sys_ui_element":
+                self.ui_elements = [e for e in self.ui_elements if e["sys_id"] != sid]
+                self._recapture()
+            else:
+                self.layout_entries = [e for e in self.layout_entries if e["sys_id"] != sid]
+            return resp
+        if method == "POST" and table == "sys_dictionary" and self.form:
+            self.ui_elements.append(
+                {
+                    "sys_id": "el1",
+                    "element": json["element"],
+                    "sys_ui_section": "sec1",
+                    "sys_ui_section.view": "Default view",
+                    "position": "22",
+                }
+            )
+            self._recapture()
         if method == "POST":
             row = {**json, "sys_id": _id(50 + len(self.writes))}
             store.append(row)
@@ -156,6 +197,8 @@ def test_create_writes_field_and_missing_labels_then_proves_them(env):
     assert r["success"] is True, r
     assert [(m, t) for m, t, _ in fake.writes] == [
         ("POST", "sys_dictionary"),
+        ("DELETE", "sys_ui_element"),  # undo the platform's form placement first
+        ("DELETE", "sys_update_xml"),
         ("POST", "sys_documentation"),
     ]
     assert r["labels_written"] == {"en": "present", "ko": "created"}
@@ -315,3 +358,51 @@ def test_update_changes_the_description_and_shows_what_it_replaced(env):
     assert r["success"] is True and r["field"]["comments"] == "new text"
     assert r["previous"] == {"comments": "old text"}
     assert r["update_set_capture"]["update_set"] == "Sprint 12 fixes"
+
+
+def test_form_placement_is_undone_by_default(env):
+    fake, call = env
+    r = call(**NEW)
+    assert r["success"] is True, r
+    assert r["form_placement_undo"] == {"elements_removed": 1, "entries_removed": 1, "undone": True}
+    assert fake.ui_elements == [] and fake.layout_entries == []
+    assert r["form_layout"]["added_to_form"] is False
+
+
+def test_undo_keeps_a_form_layout_record_that_was_already_in_a_set(env):
+    fake, call = env
+    fake.layout_entries = [{"sys_id": "old0", "update_set.name": "Sprint 12 fixes"}]
+    r = call(**NEW)
+    assert r["form_placement_undo"]["entries_removed"] == 0
+    assert [e["sys_id"] for e in fake.layout_entries] == ["old0"]
+    assert r["success"] is True
+
+
+def test_add_to_form_keeps_the_placement_and_says_so(env):
+    fake, call = env
+    r = call(**NEW, add_to_form=True)
+    assert "form_placement_undo" not in r
+    assert r["form_layout"]["added_to_form"] is True and "as asked" in r["form_layout_note"]
+    assert r["success"] is True
+
+
+def test_failed_undo_is_never_success(env):
+    fake, call = env
+    fake.fail_delete = True
+    r = call(**NEW)
+    assert r["form_placement_undo"]["undone"] is False
+    assert r["success"] is False and "did not finish" in r["form_layout_note"]
+
+
+def test_no_form_side_effect_is_said_plainly(env):
+    fake, call = env
+    fake.form = False
+    r = call(**NEW)
+    assert r["form_layout"] == {"checked": True, "added_to_form": False, "sections": []}
+    assert "form_layout_note" not in r
+
+
+def test_preview_warns_about_the_form_layout(env):
+    _, call = env
+    r = call(**{**NEW, "confirm_column": None})
+    assert "Form Layout" in r["note"]
