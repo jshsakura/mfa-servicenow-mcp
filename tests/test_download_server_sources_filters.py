@@ -299,3 +299,119 @@ def test_ui_policy_writes_conditions_scripts_and_action_fields(config, auth, tmp
     assert meta["source_table"] == "sys_ui_policy"
     assert {f.strip() for f in meta["action_fields"].split(",")} == {"close_notes", "close_code"}
     assert meta["action_fields_known"] == "true"
+
+
+# --- other scopes ------------------------------------------------------------
+
+
+def _run_with_counts(config, auth, tmp_path, fake, totals, groups, **kw):
+    params = DownloadSourcesParams(output_dir=str(tmp_path), **kw)
+    seen = []
+
+    def count(config, auth_manager, table, query=""):
+        seen.append((table, query))
+        value = totals.get(table, 0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+    with (
+        patch("servicenow_mcp.tools.source_tools.sn_query_all", side_effect=fake),
+        patch("servicenow_mcp.tools.source_tools.sn_query_page", return_value=([], 0)),
+        patch(
+            "servicenow_mcp.tools.source_tools.apply_scope_namespace",
+            side_effect=lambda c, a, p: (p, None),
+        ),
+        patch("servicenow_mcp.tools.source_tools.sn_count", side_effect=count),
+        patch(
+            "servicenow_mcp.tools.source_tools.sn_count_by_group",
+            side_effect=lambda c, a, table, q, g: groups.get(table),
+        ),
+    ):
+        return download_server_sources(config, auth, params), seen
+
+
+def test_tables_download_names_records_in_other_scopes(config, auth, tmp_path):
+    result, seen = _run_with_counts(
+        config,
+        auth,
+        tmp_path,
+        FakeInstance({}),
+        totals={"sys_script": 11},
+        groups={"sys_script": {"x_app_one": 3, "x_app_two": 8}},
+        scope="global",
+        families=["server_scripts"],
+        tables=["sc_request"],
+    )
+    assert result["other_scopes"] == {
+        "x_app_one": {"business_rule": 3},
+        "x_app_two": {"business_rule": 8},
+    }
+    assert "scope='<scope>'" in result["other_scopes_note"]
+    br_q = [q for t, q in seen if t == "sys_script"][0]
+    assert br_q == "sys_scope.scope!=global^collectionINsc_request"
+    cs_q = [q for t, q in seen if t == "sys_script_client"][0]
+    assert "sys_class_name!=catalog_script_client" in cs_q
+
+
+def test_other_scopes_absent_when_none_exist(config, auth, tmp_path):
+    result, _ = _run_with_counts(
+        config,
+        auth,
+        tmp_path,
+        FakeInstance({}),
+        totals={},
+        groups={},
+        scope="global",
+        families=["server_scripts"],
+        tables=["sc_request"],
+    )
+    assert "other_scopes" not in result and "other_scopes_unread" not in result
+
+
+def test_failed_count_is_reported_unread_never_as_none(config, auth, tmp_path):
+    result, _ = _run_with_counts(
+        config,
+        auth,
+        tmp_path,
+        FakeInstance({}),
+        totals={"sys_script": RuntimeError("HTTP 502")},
+        groups={},
+        scope="global",
+        families=["server_scripts"],
+        tables=["sc_request"],
+    )
+    assert "business_rule" in result["other_scopes_unread"]
+
+
+def test_grouped_read_that_does_not_add_up_is_unread(config, auth, tmp_path):
+    # A failed stats call can come back as {} — it must not read as "no other scopes".
+    result, _ = _run_with_counts(
+        config,
+        auth,
+        tmp_path,
+        FakeInstance({}),
+        totals={"sys_script": 11},
+        groups={"sys_script": {}},
+        scope="global",
+        families=["server_scripts"],
+        tables=["sc_request"],
+    )
+    assert "other_scopes" not in result
+    assert result["other_scopes_unread"] == ["business_rule (11 records, scopes unread)"]
+
+
+def test_sys_ids_download_does_not_count_other_scopes(config, auth, tmp_path):
+    _, seen = _run_with_counts(
+        config,
+        auth,
+        tmp_path,
+        FakeInstance({}),
+        totals={"sys_script": 5},
+        groups={"sys_script": {"x_app_one": 5}},
+        scope="global",
+        families=["server_scripts"],
+        tables=["sc_request"],
+        sys_ids=[ID_A],
+    )
+    assert seen == []

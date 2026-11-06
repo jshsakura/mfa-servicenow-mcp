@@ -24,6 +24,8 @@ from servicenow_mcp.tools.sn_api import (
     SYS_ID_IN_CHUNK,
     _retry_delay,
     apply_scope_namespace,
+    sn_count,
+    sn_count_by_group,
     sn_query_all,
     sn_query_all_with_retry,
     sn_query_page,
@@ -3849,6 +3851,62 @@ def _table_filter_clause(source_cfg: Dict[str, Any], tables: List[str]) -> Optio
     return f"{field}IN{','.join(tables)}"
 
 
+def _report_other_scopes(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    params: "DownloadSourcesParams",
+    source_types: List[str],
+    tables: List[str],
+    result: Dict[str, Any],
+) -> None:
+    """Name the records on *tables* that live in OTHER scopes.
+
+    A download is one scope, so "102 business rules on sc_request" read as all of
+    them while 11 more sat in other app scopes — found only because the caller
+    counted the server side by hand. Counted per type, grouped by scope, no
+    bodies. An unread count says so; it is never left out as if it were zero.
+    """
+    by_scope: Dict[str, Dict[str, int]] = {}
+    unread: List[str] = []
+    for st in source_types:
+        cfg = SOURCE_CONFIG[st]
+        clause = _table_filter_clause(cfg, tables)
+        if clause is None:
+            continue
+        parts = [f"sys_scope.scope!={_escape_query_value(params.scope)}"]
+        parts += _class_exclusion_filters(cfg)
+        if st == "acl" and params.acl_script_only:
+            parts.append("scriptISNOTEMPTY")
+        parts.append(clause)  # last: its ^OR chain binds to its own first term
+        query = "^".join(parts)
+        # The grouped read returns {} on a failed request as readily as on an
+        # empty one, so it only counts when its sum matches a count that raises.
+        try:
+            total = sn_count(config, auth_manager, cfg["table"], query)
+        except Exception:
+            unread.append(st)
+            continue
+        if not total:
+            continue
+        groups = sn_count_by_group(config, auth_manager, cfg["table"], query, "sys_scope.scope")
+        if groups is None or sum(groups.values()) != total:
+            unread.append(f"{st} ({total} records, scopes unread)")
+            continue
+        for scope_name, n in groups.items():
+            if n:
+                by_scope.setdefault(scope_name or "(blank)", {})[st] = n
+    if by_scope:
+        fams = ", ".join(repr(f) for f in params.families)
+        tbls = ", ".join(repr(t) for t in tables)
+        result["other_scopes"] = by_scope
+        result["other_scopes_note"] = (
+            "Records on these tables in OTHER scopes — not in this download. Fetch with "
+            f"download_server_sources(scope='<scope>', families=[{fams}], tables=[{tbls}])."
+        )
+    if unread:
+        result["other_scopes_unread"] = unread
+
+
 @register_tool(
     "download_server_sources",
     params=DownloadSourcesParams,
@@ -3959,6 +4017,8 @@ def download_server_sources(
     )
     if no_table_column:
         result["skipped_no_table_column"] = no_table_column
+    if tables and not sys_ids:
+        _report_other_scopes(config, auth_manager, params, source_types, tables, result)
     if params.customer_only:
         result["customer_only_note"] = (
             "Global-package records only. An OOTB record your team edited stays in its "

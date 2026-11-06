@@ -65,6 +65,7 @@ class ListWorkflowsParams(BaseModel):
     offset: Optional[int] = Field(default=0, description="Offset to start from")
     active: Optional[bool] = Field(default=None, description="Filter by active status")
     name: Optional[str] = Field(default=None, description="Filter by name (contains)")
+    table: Optional[str] = Field(default=None, description="Table(s) it runs on, comma-separated")
     query: Optional[str] = Field(default=None, description="Additional query string")
     count_only: bool = Field(
         default=False,
@@ -249,6 +250,53 @@ def _unwrap_params(params: Any, param_class: Type[T]) -> Dict[str, Any]:
     return params
 
 
+_VERSION_FILTER_CAP = 2000
+_WORKFLOW_LIST_FIELDS = (
+    "sys_id,name,description,table,template,access,sys_scope.scope,sys_updated_on,sys_updated_by"
+)
+
+
+def _attach_published_version(
+    server_config: ServerConfig, auth_manager: AuthManager, rows: List[Dict[str, Any]]
+) -> None:
+    """Stamp each workflow row with what its published version says.
+
+    `published_version` is "none" only when the read covered the row and found
+    nothing; an unread one says "unread", never "none".
+    """
+    ids = [str(r.get("sys_id") or "") for r in rows if r.get("sys_id")]
+    if not ids:
+        return
+    try:
+        versions = sn_query_all(
+            server_config,
+            auth_manager,
+            table="wf_workflow_version",
+            query=f"published=true^workflowIN{','.join(ids)}",
+            fields="sys_id,workflow,table,condition,active",
+            page_size=100,
+            max_records=_VERSION_FILTER_CAP,
+            display_value=False,
+            fail_silently=False,
+            parallel=False,
+        )
+    except Exception as e:
+        logger.warning("published-version read failed: %s", e)
+        for r in rows:
+            r["published_version"] = "unread"
+        return
+    by_wf = {str(v.get("workflow") or ""): v for v in versions}
+    for r in rows:
+        v = by_wf.get(str(r.get("sys_id") or ""))
+        if not v:
+            r["published_version"] = "none"
+            continue
+        r["published_version"] = v.get("sys_id", "")
+        r["run_table"] = v.get("table", "")
+        r["run_condition"] = v.get("condition", "")
+        r["active"] = v.get("active", "")
+
+
 def list_workflows(
     server_config: ServerConfig,
     auth_manager: AuthManager,
@@ -270,8 +318,43 @@ def list_workflows(
     # Build query string
     query_parts = []
 
-    if params.get("active") is not None:
-        query_parts.append(f"active={str(params['active']).lower()}")
+    # `active` and the run table are NOT wf_workflow facts. wf_workflow has no
+    # `active` column (measured live: the condition was dropped and every
+    # workflow came back), and its `table` is blank on most records — the table
+    # a workflow runs on, and whether it is active, sit on its published
+    # wf_workflow_version. Filtering the parent by `table` found 4 of the 9
+    # workflows running on the catalog tables. Resolve both through the version.
+    tables = [t.strip() for t in str(params.get("table") or "").split(",") if t.strip()]
+    if params.get("active") is not None or tables:
+        version_q = ["published=true"]
+        if params.get("active") is not None:
+            version_q.append(f"active={str(params['active']).lower()}")
+        if tables:
+            version_q.append(f"tableIN{','.join(tables)}")
+        try:
+            versions = sn_query_all(
+                server_config,
+                auth_manager,
+                table="wf_workflow_version",
+                query="^".join(version_q),
+                fields="workflow",
+                page_size=100,
+                max_records=_VERSION_FILTER_CAP,
+                display_value=False,
+                fail_silently=False,
+                parallel=False,
+            )
+        except Exception as e:
+            return {"success": False, "error": f"Could not resolve active/table filter: {e}"}
+        ids = sorted({str(v.get("workflow") or "") for v in versions if v.get("workflow")})
+        if not ids:
+            return {
+                "workflows": [],
+                "count": 0,
+                "total": 0,
+                "note": "No PUBLISHED workflow version matches active/table.",
+            }
+        query_parts.append(f"sys_idIN{','.join(ids)}")
 
     if params.get("name"):
         query_parts.append(f"nameLIKE{params['name']}")
@@ -293,16 +376,21 @@ def list_workflows(
             auth_manager,
             table="wf_workflow",
             query=query_string,
-            fields="",
+            fields=_WORKFLOW_LIST_FIELDS,
             limit=params.get("limit", 10),
             offset=params.get("offset", 0),
             display_value=False,
             fail_silently=False,
         )
+        _attach_published_version(server_config, auth_manager, rows)
         return {
             "workflows": rows,
             "count": len(rows),
             "total": total or 0,
+            "note": (
+                "run_table / run_condition / active come from the published version "
+                "(wf_workflow.table is often blank). Full graph: action='export'."
+            ),
         }
     except Exception as e:
         logger.error(f"Error listing workflows: {e}")
@@ -1259,7 +1347,10 @@ class ManageWorkflowParams(BaseModel):
     # Workflow create/update fields
     name: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
-    table: Optional[str] = Field(default=None)
+    table: Optional[str] = Field(
+        default=None,
+        description="list: table(s) it runs on, comma-separated; create/update: its table",
+    )
     active: Optional[bool] = Field(default=None)
     attributes: Optional[Dict[str, Any]] = Field(default=None)
 
@@ -1278,7 +1369,7 @@ class ManageWorkflowParams(BaseModel):
     )
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
-        "list": frozenset({"limit", "offset", "query", "count_only", "active"}),
+        "list": frozenset({"limit", "offset", "query", "count_only", "active", "name", "table"}),
         "get": frozenset({"workflow_id", "include_versions", "include_activities"}),
         "list_versions": frozenset({"workflow_id", "published_only"}),
         "get_activities": frozenset({"workflow_id", "version_id"}),

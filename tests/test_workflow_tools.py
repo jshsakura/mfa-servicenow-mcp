@@ -74,11 +74,9 @@ class TestWorkflowTools(unittest.TestCase):
         self._finalize_response(mock_response)
         self.auth_manager.make_request.return_value = mock_response
 
-        # Call the function
-        params = {
-            "limit": 10,
-            "active": True,
-        }
+        # Call the function (plain listing; active/table resolve through the
+        # published version — see test_workflow_list_filters.py)
+        params = {"limit": 10}
         result = list_workflows(self.server_config, self.auth_manager, params)
 
         # Verify the result
@@ -123,7 +121,7 @@ class TestWorkflowTools(unittest.TestCase):
 
         # Verify the result
         self.assertIn("error", result)
-        self.assertEqual(result["error"], "API Error")
+        self.assertIn("API Error", result["error"])
 
     def test_get_workflow_details_success(self):
         """Test getting workflow details successfully."""
