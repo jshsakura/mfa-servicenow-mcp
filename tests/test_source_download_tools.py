@@ -774,7 +774,7 @@ class TestDownloadSourcesUIComponents:
 
         assert result["success"] is True
         assert result["source_types"]["ui_action"]["count"] == 1
-        assert mock_query_all.call_count == 4  # 4 UI types
+        assert mock_query_all.call_count == 5  # 5 UI types (incl. ui_policy)
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")

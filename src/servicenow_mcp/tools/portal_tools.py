@@ -716,6 +716,7 @@ PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
     "sys_ui_action": {"script"},
     "sys_ui_script": {"script"},
     "sys_ui_macro": {"xml"},
+    "sys_ui_policy": {"conditions", "script_true", "script_false"},
     "sys_script_client": {"script"},
     "catalog_script_client": {"script"},
     "sys_script_fix": {"script"},

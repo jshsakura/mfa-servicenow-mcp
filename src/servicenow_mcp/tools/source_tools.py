@@ -152,6 +152,7 @@ DEFAULT_SOURCE_TYPE_ORDER = [
     "ui_script",
     "ui_page",
     "ui_macro",
+    "ui_policy",
     "scripted_rest",
     "fix_script",
     "scheduled_job",
@@ -181,6 +182,7 @@ SourceType = Literal[
     "ui_script",
     "ui_page",
     "ui_macro",
+    "ui_policy",
     "scripted_rest",
     "fix_script",
     "scheduled_job",
@@ -209,6 +211,7 @@ SpecificSourceType = Literal[
     "ui_script",
     "ui_page",
     "ui_macro",
+    "ui_policy",
     "scripted_rest",
     "fix_script",
     "scheduled_job",
@@ -251,6 +254,9 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         # routinely carries the same rule name (e.g. 'Set defaults') on several
         # tables. Qualify the folder by `collection` so each lands on its own.
         "folder_qualifier_field": "collection",
+        # download_server_sources(tables=[...]) filters this type on this column.
+        # Types without one are skipped (and named) under a tables filter.
+        "target_table_field": "collection",
         # `when` + `active` say WHEN the rule may run; they do not say WHETHER it
         # does. A rule that never fires because of a Filter Condition, a role, or
         # an unticked action checkbox reads from `script` alone as one that always
@@ -296,6 +302,13 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         # 'source_table' note in the metadata writer for why that does NOT
         # confuse the pusher.
         "folder_qualifier_field": "table",
+        "target_table_field": "table",
+        # catalog_script_client EXTENDS sys_script_client, so a query on the parent
+        # returns every catalog client script too — and catalog_client_script
+        # downloads them again into its own folder: one record, two local copies,
+        # two anchors (measured live: 434 of them). Child classes that another type
+        # owns are excluded here; ones nobody else downloads stay in.
+        "exclude_classes": ["catalog_script_client"],
         "summary_fields": [
             "sys_id",
             "name",
@@ -328,6 +341,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         # `table` does not fully disambiguate — one table can carry two actions of
         # the same name — so the sys_id suffix still catches the residue.
         "folder_qualifier_field": "table",
+        "target_table_field": "table",
         "summary_fields": [
             "sys_id",
             "name",
@@ -451,6 +465,9 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "widget": {
         "table": "sp_widget",
         "identifier_field": "id",
+        # sp_header_footer extends sp_widget and has its own type (see
+        # client_script for why a child owned elsewhere is excluded).
+        "exclude_classes": ["sp_header_footer"],
         "summary_fields": [
             "sys_id",
             "name",
@@ -518,6 +535,52 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         "search_fields": ["name", "description", "xml"],
         "lookup_fields": ["sys_id", "name"],
     },
+    "ui_policy": {
+        "table": "sys_ui_policy",
+        # No `name` column — a UI policy is known by its short description, which
+        # is unique only within its table (and not always then: the sys_id suffix
+        # catches the residue). Child classes (catalog_ui_policy, wf_ui_policy)
+        # have no type of their own, so they stay in; theirs is a blank `table`.
+        "identifier_field": "short_description",
+        "folder_qualifier_field": "table",
+        "target_table_field": "table",
+        "summary_fields": [
+            "sys_id",
+            "short_description",
+            "table",
+            "sys_class_name",
+            "order",
+            "active",
+            "on_load",
+            "reverse_if_false",
+            "inherit",
+            "global",
+            "view",
+            "ui_type",
+            # Off means script_true/script_false never run, whatever they say.
+            "run_scripts",
+            "isolate_script",
+            "sys_scope",
+            "sys_scope.scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        # `conditions` decides when the policy applies; it is an encoded query,
+        # diffable and pushable like a BR filter_condition.
+        "source_fields": ["conditions", "script_true", "script_false"],
+        # Most policies carry no script at all: what they DO is the field actions
+        # (visible / mandatory / read-only) in sys_ui_policy_action. Without the
+        # field names an action-only policy reads as an empty one.
+        "related_fields": {
+            "action_fields": {
+                "table": "sys_ui_policy_action",
+                "parent_field": "ui_policy",
+                "value_field": "field",
+            }
+        },
+        "search_fields": ["short_description", "table", "script_true", "script_false"],
+        "lookup_fields": ["sys_id", "short_description"],
+    },
     "scheduled_job": {
         "table": "sysauto_script",
         "identifier_field": "name",
@@ -557,6 +620,7 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         "identifier_field": "name",
         # Same as business_rule: notification names repeat across target tables.
         "folder_qualifier_field": "collection",
+        "target_table_field": "collection",
         "summary_fields": [
             "sys_id",
             "name",
@@ -582,6 +646,9 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
     "acl": {
         "table": "sys_security_acl",
         "identifier_field": "name",
+        # An ACL names its table in `name`: 'incident' (row) or 'incident.field'.
+        "target_table_field": "name",
+        "target_table_match": "acl_name",
         "summary_fields": [
             "sys_id",
             "name",
@@ -2023,6 +2090,7 @@ _ACTIVE_SUPPORTED_TABLES = {
     "sysevent_email_action",
     "catalog_script_client",
     "sys_ui_macro",
+    "sys_ui_policy",
 }
 
 
@@ -2788,6 +2856,63 @@ def _retry_empty_source(
     return fetched
 
 
+def _class_exclusion_filters(source_cfg: Dict[str, Any]) -> List[str]:
+    """`sys_class_name!=X` for each child class another type downloads itself."""
+    return [
+        f"sys_class_name!={_escape_query_value(c)}" for c in source_cfg.get("exclude_classes") or []
+    ]
+
+
+_NAME_CLASH_CHUNK = 25
+
+
+def _scope_name_clashes(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    source_cfg: Dict[str, Any],
+    scope: str,
+    records: List[Dict[str, Any]],
+    page_size: int,
+) -> Dict[str, Set[str]]:
+    """Folder -> sys_ids for every record in the SCOPE sharing a folder with *records*.
+
+    Reads only the rows whose identifier matches one in hand (an OR chain of
+    equalities, chunked — not IN, since a UI policy description can hold a
+    comma), with just the fields the folder is built from. Raises on a failed
+    read: the caller must not choose a folder it could not check.
+    """
+    ident = source_cfg["identifier_field"]
+    names = sorted({str(r.get(ident)) for r in records if r.get(ident)})
+    if not names:
+        return {}
+    fields = {"sys_id", ident, "sys_scope.scope"}
+    if "name" in source_cfg["summary_fields"]:  # the identifier's fallback, where it exists
+        fields.add("name")
+    if source_cfg.get("folder_qualifier_field"):
+        fields.add(source_cfg["folder_qualifier_field"])
+    fields.update(source_cfg.get("folder_fields") or [])
+    base = [f"sys_scope.scope={_escape_query_value(scope)}"] + _class_exclusion_filters(source_cfg)
+    clashes: Dict[str, Set[str]] = {}
+    for chunk in _chunked(names, _NAME_CLASH_CHUNK):
+        names_q = "^OR".join(f"{ident}={_escape_query_value(n)}" for n in chunk)
+        rows = sn_query_all(
+            config,
+            auth_manager,
+            table=source_cfg["table"],
+            query="^".join(base + [names_q]),
+            fields=",".join(sorted(fields)),
+            page_size=max(10, min(page_size, 100)),
+            max_records=MAX_DOWNLOAD_PER_TYPE,
+            display_value=False,
+            fail_silently=False,
+            parallel=False,
+        )
+        for row in rows:
+            _, cand = _record_identifier_and_folder(row, source_cfg, scope)
+            clashes.setdefault(cand, set()).add(str(row.get("sys_id") or ""))
+    return clashes
+
+
 def _download_source_types(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2806,6 +2931,7 @@ def _download_source_types(
     reconcile_deletions: bool = False,
     emit_per_type: bool = False,
     on_local_edits: str = LOCAL_EDITS_KEEP,
+    subset: bool = False,
 ) -> Dict[str, Any]:
     """Core download loop shared by all individual download tools.
 
@@ -2822,9 +2948,12 @@ def _download_source_types(
             remotely, via a sys_id-only list query per family.
         on_local_edits: The user's answer for files carrying local edits — keep
             (default), clean or stash (see sync_anchor.reconcile_field).
+        subset: The query was narrowed below the scope (sys_ids / tables / package).
+            Folder names are then checked against the whole scope, so a record
+            lands where a full download would put it (see _scope_name_clashes).
 
     Returns dict with keys: type_results, manifest_entries, warnings, total_files,
-    deletion_candidates, held_local_edits.
+    deletion_candidates, held_local_edits, fetched_sys_ids.
     """
     max_per_type = _clamp_download_per_type(max_per_type)
     page_size = max(10, min(page_size, 100))
@@ -2839,6 +2968,9 @@ def _download_source_types(
     # Paths whose local edits were held back — appended from worker threads
     # (list.append is atomic), sorted once at the end for stable output.
     held_local_edits: List[str] = []
+    # sys_ids whose bodies came back, so a caller that asked for specific records
+    # can name the ones that did not (never "downloaded" for a record never seen).
+    fetched_sys_ids: List[str] = []
 
     # Tripped by the first worker that hits an unrecoverable auth failure, so
     # the remaining (queued) types bail immediately instead of each re-firing
@@ -2880,8 +3012,8 @@ def _download_source_types(
         )
         effective_page_size = min(page_size, 10) if restrict_source_page_size else page_size
 
-        # Build base query filters (active, extra)
-        base_filters: List[str] = []
+        # Build base query filters (class, active, extra)
+        base_filters: List[str] = _class_exclusion_filters(source_cfg)
         if only_active and table in _ACTIVE_SUPPORTED_TABLES:
             base_filters.append("active=true")
         if source_type in extra_query:
@@ -3094,6 +3226,25 @@ def _download_source_types(
         for record in records:
             _, cand = _record_identifier_and_folder(record, source_cfg, scope)
             dup_sys_ids.setdefault(cand, set()).add(str(record.get("sys_id") or ""))
+            fetched_sys_ids.append(str(record.get("sys_id") or ""))
+        if subset:
+            # A narrowed set cannot see the namesakes it left out, so on its own it
+            # would leave unsuffixed a folder a full download suffixes — the same
+            # record in two folders with two anchors. Ask the scope instead; a
+            # read that fails writes nothing rather than guessing a folder.
+            try:
+                for cand, ids in _scope_name_clashes(
+                    config, auth_manager, source_cfg, scope, records, page_size
+                ).items():
+                    dup_sys_ids.setdefault(cand, set()).update(ids)
+            except Exception as exc:
+                warnings.append(
+                    f"{source_type}: could not check folder names against the whole scope "
+                    f"({exc}) — nothing written for this type, since a folder chosen "
+                    "without that check can differ from a full download's. Retry."
+                )
+                type_results[source_type] = {"count": 0, "error": f"name check failed: {exc}"}
+                return type_results, manifest_entries, warnings, deletion_candidates, total_files
         ambiguous = {n for n, ids in dup_sys_ids.items() if len(ids) > 1}
         seen_safe_names: Dict[str, str] = {}
         # Prior on-disk watermarks. Used by the resume-skip branch to preserve a
@@ -3534,6 +3685,7 @@ def _download_source_types(
         "total_files": total_files,
         "deletion_candidates": deletion_candidates,
         "held_local_edits": sorted(held_local_edits),
+        "fetched_sys_ids": fetched_sys_ids,
     }
 
 
@@ -3619,7 +3771,7 @@ class _ScopeDownloadParams(BaseModel):
 
 _SCRIPT_INCLUDE_TYPES = ["script_include"]
 _SERVER_SCRIPT_TYPES = ["business_rule", "client_script", "catalog_client_script"]
-_UI_COMPONENT_TYPES = ["ui_action", "ui_script", "ui_page", "ui_macro"]
+_UI_COMPONENT_TYPES = ["ui_action", "ui_script", "ui_page", "ui_macro", "ui_policy"]
 _API_SOURCE_TYPES = ["scripted_rest", "processor"]
 _SECURITY_SOURCE_TYPES = ["acl"]
 _THEME_TYPES = ["sp_theme", "sp_portal", "sp_css", "sp_header_footer", "ux_theme", "ux_style"]
@@ -3643,7 +3795,7 @@ _ADMIN_SCRIPT_TYPES = [
 _SOURCE_FAMILIES: Dict[str, List[str]] = {
     "script_includes": _SCRIPT_INCLUDE_TYPES,
     "server_scripts": _SERVER_SCRIPT_TYPES,  # business rules, client + catalog client scripts
-    "ui": _UI_COMPONENT_TYPES,  # UI actions/scripts/pages/macros
+    "ui": _UI_COMPONENT_TYPES,  # UI actions/scripts/pages/macros/policies
     "api": _API_SOURCE_TYPES,  # scripted REST + processors
     "security": _SECURITY_SOURCE_TYPES,  # ACLs
     "admin": _ADMIN_SCRIPT_TYPES,  # fix scripts, scheduled jobs, script actions, notifications, transforms
@@ -3660,6 +3812,41 @@ class DownloadSourcesParams(_ScopeDownloadParams):
     acl_script_only: bool = Field(
         default=True, description="security family: only ACLs that have a script."
     )
+    sys_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Only these records (sys_ids) within families; any not found are named.",
+    )
+    tables: Optional[List[str]] = Field(
+        default=None,
+        description="Only records on these tables. Types with no table (e.g. SIs) are skipped.",
+    )
+    customer_only: bool = Field(
+        default=False,
+        description="scope=global: Global-package records only. Edited OOTB is NOT included.",
+    )
+
+
+_SYS_ID_RE = re.compile(r"[0-9a-f]{32}")
+_TABLE_NAME_RE = re.compile(r"[A-Za-z0-9_]+")
+# The Global package's sys_id is the literal 'global' (sys_scope extends
+# sys_package; the global scope is that record). Records a customer creates in
+# global land in it; OOTB records stay in their plugin's package.
+_CUSTOMER_PACKAGE_FILTER = "sys_package=global"
+
+
+def _table_filter_clause(source_cfg: Dict[str, Any], tables: List[str]) -> Optional[str]:
+    """Encoded-query clause limiting *source_cfg*'s type to *tables*, or None.
+
+    None means the type has no table column, and the caller must skip it rather
+    than send a condition on a column the table lacks: ServiceNow drops such a
+    condition without a word and returns the whole table.
+    """
+    field = source_cfg.get("target_table_field")
+    if not field:
+        return None
+    if source_cfg.get("target_table_match") == "acl_name":
+        return "^OR".join(f"{field}={t}^OR{field}STARTSWITH{t}." for t in tables)
+    return f"{field}IN{','.join(tables)}"
 
 
 @register_tool(
@@ -3685,7 +3872,24 @@ def download_server_sources(
             ),
         }
 
+    sys_ids = [str(i).strip().lower() for i in (params.sys_ids or []) if str(i).strip()]
+    bad_ids = [i for i in sys_ids if not _SYS_ID_RE.fullmatch(i)]
+    if bad_ids:
+        return {"success": False, "message": f"Not sys_ids (32 hex chars): {bad_ids[:5]}."}
+    tables = [str(t).strip() for t in (params.tables or []) if str(t).strip()]
+    bad_tables = [t for t in tables if not _TABLE_NAME_RE.fullmatch(t)]
+    if bad_tables:
+        return {"success": False, "message": f"Not table names: {bad_tables[:5]}."}
+
     params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
+    if params.customer_only and params.scope != "global":
+        return {
+            "success": False,
+            "message": (
+                "customer_only applies to scope='global' only — every record in a scoped "
+                f"app ('{params.scope}') is already that app's. Drop it or use scope='global'."
+            ),
+        }
     started = time.perf_counter()
     root, scope_root = _resolve_scope_root(config, params.scope, params.output_dir)
 
@@ -3698,11 +3902,35 @@ def download_server_sources(
 
     extra_q: Dict[str, str] = {}
     skip_empty_source_retry: Set[str] = set()
-    if "security" in params.families:
-        if params.acl_script_only:
-            extra_q["acl"] = "scriptISNOTEMPTY"
-        else:
-            skip_empty_source_retry = {"acl"}
+    if "security" in params.families and not params.acl_script_only:
+        skip_empty_source_retry = {"acl"}
+    no_table_column: List[str] = []
+    for st in source_types:
+        clauses: List[str] = []
+        if st == "acl" and params.acl_script_only:
+            clauses.append("scriptISNOTEMPTY")
+        if params.customer_only:
+            clauses.append(_CUSTOMER_PACKAGE_FILTER)
+        if sys_ids:
+            clauses.append(f"sys_idIN{','.join(sys_ids)}")
+        if tables:
+            clause = _table_filter_clause(SOURCE_CONFIG[st], tables)
+            if clause is None:
+                no_table_column.append(st)
+                continue
+            clauses.append(clause)  # last: its ^OR chain binds to its own first term
+        if clauses:
+            extra_q[st] = "^".join(clauses)
+    source_types = [st for st in source_types if st not in no_table_column]
+    if not source_types:
+        return {
+            "success": False,
+            "message": (
+                f"None of these families has a table column to filter on: {no_table_column}. "
+                "Drop tables=, or use sys_ids= for specific records."
+            ),
+        }
+    subset = bool(sys_ids or tables or params.customer_only)
 
     dl = _download_source_types(
         config,
@@ -3718,8 +3946,9 @@ def download_server_sources(
         skip_empty_source_retry=skip_empty_source_retry or None,
         emit_per_type=True,
         on_local_edits=params.on_local_edits,
+        subset=subset,
     )
-    return _build_download_result(
+    result = _build_download_result(
         params.scope,
         scope_root,
         dl,
@@ -3728,6 +3957,29 @@ def download_server_sources(
         scope_resolution=scope_resolution,
         rerun=_rerun_for(config, "download_server_sources", params),
     )
+    if no_table_column:
+        result["skipped_no_table_column"] = no_table_column
+    if params.customer_only:
+        result["customer_only_note"] = (
+            "Global-package records only. An OOTB record your team edited stays in its "
+            "plugin's package, so it is NOT in this download — fetch it by sys_ids=."
+        )
+    if sys_ids:
+        fetched = set(dl.get("fetched_sys_ids") or [])
+        missing = [i for i in sys_ids if i not in fetched]
+        if missing:
+            failed = [st for st, r in dl["type_results"].items() if r.get("error")]
+            result["sys_ids_not_returned"] = missing
+            result["sys_ids_note"] = (
+                f"Not returned by {source_types} in scope '{params.scope}': wrong scope or "
+                "family, or deleted."
+                + (
+                    f" {failed} FAILED (see warnings), so these may simply be unread."
+                    if failed
+                    else ""
+                )
+            )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -4451,7 +4703,7 @@ def download_app_sources(
     _groups = [
         ["script_include"],
         ["business_rule", "client_script", "catalog_client_script"],
-        ["ui_action", "ui_script", "ui_page", "ui_macro"],
+        ["ui_action", "ui_script", "ui_page", "ui_macro", "ui_policy"],
         ["scripted_rest", "processor"],
         ["acl"],
         ["fix_script", "scheduled_job", "script_action", "email_notification", "transform_script"],

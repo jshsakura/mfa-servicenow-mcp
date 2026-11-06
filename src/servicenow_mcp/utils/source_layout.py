@@ -42,6 +42,11 @@ FIELD_FILENAME: Dict[str, str] = {
     # An encoded query (`state=2^assigned_toISNOTEMPTY`), not JavaScript — a .js
     # extension would send every code scanner at it as if it were a script.
     "filter_condition": "filter_condition.txt",
+    # UI policy: `conditions` is an encoded query like filter_condition; the two
+    # scripts run when it turns true / false (only with run_scripts on).
+    "conditions": "conditions.txt",
+    "script_true": "script_true.js",
+    "script_false": "script_false.js",
     "operation_script": "operation_script.js",
     "processing_script": "processing_script.js",
     "link": "link.js",
