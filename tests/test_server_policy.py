@@ -418,7 +418,7 @@ def test_instance_schema_advertised_on_reads_and_writes(monkeypatch, tmp_path):
     dev→test required editing config and restarting, and hand-assembled a deploy
     XML instead — the one thing CLAUDE.md says never to hand-assemble.
     """
-    server = _build_multi_server(monkeypatch, tmp_path)
+    server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=True)
     # update_foo is enabled by the package but has no registered definition;
     # register one so it shows up in list_tools for the write-tool assertion.
     _register_recorder(server, "update_foo")
@@ -432,10 +432,43 @@ def test_instance_schema_advertised_on_reads_and_writes(monkeypatch, tmp_path):
 
     write_props = tools["update_foo"].input_schema["properties"]
     assert write_props["instance"]["enum"] == ["dev", "test"]
-    # ...and the approval the handler demands is advertised with it, from the
-    # same alias list, so the caller cannot learn its name only by being refused.
-    assert write_props["confirm_instance"]["enum"] == ["dev", "test"]
+    # ...and the approval the handler demands is advertised with it, so the
+    # caller cannot learn its name only by being refused. It lists exactly the
+    # targets the handler accepts: the active instance needs no approval.
+    assert write_props["confirm_instance"]["enum"] == ["test"]
     assert write_props["confirm"]["enum"] == ["approve"]
+
+
+def test_confirm_instance_absent_when_no_instance_can_take_a_write(monkeypatch, tmp_path):
+    """Every non-active instance is read-only, so no cross-instance write exists.
+
+    Advertising confirm_instance there listed targets the handler refuses
+    whatever is passed — a path that does not exist, repeated on every write
+    tool, every request. The route to a read-only instance is export_record_xml.
+    """
+    server = _build_multi_server(monkeypatch, tmp_path)  # test: allow_writes=False
+    _register_recorder(server, "update_foo")
+
+    tools = {t.name: t for t in asyncio.run(server._list_tools_impl())}
+    write_props = tools["update_foo"].input_schema["properties"]
+
+    assert write_props["instance"]["enum"] == ["dev", "test"]  # reads still route
+    assert "confirm_instance" not in write_props
+    assert write_props["confirm"]["enum"] == ["approve"]
+
+
+def test_cross_instance_write_to_read_only_target_still_refused(monkeypatch, tmp_path):
+    # The schema no longer offers the field; the handler's refusal is unchanged.
+    server = _build_multi_server(monkeypatch, tmp_path)
+    _register_recorder(server, "update_foo")
+
+    with pytest.raises(ValueError, match="read-only"):
+        asyncio.run(
+            server._call_tool_impl(
+                "update_foo",
+                {"instance": "test", "confirm_instance": "test", "confirm": "approve"},
+            )
+        )
 
 
 def test_active_instance_allow_writes_blocks_mutating_tool(

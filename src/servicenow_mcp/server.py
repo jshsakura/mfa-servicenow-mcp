@@ -1366,6 +1366,17 @@ class ServiceNowMCP:
         schema_with_confirm["required"] = required
         return schema_with_confirm
 
+    def _cross_instance_write_targets(self) -> List[str]:
+        """Aliases a single cross-instance write may name: non-active, allow_writes."""
+        out = []
+        for alias, ctx in self.instance_contexts.items():
+            definition = ctx.get("definition")
+            if alias == self.active_instance_alias or "config_error" in ctx:
+                continue
+            if definition is not None and getattr(definition, "allow_writes", False):
+                out.append(alias)
+        return sorted(out)
+
     def _inject_instance_schema(
         self, schema: Dict[str, Any], *, writable: bool = False
     ) -> Dict[str, Any]:
@@ -1397,8 +1408,15 @@ class ServiceNowMCP:
         # multi-instance `instructions` block carries the steer (default-to-
         # active, no fan-out). Keeps the per-request schema lean.
         properties[INSTANCE_FIELD] = {"type": "string", "enum": aliases}
-        if writable:
-            properties[CONFIRM_INSTANCE_FIELD] = {"type": "string", "enum": aliases}
+        # The approval lists exactly the targets the handler would accept: a
+        # NON-active instance that allows writes. The active one needs no
+        # approval, and a read-only one is refused whatever is passed — listing
+        # either advertised a path that does not exist, on every write tool.
+        # With no such target the field is absent, which is the truth: the
+        # route to a read-only instance is export_record_xml, not this field.
+        targets = self._cross_instance_write_targets()
+        if writable and targets:
+            properties[CONFIRM_INSTANCE_FIELD] = {"type": "string", "enum": targets}
         schema_with_instance["properties"] = properties
         return schema_with_instance
 
