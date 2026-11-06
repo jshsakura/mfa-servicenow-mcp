@@ -20,6 +20,7 @@ from servicenow_mcp.tools.sn_api import (
     count_response,
     invalidate_query_cache,
     sn_count,
+    sn_query_all,
     sn_query_page,
 )
 from servicenow_mcp.utils.config import ServerConfig
@@ -374,6 +375,9 @@ def _fetch_workflow_versions(
     return rows
 
 
+_ACTIVITY_READ_CAP = 1000
+
+
 def _fetch_workflow_activities(
     server_config: ServerConfig,
     auth_manager: AuthManager,
@@ -404,22 +408,30 @@ def _fetch_workflow_activities(
             }
         version_id = versions[0]["sys_id"]
 
-    activities, _ = sn_query_page(
+    # wf_activity has no `order` column (verified live — ServiceNow ignored the
+    # sort it was asked for), and run order is the wf_transition graph anyway.
+    # Page through everything and say whether the read covered it.
+    activities = sn_query_all(
         server_config,
         auth_manager,
         table="wf_activity",
         query=f"workflow_version={version_id}",
         fields="",
-        limit=100,
-        offset=0,
-        orderby="order",
+        page_size=100,
+        max_records=_ACTIVITY_READ_CAP,
         display_value=False,
         fail_silently=False,
+        parallel=False,
     )
     return {
         "activities": activities,
         "activity_count": len(activities),
+        "complete": len(activities) < _ACTIVITY_READ_CAP,
         "version_id": version_id,
+        "note": (
+            "Unordered: run order is the wf_transition graph, and each activity's logic is in "
+            "sys_variable_value. For both, use action='export'."
+        ),
     }
 
 
@@ -1204,6 +1216,7 @@ class ManageWorkflowParams(BaseModel):
       update_activity:    activity_id, at least one activity field
       delete_activity:    activity_id
       reorder_activities: NOT SUPPORTED — wf_activity has no order field
+      export:             workflow_id (version_id optional) — full graph to disk
     """
 
     action: Literal[
@@ -1211,6 +1224,7 @@ class ManageWorkflowParams(BaseModel):
         "get",
         "list_versions",
         "get_activities",
+        "export",
         "create",
         "update",
         "activate",
@@ -1235,6 +1249,9 @@ class ManageWorkflowParams(BaseModel):
     include_activities: bool = Field(default=False, description="Include activity list")
     version_id: Optional[str] = Field(default=None, description="Specific version for activities")
     published_only: bool = Field(default=False, description="Only published versions")
+    output_dir: Optional[str] = Field(
+        default=None, description="export: omit — the default path is canonical and reused."
+    )
 
     # Activity identifier
     activity_id: Optional[str] = Field(default=None)
@@ -1265,6 +1282,7 @@ class ManageWorkflowParams(BaseModel):
         "get": frozenset({"workflow_id", "include_versions", "include_activities"}),
         "list_versions": frozenset({"workflow_id", "published_only"}),
         "get_activities": frozenset({"workflow_id", "version_id"}),
+        "export": frozenset({"workflow_id", "version_id", "output_dir"}),
         "create": frozenset({"name", "description", "table", "active", "attributes", "dry_run"}),
         "update": frozenset(
             {"workflow_id", "name", "description", "table", "active", "attributes", "dry_run"}
@@ -1293,6 +1311,9 @@ class ManageWorkflowParams(BaseModel):
         a = self.action
         if a in ("list", "get", "list_versions", "get_activities"):
             pass
+        elif a == "export":
+            if not self.workflow_id:
+                raise ValueError("workflow_id is required for action='export'")
         elif a == "create":
             if not self.name:
                 raise ValueError("name is required for action='create'")
@@ -1330,7 +1351,7 @@ class ManageWorkflowParams(BaseModel):
 @register_tool(
     name="manage_workflow",
     params=ManageWorkflowParams,
-    description="LEGACY Workflow engine ONLY (wf_workflow/wf_activity). Most flows are Flow Designer -> use manage_flow_designer.",
+    description="LEGACY Workflow engine ONLY (wf_workflow/wf_activity); export writes a version's full graph to disk. Flow Designer -> manage_flow_designer.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -1389,6 +1410,13 @@ def manage_workflow(
             config,
             auth_manager,
             {"workflow_id": params.workflow_id, "version_id": params.version_id},
+        )
+    if a == "export":
+        assert params.workflow_id is not None
+        from servicenow_mcp.tools.workflow_export import export_workflow
+
+        return export_workflow(
+            config, auth_manager, params.workflow_id, params.version_id, params.output_dir
         )
     if a == "create":
         assert params.name is not None

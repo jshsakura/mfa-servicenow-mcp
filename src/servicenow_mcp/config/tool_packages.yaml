@@ -124,7 +124,7 @@ portal_developer:
     - manage_widget_dependency
     # Legacy Workflow engine: reads only here (writes in platform_developer/full)
     - manage_workflow:
-        actions: [list, get, list_versions, get_activities]
+        actions: [list, get, list_versions, get_activities, export]
     - manage_catalog
     - manage_ui_policy
     # UX Workspace list config CRUD (sys_ux_list — view/columns/fixed_query)
@@ -224,7 +224,7 @@ itsm_developer:
   - manage_flow_designer:
       actions: [list, get_detail, get_executions, get_action_source]
   - manage_workflow:
-      actions: [list, get_activities]
+      actions: [list, get_activities, export]
   # Design: a portal's whole theme in one read; edit it via download_server_sources
   # families=[theme] → diff_local_component → update_remote_from_local
   - get_portal

@@ -322,7 +322,7 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_changeset": frozenset({"get"}),
     "manage_user": frozenset({"get", "list"}),
     "manage_group": frozenset({"list"}),
-    "manage_workflow": frozenset({"list", "get", "list_versions", "get_activities"}),
+    "manage_workflow": frozenset({"list", "get", "list_versions", "get_activities", "export"}),
     "manage_script_include": frozenset({"list", "get"}),
     "manage_session_context": frozenset({"get"}),
     "manage_scripted_rest": frozenset({"list", "get"}),

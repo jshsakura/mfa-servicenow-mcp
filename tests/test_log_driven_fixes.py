@@ -764,9 +764,10 @@ class TestLeanReads:
     def test_published_version_lookup_reads_only_the_id(self):
         from servicenow_mcp.tools import workflow_tools as wt
 
-        with patch.object(
-            wt, "sn_query_page", side_effect=[([{"sys_id": "v1"}], 1), ([], 0)]
-        ) as qp:
+        with (
+            patch.object(wt, "sn_query_page", return_value=([{"sys_id": "v1"}], 1)) as qp,
+            patch.object(wt, "sn_query_all", return_value=[]),
+        ):
             result = wt._fetch_workflow_activities(MagicMock(), MagicMock(), "w1")
         lookup = qp.call_args_list[0].kwargs
         assert lookup["fields"] == "sys_id" and lookup["orderby"] == "-sys_created_on"
