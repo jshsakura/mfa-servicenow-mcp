@@ -50,6 +50,13 @@ class Fake:
         self.fail_delete = False
         self.entries_stick = False
         self.cache = {}
+        self.filled = None
+        self.deps = {
+            "sys_ui_element": 1,
+            "sys_ui_list_element": 0,
+            "sys_choice": 0,
+            "sys_documentation": 1,
+        }
         self.rows = 5
         self.capture = [
             {
@@ -121,11 +128,14 @@ class Fake:
             )
 
     def count(self, config, auth, table, query=""):
+        if table in self.deps:
+            return self.deps[table]
         if not query:
             return self.rows
         if not self.column_real:
             return self.rows  # condition dropped: whole table both times
-        return 2 if query.endswith("ISEMPTY") else self.rows - 2
+        filled = self.rows - 2 if self.filled is None else self.filled
+        return self.rows - filled if query.endswith("ISEMPTY") else filled
 
     def request(self, method, url, json=None, **kw):
         table = url.split("/table/")[1].split("/")[0]
@@ -136,7 +146,10 @@ class Fake:
             sid = url.rsplit("/", 1)[1]
             if self.fail_delete:
                 raise RuntimeError("HTTP 403")
-            if table == "sys_ui_element":
+            if table == "sys_dictionary":
+                self.dictionary = [d for d in self.dictionary if d["sys_id"] != sid]
+                self.column_real = False  # the column is gone: conditions on it are dropped
+            elif table == "sys_ui_element":
                 self.ui_elements = [e for e in self.ui_elements if e["sys_id"] != sid]
                 self._recapture()
             elif not self.entries_stick:
@@ -217,7 +230,7 @@ def test_create_writes_field_and_missing_labels_then_proves_them(env):
     assert r["labels_written"] == {"en": "present", "ko": "created"}
     assert r["labels"] == {"en": "Reason", "ko": "사유"}
     assert r["field"]["max_length"] == "200"
-    assert r["column"] == {"proven": True, "rows": 5}
+    assert r["column"] == {"proven": True, "rows": 5, "filled": 3}
     assert r["update_set_capture"]["update_set"] == "Sprint 12 fixes"
 
 
@@ -437,3 +450,62 @@ def test_reads_after_a_write_bypass_the_query_cache(env, monkeypatch):
     monkeypatch.setattr(dt, "_fresh", lambda: None)  # the bug: no invalidation
     broken = call(**NEW)
     assert broken["form_placement_undo"]["entries_removed"] == 0  # reproduces it
+
+
+DEL = dict(action="delete_field", table="parent_tbl", element="u_old")
+
+
+def test_delete_without_approval_previews_values_and_dependents(env):
+    fake, call = env
+    fake.filled = 0
+    r = call(**DEL)
+    assert r["approval_required"] is True and fake.writes == []
+    assert r["rows_with_a_value"] == 0
+    assert r["also_names_it"]["form_placements"] == 1
+
+
+def test_delete_of_an_empty_column_drops_it_and_proves_it_gone(env):
+    fake, call = env
+    fake.filled = 0
+    r = call(**DEL, confirm_delete="parent_tbl.u_old")
+    assert r["success"] is True, r
+    assert r["column_gone"] is True and r["values_lost"] == 0
+    assert ("DELETE", "sys_dictionary") == fake.writes[0][:2]
+
+
+def test_values_in_the_column_need_the_exact_count(env):
+    fake, call = env
+    fake.filled = 3
+    r = call(**DEL, confirm_delete="parent_tbl.u_old")
+    assert r["approval_required"] is True and "confirm_data_loss=3" in r["message"]
+    r = call(**DEL, confirm_delete="parent_tbl.u_old", confirm_data_loss=2)
+    assert r["approval_required"] is True and fake.writes == []
+    r = call(**DEL, confirm_delete="parent_tbl.u_old", confirm_data_loss=3)
+    assert r["success"] is True and r["values_lost"] == 3
+
+
+def test_inherited_column_is_not_deleted_from_a_child(env):
+    fake, call = env
+    r = call(
+        action="delete_field", table="child_tbl", element="u_old", confirm_delete="child_tbl.u_old"
+    )
+    assert r["success"] is False and r["defined_on"] == "parent_tbl" and fake.writes == []
+
+
+def test_platform_column_is_never_deleted(env):
+    fake, call = env
+    fake.dictionary.append({"sys_id": _id(7), "name": "parent_tbl", "element": "state"})
+    r = call(
+        action="delete_field",
+        table="parent_tbl",
+        element="state",
+        confirm_delete="parent_tbl.state",
+    )
+    assert r["success"] is False and "not a custom column" in r["message"] and fake.writes == []
+
+
+def test_values_that_cannot_be_counted_block_the_delete(env):
+    fake, call = env
+    fake.column_real = False  # the server drops the condition: values uncountable
+    r = call(**DEL, confirm_delete="parent_tbl.u_old")
+    assert r["success"] is False and "not applied" in r["message"] and fake.writes == []

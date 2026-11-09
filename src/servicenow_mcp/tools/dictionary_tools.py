@@ -49,7 +49,7 @@ _SETTABLE = ("max_length", "default_value", "mandatory", "read_only", "comments"
 class ManageDictionaryParams(BaseModel):
     """Table columns (sys_dictionary) and their labels (sys_documentation)."""
 
-    action: Literal["get", "create_field", "set_label", "update_field"] = Field(...)
+    action: Literal["get", "create_field", "set_label", "update_field", "delete_field"] = Field(...)
     table: str = Field(..., description="Table, e.g. sc_req_item")
     element: str = Field(..., description="Column name; a new one on a non-x_ table starts u_")
 
@@ -78,6 +78,14 @@ class ManageDictionaryParams(BaseModel):
     label: Optional[str] = Field(default=None, description="set_label: label text")
     plural: Optional[str] = Field(default=None, description="set_label: plural label")
     hint: Optional[str] = Field(default=None, description="set_label: hover hint")
+    confirm_delete: Optional[str] = Field(
+        default=None,
+        description="delete_field: '<table>.<element>' after reading the preview; approves it",
+    )
+    confirm_data_loss: Optional[int] = Field(
+        default=None,
+        description="delete_field: the number of rows holding a value, as the preview counted",
+    )
     confirm_column: Optional[str] = Field(
         default=None,
         description="create_field: '<table>.<element>' after reading the preview; approves it",
@@ -113,6 +121,7 @@ class ManageDictionaryParams(BaseModel):
         "set_label": frozenset(
             {"table", "element", "language", "label", "plural", "hint", "dry_run"}
         ),
+        "delete_field": frozenset({"table", "element", "confirm_delete", "confirm_data_loss"}),
         "update_field": frozenset(
             {
                 "table",
@@ -314,7 +323,7 @@ def _column_proof(config, auth_manager, table: str, element: str) -> Dict[str, A
         return {"proven": None, "reason": f"count read failed: {e}"}
     if total == 0:
         return {"proven": None, "reason": "table has no rows; a dropped condition looks the same"}
-    return {"proven": empty + filled == total, "rows": total}
+    return {"proven": empty + filled == total, "rows": total, "filled": filled}
 
 
 def _capture(config, auth_manager, table: str, element: str) -> Dict[str, Any]:
@@ -460,6 +469,119 @@ def _mismatch(row: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # actions
 # ---------------------------------------------------------------------------
+
+
+def _dependents(config, auth_manager, table: str, element: str) -> Dict[str, Any]:
+    """What else names this column: form placements, list columns, choices, labels."""
+    out: Dict[str, Any] = {}
+    reads = {
+        "form_placements": ("sys_ui_element", f"element={element}^sys_ui_section.name={table}"),
+        "list_columns": ("sys_ui_list_element", f"element={element}^list_id.name={table}"),
+        "choices": ("sys_choice", f"name={table}^element={element}"),
+        "labels": ("sys_documentation", f"name={table}^element={element}"),
+    }
+    for key, (tbl, query) in reads.items():
+        try:
+            out[key] = sn_count(config, auth_manager, tbl, query)
+        except Exception as e:
+            out[key] = f"unread: {e}"
+    return out
+
+
+def _delete_field(config, auth_manager, p: ManageDictionaryParams) -> Dict[str, Any]:
+    """Drop a custom column. The data in it goes with it, so every guard reads first."""
+    _fresh()
+    _, row, refusal = _definition(config, auth_manager, p.table, p.element)
+    if refusal:
+        return refusal
+    if row is None:
+        return _fail(
+            f"{p.element!r} was not returned for {p.table} or its parents. Nothing deleted.",
+            determined=False,
+        )
+    owner = _s(row.get("name"))
+    if owner != p.table:
+        return _fail(
+            f"{p.element} is defined on {owner}, not {p.table}; deleting it there removes it from "
+            "every table extending it. Do that in the UI. Nothing deleted.",
+            defined_on=owner,
+        )
+    if not p.element.startswith(("u_", "x_")):
+        return _fail(
+            f"{p.element} is not a custom column (u_/x_); platform columns are never deleted "
+            "here. Nothing deleted."
+        )
+    proof = _column_proof(config, auth_manager, p.table, p.element)
+    if proof.get("proven") is False:
+        return _fail(
+            f"A query on {p.element} was not applied by the server, so its stored values could "
+            "not be counted. Nothing deleted.",
+            column=proof,
+        )
+    if str(proof.get("reason", "")).startswith("count read failed"):
+        return _fail(
+            f"Could not count the values in {p.element} ({proof.get('reason')}). Nothing deleted.",
+            column=proof,
+        )
+    filled = int(proof.get("filled") or 0)
+    deps = _dependents(config, auth_manager, p.table, p.element)
+    approval = f"{p.table}.{p.element}"
+    preview = {
+        "field": _shape_def(row),
+        "rows_with_a_value": filled,
+        "table_rows": proof.get("rows", 0),
+        "also_names_it": deps,
+        "note": "Deleting drops the column and every value in it (child tables included). It is "
+        "captured as a DELETE in your current update set and drops the column wherever it "
+        "is imported.",
+    }
+    if (p.confirm_delete or "").strip() != approval:
+        wrong = f" ({p.confirm_delete!r} does not name it)" if p.confirm_delete else ""
+        need = f" and confirm_data_loss={filled}" if filled else ""
+        return {
+            "success": False,
+            "approval_required": True,
+            "message": f"Nothing deleted{wrong}. Review the preview, then re-send with "
+            f"confirm_delete={approval!r}{need}.",
+            **preview,
+        }
+    if filled and p.confirm_data_loss != filled:
+        return {
+            "success": False,
+            "approval_required": True,
+            "message": f"{filled} row(s) hold a value in {p.element} and would lose it. Nothing "
+            f"deleted. If that is intended, re-send with confirm_data_loss={filled}.",
+            **preview,
+        }
+    try:
+        _write(config, auth_manager, "DELETE", "sys_dictionary", _s(row.get("sys_id")), None)
+    except Exception as e:
+        return _fail(f"Failed to delete the field: {e}")
+    _fresh()
+    out: Dict[str, Any] = {"success": True, "deleted": approval, "values_lost": filled}
+    try:
+        still = _read(
+            config,
+            auth_manager,
+            "sys_dictionary",
+            f"name={p.table}^element={p.element}",
+            "sys_id",
+            1,
+        )
+    except Exception as e:
+        still, out["verified"] = [], False
+        out["message"] = f"Delete sent but the re-read failed ({e}); UNVERIFIED."
+    if still:
+        out["success"] = False
+        out["message"] = "The dictionary row is still there after the delete."
+    after = _column_proof(config, auth_manager, p.table, p.element)
+    # Gone means the server now DROPS a condition on it (both counts = the whole table).
+    out["column_gone"] = None if after.get("proven") is None else not after.get("proven")
+    if out["column_gone"] is False:
+        out["success"] = False
+    out["left_behind"] = _dependents(config, auth_manager, p.table, p.element)
+    out["update_set_capture"] = _capture(config, auth_manager, p.table, p.element)
+    return out
 
 
 def _get(config, auth_manager, p: ManageDictionaryParams) -> Dict[str, Any]:
@@ -866,7 +988,7 @@ def _update_field(config, auth_manager, p: ManageDictionaryParams) -> Dict[str, 
 @register_tool(
     "manage_dictionary",
     params=ManageDictionaryParams,
-    description="Table columns (sys_dictionary) + labels: get, create_field (with en/other labels), set_label, update_field. No type change/delete.",
+    description="Table columns (sys_dictionary) + labels: get, create_field (with en/other labels), set_label, update_field, delete_field (custom, guarded). No type change.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -880,5 +1002,6 @@ def manage_dictionary(
         "create_field": _create_field,
         "set_label": _set_label,
         "update_field": _update_field,
+        "delete_field": _delete_field,
     }[params.action]
     return action(config, auth_manager, params)

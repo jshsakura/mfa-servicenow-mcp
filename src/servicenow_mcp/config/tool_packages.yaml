@@ -182,6 +182,8 @@ platform_developer:
     - manage_session_context
     - manage_ui_policy
     - manage_dictionary
+    - manage_form_layout
+    - manage_list_layout
     - manage_portal_layout
     - manage_portal_component
     # Incident writes — manage_incident covers create/update/comment/resolve
@@ -247,6 +249,10 @@ itsm_developer:
   - manage_choice
   # Table columns + labels (sys_dictionary / sys_documentation); no type change or delete
   - manage_dictionary
+  # Form layout: sections and field placement (sys_ui_section / sys_ui_element)
+  - manage_form_layout
+  # List columns (sys_ui_list / sys_ui_list_element)
+  - manage_list_layout
   # Ship: update sets, deploy XML, edit sources on disk
   - manage_session_context
   - manage_changeset
@@ -384,4 +390,6 @@ full:
     - manage_task_rule
     - manage_choice
     - manage_dictionary
+    - manage_form_layout
+    - manage_list_layout
     - get_repo_change_report
