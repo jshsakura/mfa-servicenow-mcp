@@ -25,6 +25,9 @@ script calls the update manager explicitly), and a Table API write never does.
 So a write diffs the update set before/after and is ``success`` only when every
 rewritten record got a NEW entry; otherwise it says what is missing and how to
 capture it. The capture is never faked by writing ``sys_update_xml``.
+Measured live: adds, moves and removed fields are NOT captured; remove_section
+IS (the platform's own delete rule writes a DELETE for the section and the
+form's tab order), and the same diff reports both truthfully.
 
 Out of scope: related lists, formatters, annotations, per-user layouts.
 Removing a field from the form never touches the column or its data.
