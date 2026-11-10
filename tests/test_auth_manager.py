@@ -416,6 +416,27 @@ class TestBuildHttpSession:
         assert isinstance(getattr(s, "_inner", s), requests.Session)
         assert "Accept-Encoding" in s.headers
 
+    def test_windows_also_trusts_the_os_ca_store(self, monkeypatch):
+        """curl_cffi reads one CA file, never the Windows store; behind Zscaler
+        the proxy root is only in the store, so every call failed with
+        'unable to get local issuer certificate'. On Windows the session asks
+        libcurl for the native store as well (CURLSSLOPT_NATIVE_CA = 16)."""
+        from curl_cffi.const import CurlOpt
+
+        from servicenow_mcp.auth import _http_session as hs
+
+        monkeypatch.setattr(hs.sys, "platform", "win32")
+        s = _build_http_session()
+        inner = getattr(s, "_inner", s)
+        assert inner.curl_options == {CurlOpt.SSL_OPTIONS: 16}
+
+    def test_other_platforms_leave_libcurl_ssl_options_alone(self, monkeypatch):
+        from servicenow_mcp.auth import _http_session as hs
+
+        monkeypatch.setattr(hs.sys, "platform", "darwin")
+        s = _build_http_session()
+        assert getattr(s, "_inner", s).curl_options == {}
+
 
 # ===========================================================================
 # Basic Auth tests

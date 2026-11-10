@@ -7,6 +7,7 @@ the tests that patch/import it) stay byte-identical.
 """
 
 import logging
+import sys
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -43,6 +44,26 @@ _SESSION_MAX_RETRIES_CONNECT = 0  # Connection-level retries handled by make_req
 _TLS_IMPERSONATE_ENV_VAR = "SERVICENOW_TLS_IMPERSONATE"
 _TLS_IMPERSONATE_DEFAULT_PROFILE = "chrome120"
 _TLS_IMPERSONATE_OFF_VALUES = frozenset({"off", "false", "0", "disable", "disabled", "no", "none"})
+
+# libcurl CURLSSLOPT_NATIVE_CA (curl_cffi has no named constant for it). curl_cffi
+# trusts ONE CA file (SSL_CERT_FILE / CURL_CA_BUNDLE / REQUESTS_CA_BUNDLE, else
+# certifi), never the Windows store. Behind a TLS-inspecting proxy (Zscaler) the
+# proxy root lives in that store (certutil), so every ServiceNow call failed with
+# "unable to get local issuer certificate" while the browser, PowerShell and git
+# on the same PC were fine. With this bit libcurl searches the Windows store IN
+# ADDITION to the CA file: it adds trust the OS already has, never drops any.
+# Windows only: on other platforms libcurl's OpenSSL backends do not read the OS
+# store this way.
+_CURLSSLOPT_NATIVE_CA = 1 << 4
+
+
+def _cffi_curl_options() -> dict:
+    """Extra libcurl options for the curl_cffi session: the OS CA store on Windows."""
+    if sys.platform != "win32":
+        return {}
+    from curl_cffi.const import CurlOpt  # type: ignore
+
+    return {CurlOpt.SSL_OPTIONS: _CURLSSLOPT_NATIVE_CA}
 
 
 def _describe_http_session(session) -> str:
@@ -257,7 +278,10 @@ def _build_http_session():
             )
         else:
             try:
-                session = cffi_requests.Session(impersonate=impersonate)
+                curl_options = _cffi_curl_options()
+                session = cffi_requests.Session(
+                    impersonate=impersonate, curl_options=curl_options or None
+                )
             except Exception as exc:  # noqa: BLE001 — bad profile name etc.
                 logger.warning(
                     "curl_cffi.Session(impersonate=%r) failed: %s. "
@@ -274,11 +298,12 @@ def _build_http_session():
                     "HTTP session: curl_cffi impersonate=%s (TLS "
                     "handshake matches a real browser to defeat JA3-based "
                     "bot detection on hardened ServiceNow instances). "
-                    "Env source: %s=%r%s",
+                    "Env source: %s=%r%s. OS CA store: %s",
                     impersonate,
                     _TLS_IMPERSONATE_ENV_VAR,
                     raw_env,
                     " (default applied: empty value → chrome120)" if not raw_env else "",
+                    "on (Windows store + CA file)" if curl_options else "off (CA file only)",
                 )
                 return _SafeRedirectSession(session)
     else:
