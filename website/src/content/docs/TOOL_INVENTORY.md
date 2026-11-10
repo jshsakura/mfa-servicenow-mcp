@@ -173,7 +173,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_notification` | R/W | Notification + email template CRUD (sysevent_email_action/sysevent_email_template). Use list to find sys_id. | portal_developer, itsm_developer, full |
+| `manage_notification` | R/W | Notification, email template, mail script, email layout CRUD. Use list* to find sys_id. | portal_developer, itsm_developer, full |
 
 ### Performance Tools (1)
 

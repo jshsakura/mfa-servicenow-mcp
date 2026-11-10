@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 NOTIF_TABLE = "sysevent_email_action"
 TEMPLATE_TABLE = "sysevent_email_template"
 CATEGORY_TABLE = "sys_notification_category"
+MAIL_SCRIPT_TABLE = "sys_script_email"
+LAYOUT_TABLE = "sys_email_layout"
 
 _NOTIF_META = (
     "sys_id,name,subject,collection,event_name,condition,category,template,active,weight,"
@@ -37,7 +39,9 @@ _NOTIF_META = (
     "recipient_users,recipient_groups,recipient_fields,message_html,message_text,"
     "from,reply_to,sys_scope,sys_updated_on"
 )
-_TEMPLATE_META = "sys_id,name,subject,collection,message_html,message_text,sys_scope,sys_updated_on"
+_TEMPLATE_META = (
+    "sys_id,name,subject,collection,email_layout,message_html,message_text,sys_scope,sys_updated_on"
+)
 
 # Python kwarg -> ServiceNow field name, where they differ ("from" is reserved).
 _NOTIF_UPDATE_FIELDS = (
@@ -64,7 +68,17 @@ _NOTIF_UPDATE_FIELDS = (
 _NOTIF_FIELD_NAME = {"from_address": "from"}
 _NOTIF_REF_FIELDS = {"category": (CATEGORY_TABLE, "name"), "template": (TEMPLATE_TABLE, "name")}
 
-_TEMPLATE_UPDATE_FIELDS = ("name", "subject", "collection", "message_html", "message_text")
+_TEMPLATE_UPDATE_FIELDS = (
+    "name",
+    "subject",
+    "collection",
+    "email_layout",
+    "message_html",
+    "message_text",
+)
+# email_layout is a reference: a layout NAME written raw would store an invalid
+# sys_id silently, the same trap category/template already resolve around.
+_TEMPLATE_REF_FIELDS = {"email_layout": (LAYOUT_TABLE, "name")}
 
 
 def _dv(v: Any) -> Any:
@@ -138,6 +152,7 @@ def _template_row(r: Dict[str, Any]) -> Dict[str, Any]:
         "name": r.get("name"),
         "subject": r.get("subject"),
         "collection": r.get("collection"),
+        "email_layout": _dv(r.get("email_layout")),
         "message_html": r.get("message_html"),
         "message_text": r.get("message_text"),
         "scope": _dv(r.get("sys_scope")),
@@ -445,10 +460,12 @@ def create_template(
         config,
         auth_manager,
         update_fields=_TEMPLATE_UPDATE_FIELDS,
-        ref_fields={},
+        ref_fields=_TEMPLATE_REF_FIELDS,
         field_name={},
         fields=fields,
     )
+    if "__error__" in body:
+        return {"success": False, "message": body["__error__"]}
     if not body.get("name"):
         return {"success": False, "message": "name is required to create an email template"}
 
@@ -491,10 +508,12 @@ def update_template(
         config,
         auth_manager,
         update_fields=_TEMPLATE_UPDATE_FIELDS,
-        ref_fields={},
+        ref_fields=_TEMPLATE_REF_FIELDS,
         field_name={},
         fields=fields,
     )
+    if "__error__" in body:
+        return {"success": False, "message": body["__error__"]}
     if not body:
         return {
             "success": True,
@@ -530,3 +549,204 @@ def update_template(
     except Exception as e:
         logger.error(f"Error updating email template: {e}")
         return {"success": False, "message": f"Error updating email template: {str(e)}"}
+
+
+# ---------------------------------------------------------------------------
+# Mail scripts (sys_script_email) + Email layouts (sys_email_layout)
+#
+# The two records a template leans on: a mail script is what
+# ``${mail_script:<name>}`` in a body calls, a layout is the HTML shell a
+# template's ``email_layout`` wraps it in. With no tool for either, a
+# notification build stalled at "now run this Background Script" — the exact
+# side channel this repo exists to replace. Both are flat name+body records
+# with no references, so one spec-driven CRUD path serves both.
+# ---------------------------------------------------------------------------
+
+_SIMPLE_KINDS: Dict[str, Dict[str, Any]] = {
+    "mail_script": {
+        "table": MAIL_SCRIPT_TABLE,
+        "label": "mail script",
+        "fields": ("name", "script", "new_lines_to_html"),
+        "bools": ("new_lines_to_html",),
+        "summary": "sys_id,name,new_lines_to_html,sys_scope,sys_updated_on",
+    },
+    "layout": {
+        "table": LAYOUT_TABLE,
+        "label": "email layout",
+        "fields": ("name", "description", "layout", "advanced", "advanced_layout"),
+        "bools": ("advanced",),
+        "summary": "sys_id,name,description,advanced,sys_scope,sys_updated_on",
+    },
+}
+
+
+def _simple_row(kind: str, r: Dict[str, Any]) -> Dict[str, Any]:
+    spec = _SIMPLE_KINDS[kind]
+    row: Dict[str, Any] = {"sys_id": r.get("sys_id")}
+    for f in spec["fields"]:
+        if f not in r:
+            continue  # list projects bodies out; absent is "not fetched", not empty
+        row[f] = _dv(r.get(f)) == "true" if f in spec["bools"] else _dv(r.get(f))
+    row["scope"] = _dv(r.get("sys_scope"))
+    row["updated_on"] = r.get("sys_updated_on")
+    return row
+
+
+def list_simple(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    kind: str,
+    query: Optional[str] = None,
+    limit: int = 10,
+    offset: int = 0,
+    count_only: bool = False,
+) -> Dict[str, Any]:
+    """List mail scripts or layouts by name. Bodies are left out — `get` one."""
+    spec = _SIMPLE_KINDS[kind]
+    query_string = f"nameLIKE{query}" if query else ""
+    if count_only:
+        return count_response(
+            config, auth_manager, spec["table"], query_string, what=f"{spec['label']}s"
+        )
+    records, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=spec["table"],
+        query=query_string,
+        fields=spec["summary"],
+        limit=min(limit, 50),
+        offset=offset,
+        display_value=True,
+        fail_silently=False,
+    )
+    rows = [_simple_row(kind, r) for r in records]
+    return {
+        "success": True,
+        "message": f"Found {len(rows)} {spec['label']}s (bodies omitted — get one by sys_id)",
+        "records": rows,
+        "total": len(rows),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def get_simple(
+    config: ServerConfig, auth_manager: AuthManager, *, kind: str, sys_id: str
+) -> Dict[str, Any]:
+    spec = _SIMPLE_KINDS[kind]
+    records, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=spec["table"],
+        query=f"sys_id={sys_id}",
+        fields="sys_id," + ",".join(spec["fields"]) + ",sys_scope,sys_updated_on",
+        limit=1,
+        offset=0,
+        display_value=True,
+        fail_silently=False,
+    )
+    if not records:
+        return {"success": False, "message": f"{spec['label'].capitalize()} not found: {sys_id}"}
+    return {"success": True, "record": _simple_row(kind, records[0])}
+
+
+def create_simple(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    kind: str,
+    dry_run: bool = False,
+    **fields: Any,
+) -> Dict[str, Any]:
+    spec = _SIMPLE_KINDS[kind]
+    body = _build_body(
+        config,
+        auth_manager,
+        update_fields=spec["fields"],
+        ref_fields={},
+        field_name={},
+        fields=fields,
+    )
+    if not body.get("name"):
+        return {"success": False, "message": f"name is required to create a {spec['label']}"}
+    if dry_run:
+        return build_create_preview(table=spec["table"], proposed=body)
+
+    url = f"{config.instance_url}/api/now/table/{spec['table']}"
+    try:
+        response = auth_manager.make_request(
+            "POST", url, json=body, headers=auth_manager.get_headers(), timeout=30
+        )
+        response.raise_for_status()
+        result = response.json().get("result")
+        if not result:
+            return {"success": False, "message": f"Failed to create {spec['label']}"}
+        invalidate_query_cache(table=spec["table"])
+        return {
+            "success": True,
+            "message": f"Created {spec['label']}: {result.get('name')}",
+            "sys_id": result.get("sys_id"),
+            "name": result.get("name"),
+        }
+    except Exception as e:
+        logger.error(f"Error creating {spec['label']}: {e}")
+        return {"success": False, "message": f"Error creating {spec['label']}: {str(e)}"}
+
+
+def update_simple(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    kind: str,
+    sys_id: str,
+    dry_run: bool = False,
+    **fields: Any,
+) -> Dict[str, Any]:
+    spec = _SIMPLE_KINDS[kind]
+    existing = get_simple(config, auth_manager, kind=kind, sys_id=sys_id)
+    if not existing.get("success"):
+        return existing
+    body = _build_body(
+        config,
+        auth_manager,
+        update_fields=spec["fields"],
+        ref_fields={},
+        field_name={},
+        fields=fields,
+    )
+    if not body:
+        return {
+            "success": True,
+            "message": f"No changes to update for {spec['label']}: {existing['record'].get('name')}",
+            "sys_id": sys_id,
+        }
+    if dry_run:
+        return build_update_preview(
+            config,
+            auth_manager,
+            table=spec["table"],
+            sys_id=sys_id,
+            proposed=body,
+            identifier_fields=["name"],
+        )
+
+    url = f"{config.instance_url}/api/now/table/{spec['table']}/{sys_id}"
+    try:
+        response = auth_manager.make_request(
+            "PATCH", url, json=body, headers=auth_manager.get_headers(), timeout=30
+        )
+        response.raise_for_status()
+        result = response.json().get("result")
+        if not result:
+            return {"success": False, "message": f"Failed to update {spec['label']}: {sys_id}"}
+        invalidate_query_cache(table=spec["table"])
+        return {
+            "success": True,
+            "message": f"Updated {spec['label']}: {result.get('name')}",
+            "sys_id": result.get("sys_id"),
+            "name": result.get("name"),
+        }
+    except Exception as e:
+        logger.error(f"Error updating {spec['label']}: {e}")
+        return {"success": False, "message": f"Error updating {spec['label']}: {str(e)}"}

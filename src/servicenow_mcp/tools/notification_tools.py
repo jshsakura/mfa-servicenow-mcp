@@ -51,20 +51,35 @@ _NOTIF_WRITE_FIELDS = frozenset(
     }
 )
 _TEMPLATE_WRITE_FIELDS = frozenset(
-    {"name", "subject", "collection", "message_html", "message_text"}
+    {"name", "subject", "collection", "email_layout", "message_html", "message_text"}
 )
+_MAIL_SCRIPT_WRITE_FIELDS = frozenset({"name", "script", "new_lines_to_html"})
+_LAYOUT_WRITE_FIELDS = frozenset({"name", "description", "layout", "advanced", "advanced_layout"})
+# action -> (service kind, write fields) for the flat mail script / layout records
+_SIMPLE_ACTIONS: Dict[str, tuple] = {
+    "list_mail_scripts": ("mail_script", None),
+    "get_mail_script": ("mail_script", None),
+    "create_mail_script": ("mail_script", _MAIL_SCRIPT_WRITE_FIELDS),
+    "update_mail_script": ("mail_script", _MAIL_SCRIPT_WRITE_FIELDS),
+    "list_layouts": ("layout", None),
+    "get_layout": ("layout", None),
+    "create_layout": ("layout", _LAYOUT_WRITE_FIELDS),
+    "update_layout": ("layout", _LAYOUT_WRITE_FIELDS),
+}
 
 
 class ManageNotificationParams(BaseModel):
-    """Manage notifications + email templates — tables: sysevent_email_action,
-    sysevent_email_template.
+    """Manage notifications, email templates, mail scripts and email layouts —
+    tables: sysevent_email_action, sysevent_email_template, sys_script_email,
+    sys_email_layout.
 
     Required per action:
-      list / list_templates:  (none)
-      get / get_template:     sys_id
+      list / list_templates / list_mail_scripts / list_layouts:  (none)
+      get / get_template / get_mail_script / get_layout:         sys_id
       create:                 category, at least one other field
-      create_template:        name
-      update / update_template: sys_id, at least one field
+      create_template / create_mail_script / create_layout:      name
+      update / update_template / update_mail_script / update_layout:
+                              sys_id, at least one field
     """
 
     action: Literal[
@@ -76,17 +91,23 @@ class ManageNotificationParams(BaseModel):
         "get_template",
         "create_template",
         "update_template",
+        "list_mail_scripts",
+        "get_mail_script",
+        "create_mail_script",
+        "update_mail_script",
+        "list_layouts",
+        "get_layout",
+        "create_layout",
+        "update_layout",
     ] = Field(...)
 
-    sys_id: Optional[str] = Field(
-        default=None, description="Notification/template record (get/update)"
-    )
+    sys_id: Optional[str] = Field(default=None, description="Target record sys_id (get/update)")
 
     # list / list_templates
     collection: Optional[str] = Field(
         default=None, description="Filter by target table name (list)"
     )
-    query: Optional[str] = Field(default=None, description="Subject/name search (list)")
+    query: Optional[str] = Field(default=None, description="Subject/name search (list*)")
     active: Optional[bool] = Field(
         default=None, description="Active flag (filter on list, set on write)"
     )
@@ -133,6 +154,29 @@ class ManageNotificationParams(BaseModel):
         description="Record name — notification or template (required on create_template)",
     )
 
+    # template -> layout link
+    email_layout: Optional[str] = Field(
+        default=None, description="Email layout name or sys_id:<id> (template)"
+    )
+
+    # mail script (sys_script_email)
+    script: Optional[str] = Field(
+        default=None, description="Mail script body; called as ${mail_script:<name>}"
+    )
+    new_lines_to_html: Optional[bool] = Field(
+        default=None, description="Convert newlines in script output to <br/>"
+    )
+
+    # email layout (sys_email_layout)
+    layout: Optional[str] = Field(
+        default=None, description="Layout HTML; must contain ${notification:body}"
+    )
+    description: Optional[str] = Field(default=None, description="Layout description")
+    advanced: Optional[bool] = Field(
+        default=None, description="Use advanced_layout (XML) instead of layout"
+    )
+    advanced_layout: Optional[str] = Field(default=None, description="Advanced layout XML")
+
     dry_run: bool = Field(default=False, description="Preview the write without committing")
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
@@ -144,11 +188,28 @@ class ManageNotificationParams(BaseModel):
         "get_template": frozenset({"sys_id"}),
         "create_template": _TEMPLATE_WRITE_FIELDS | {"dry_run"},
         "update_template": _TEMPLATE_WRITE_FIELDS | {"sys_id", "dry_run"},
+        "list_mail_scripts": frozenset({"query", "limit", "offset", "count_only"}),
+        "get_mail_script": frozenset({"sys_id"}),
+        "create_mail_script": _MAIL_SCRIPT_WRITE_FIELDS | {"dry_run"},
+        "update_mail_script": _MAIL_SCRIPT_WRITE_FIELDS | {"sys_id", "dry_run"},
+        "list_layouts": frozenset({"query", "limit", "offset", "count_only"}),
+        "get_layout": frozenset({"sys_id"}),
+        "create_layout": _LAYOUT_WRITE_FIELDS | {"dry_run"},
+        "update_layout": _LAYOUT_WRITE_FIELDS | {"sys_id", "dry_run"},
     }
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManageNotificationParams":
         a = self.action
+        if a in _SIMPLE_ACTIONS:
+            _, fields = _SIMPLE_ACTIONS[a]
+            if a.startswith(("get_", "update_")) and not self.sys_id:
+                raise ValueError(f"sys_id is required for action='{a}'")
+            if a.startswith("create_") and not self.name:
+                raise ValueError(f"name is required for action='{a}'")
+            if a.startswith("update_") and not any(getattr(self, f) is not None for f in fields):
+                raise ValueError(f"at least one field is required for action='{a}'")
+            return self
         if a in ("get", "get_template"):
             if not self.sys_id:
                 raise ValueError(f"sys_id is required for action='{a}'")
@@ -170,7 +231,7 @@ class ManageNotificationParams(BaseModel):
 @register_tool(
     name="manage_notification",
     params=ManageNotificationParams,
-    description="Notification + email template CRUD (sysevent_email_action/sysevent_email_template). Use list to find sys_id.",
+    description="Notification, email template, mail script, email layout CRUD. Use list* to find sys_id.",
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -179,6 +240,8 @@ def manage_notification(
     auth_manager: AuthManager,
     params: ManageNotificationParams,
 ) -> Dict[str, Any]:
+    if params.action in _SIMPLE_ACTIONS:
+        return _run_simple(config, auth_manager, params)
     if params.action == "list":
         return _svc.list_notifications(
             config,
@@ -242,6 +305,7 @@ def manage_notification(
         "name": params.name,
         "subject": params.subject,
         "collection": params.collection,
+        "email_layout": params.email_layout,
         "message_html": params.message_html,
         "message_text": params.message_text,
     }
@@ -251,4 +315,31 @@ def manage_notification(
     assert params.sys_id is not None
     return _svc.update_template(
         config, auth_manager, sys_id=params.sys_id, dry_run=params.dry_run, **template_kwargs
+    )
+
+
+def _run_simple(
+    config: ServerConfig, auth_manager: AuthManager, params: ManageNotificationParams
+) -> Dict[str, Any]:
+    kind, fields = _SIMPLE_ACTIONS[params.action]
+    verb = params.action.split("_", 1)[0]
+    if verb == "list":
+        return _svc.list_simple(
+            config,
+            auth_manager,
+            kind=kind,
+            query=params.query,
+            limit=params.limit,
+            offset=params.offset,
+            count_only=params.count_only,
+        )
+    if verb == "get":
+        assert params.sys_id is not None
+        return _svc.get_simple(config, auth_manager, kind=kind, sys_id=params.sys_id)
+    kwargs = {f: getattr(params, f) for f in fields}
+    if verb == "create":
+        return _svc.create_simple(config, auth_manager, kind=kind, dry_run=params.dry_run, **kwargs)
+    assert params.sys_id is not None
+    return _svc.update_simple(
+        config, auth_manager, kind=kind, sys_id=params.sys_id, dry_run=params.dry_run, **kwargs
     )

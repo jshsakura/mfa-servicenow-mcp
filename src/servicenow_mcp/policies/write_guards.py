@@ -331,7 +331,18 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_business_rule": frozenset({"list", "get"}),
     "manage_widget_dependency": frozenset({"list", "get"}),
     "manage_ux_list": frozenset({"list", "get"}),
-    "manage_notification": frozenset({"list", "get", "list_templates", "get_template"}),
+    "manage_notification": frozenset(
+        {
+            "list",
+            "get",
+            "list_templates",
+            "get_template",
+            "list_mail_scripts",
+            "get_mail_script",
+            "list_layouts",
+            "get_layout",
+        }
+    ),
     "manage_rest_message": frozenset({"list", "get", "get_method"}),
     "manage_scheduled_job": frozenset({"list", "get"}),
     "manage_catalog": frozenset(

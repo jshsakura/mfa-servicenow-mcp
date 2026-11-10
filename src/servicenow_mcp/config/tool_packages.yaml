@@ -129,7 +129,7 @@ portal_developer:
     - manage_ui_policy
     # UX Workspace list config CRUD (sys_ux_list — view/columns/fixed_query)
     - manage_ux_list
-    # Notification + email template CRUD (sysevent_email_action/sysevent_email_template)
+    # Notification, template, mail script, email layout CRUD (sysevent_email_action/_template, sys_script_email, sys_email_layout)
     - manage_notification
     # Scripted REST API CRUD (sys_ws_definition/sys_ws_operation)
     - manage_scripted_rest

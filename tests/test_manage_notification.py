@@ -347,10 +347,159 @@ class TestManageNotification(unittest.TestCase):
             {"action": "update", "sys_id": "n1"},  # no field to change
             {"action": "update"},  # no sys_id
             {"action": "update_template", "sys_id": "t1"},  # no field to change
+            {"action": "get_mail_script"},
+            {"action": "create_mail_script", "script": "x"},  # no name
+            {"action": "update_mail_script", "sys_id": "m1"},  # no field to change
+            {"action": "update_mail_script", "script": "x"},  # no sys_id
+            {"action": "get_layout"},
+            {"action": "create_layout", "layout": "<p/>"},  # no name
+            {"action": "update_layout", "sys_id": "l1"},  # no field to change
         ]
         for kw in bad:
             with self.assertRaises(ValueError):
                 ManageNotificationParams(**kw)
+
+    # --- template -> email layout link ---
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_create_template_resolves_email_layout_by_name(self, mock_query):
+        mock_query.return_value = ([{"sys_id": "lay1", "name": "Standard Layout"}], 1)
+        self.auth.make_request.return_value = _mock_response({"sys_id": "t1", "name": "tpl"})
+        result = self._run(action="create_template", name="tpl", email_layout="Standard Layout")
+        self.assertTrue(result["success"])
+        _, qkw = mock_query.call_args
+        self.assertEqual("sys_email_layout", qkw["table"])
+        _, kwargs = self.auth.make_request.call_args
+        self.assertEqual("lay1", kwargs["json"]["email_layout"])
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_update_template_unresolvable_layout_fails_loud(self, mock_query):
+        mock_query.side_effect = [
+            ([{"sys_id": "t1", "name": "tpl"}], 1),  # existing template
+            ([], 0),  # layout lookup miss
+        ]
+        result = self._run(action="update_template", sys_id="t1", email_layout="Nope")
+        self.assertFalse(result["success"])
+        self.assertIn("sys_email_layout not found", result["message"])
+        self.auth.make_request.assert_not_called()
+
+    def test_update_template_layout_by_sys_id_skips_lookup(self):
+        with patch(f"{SVC}.sn_query_page") as mock_query:
+            mock_query.return_value = ([{"sys_id": "t1", "name": "tpl"}], 1)
+            self.auth.make_request.return_value = _mock_response({"sys_id": "t1", "name": "tpl"})
+            result = self._run(action="update_template", sys_id="t1", email_layout="sys_id:lay9")
+        self.assertTrue(result["success"])
+        self.assertEqual(1, mock_query.call_count)  # only the existence read
+        _, kwargs = self.auth.make_request.call_args
+        self.assertEqual({"email_layout": "lay9"}, kwargs["json"])
+
+    # --- mail scripts (sys_script_email) ---
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_list_mail_scripts_omits_bodies(self, mock_query):
+        mock_query.return_value = (
+            [
+                {
+                    "sys_id": "m1",
+                    "name": "my_card",
+                    "new_lines_to_html": "false",
+                    "sys_scope": {"display_value": "Global"},
+                    "sys_updated_on": "2026-01-01 00:00:00",
+                }
+            ],
+            1,
+        )
+        result = self._run(action="list_mail_scripts", query="card")
+        self.assertTrue(result["success"])
+        row = result["records"][0]
+        self.assertEqual("my_card", row["name"])
+        self.assertFalse(row["new_lines_to_html"])
+        self.assertNotIn("script", row)
+        _, kwargs = mock_query.call_args
+        self.assertEqual("sys_script_email", kwargs["table"])
+        self.assertEqual("nameLIKEcard", kwargs["query"])
+        self.assertNotIn("script", kwargs["fields"].split(","))
+
+    @patch("servicenow_mcp.tools.sn_api.sn_count")
+    def test_list_layouts_count_only(self, mock_count):
+        mock_count.return_value = 4
+        result = self._run(action="list_layouts", count_only=True)
+        self.assertTrue(result["success"])
+        self.assertEqual(4, result["count"])
+        mock_count.assert_called_once_with(self.config, self.auth, "sys_email_layout", "")
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_get_mail_script_returns_body(self, mock_query):
+        mock_query.return_value = (
+            [{"sys_id": "m1", "name": "my_card", "script": "template.print('x');"}],
+            1,
+        )
+        result = self._run(action="get_mail_script", sys_id="m1")
+        self.assertTrue(result["success"])
+        self.assertEqual("template.print('x');", result["record"]["script"])
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_get_layout_not_found(self, mock_query):
+        mock_query.return_value = ([], 0)
+        result = self._run(action="get_layout", sys_id="ghost")
+        self.assertFalse(result["success"])
+        self.assertIn("not found", result["message"])
+
+    def test_create_mail_script_happy(self):
+        self.auth.make_request.return_value = _mock_response({"sys_id": "m1", "name": "my_card"})
+        result = self._run(
+            action="create_mail_script",
+            name="my_card",
+            script="template.print('x');",
+            new_lines_to_html=True,
+        )
+        self.assertTrue(result["success"])
+        args, kwargs = self.auth.make_request.call_args
+        self.assertEqual("POST", args[0])
+        self.assertTrue(args[1].endswith("/api/now/table/sys_script_email"))
+        self.assertEqual(
+            {"name": "my_card", "script": "template.print('x');", "new_lines_to_html": "true"},
+            kwargs["json"],
+        )
+
+    def test_create_layout_dry_run_previews_without_posting(self):
+        result = self._run(
+            action="create_layout",
+            name="my_layout",
+            layout="<div>${notification:body}</div>",
+            dry_run=True,
+        )
+        self.auth.make_request.assert_not_called()
+        self.assertTrue(result["dry_run"])
+        self.assertEqual("sys_email_layout", result["target"]["table"])
+        self.assertEqual("my_layout", result["proposed_record"]["name"])
+
+    def test_create_layout_http_error(self):
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = RuntimeError("403 Forbidden")
+        self.auth.make_request.return_value = resp
+        result = self._run(action="create_layout", name="my_layout", layout="<p/>")
+        self.assertFalse(result["success"])
+        self.assertIn("403", result["message"])
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_update_layout_patches_only_given_fields(self, mock_query):
+        mock_query.return_value = ([{"sys_id": "l1", "name": "my_layout"}], 1)
+        self.auth.make_request.return_value = _mock_response({"sys_id": "l1", "name": "my_layout"})
+        result = self._run(action="update_layout", sys_id="l1", advanced=False)
+        self.assertTrue(result["success"])
+        args, kwargs = self.auth.make_request.call_args
+        self.assertEqual("PATCH", args[0])
+        self.assertTrue(args[1].endswith("/sys_email_layout/l1"))
+        self.assertEqual({"advanced": "false"}, kwargs["json"])
+
+    @patch(f"{SVC}.sn_query_page")
+    def test_update_mail_script_not_found(self, mock_query):
+        mock_query.return_value = ([], 0)
+        result = self._run(action="update_mail_script", sys_id="ghost", script="x")
+        self.assertFalse(result["success"])
+        self.assertIn("not found", result["message"])
+        self.auth.make_request.assert_not_called()
 
 
 if __name__ == "__main__":
