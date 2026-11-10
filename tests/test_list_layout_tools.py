@@ -20,6 +20,20 @@ class Store:
         self.writes = []
         self.cache = {}
         self.fail_on = None
+        self.capture = True  # False = the real Table API: sys_ui_list writes are not captured
+        self.xml = []
+
+    def stamp(self):
+        self.n += 1
+        self.xml = [
+            {
+                "sys_id": "x1",
+                "name": "sys_ui_list_child_tbl_null",
+                "sys_updated_on": f"t{self.n}",
+                "update_set.name": "Sprint 12 fixes",
+                "update_set.state": "in progress",
+            }
+        ]
 
     def col(self, element, pos):
         self.n += 1
@@ -38,7 +52,8 @@ class Store:
                     for e in ("number", "state", "priority", "caller_id", "u_a", "u_b")
                 ]
             elif table == "sys_update_xml":
-                rows = [{"name": f"sys_ui_list_{LIST}", "update_set.name": "Sprint 12 fixes"}]
+                names = query.split("nameIN", 1)[1].split(",")
+                rows = [r for r in self.xml if r["name"] in names]
             else:
                 raise AssertionError(table)
             self.cache[key] = [dict(r) for r in rows]
@@ -70,6 +85,8 @@ class Store:
                     c["position"] = str(json["position"])
         else:
             self.cols = [c for c in self.cols if c["sys_id"] != sid]
+        if self.capture:
+            self.stamp()
         return resp
 
 
@@ -167,3 +184,27 @@ def test_get_is_the_only_read_action():
     from servicenow_mcp.policies.write_guards import MANAGE_READ_ACTIONS
 
     assert MANAGE_READ_ACTIONS["manage_list_layout"] == frozenset({"get"})
+
+
+def test_capture_is_looked_up_under_the_platform_name(env):
+    st, call = env
+    st.stamp()
+    r = call(action="get")
+    assert r["update_set_capture"]["entries"]["sys_ui_list_child_tbl_null"]
+
+
+def test_an_applied_but_uncaptured_list_is_not_success(env):
+    st, call = env
+    st.capture = False
+    st.stamp()  # an older capture of the list is not this change
+    r = call(action="remove_columns", columns=["state"], confirm_list=APPROVE)
+    assert r["columns"] == ["number", "priority"]
+    assert r["success"] is False and r["captured"] is False
+    assert r["not_captured"] == ["sys_ui_list_child_tbl_null"]
+    assert "List Layout" in r["message"]
+
+
+def test_a_captured_list_write_says_so(env):
+    _, call = env
+    r = call(action="remove_columns", columns=["state"], confirm_list=APPROVE)
+    assert r["success"] is True and r["captured"] is True

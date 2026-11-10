@@ -2,8 +2,9 @@
 
 A form is ``sys_ui_form`` (table + view); its tabs are ``sys_ui_section`` rows
 ordered by ``sys_ui_form_section``; a section's content is ``sys_ui_element``
-rows by ``position``. Two columns are stored as left fields, ``.split``, right
-fields, ``.end_split`` (read off a live incident form). The Default view's
+rows by ``position``. Two columns are stored as ``.begin_split``, left fields,
+``.split``, right fields, ``.end_split`` (read off live forms; older layouts may
+omit ``.begin_split``). The Default view's
 ``sys_ui_view`` sys_id is literally ``Default view``.
 
 Why every write previews first: a form change is captured as a WHOLE section
@@ -17,6 +18,13 @@ copy_from recreates another table's sections (caption, order, columns) on this
 form — the usual "make it like the REQ form". Fields missing on this table or
 already on this form stop it (name them in ``exclude`` or create them first);
 related lists and formatters are listed as not copied, never dropped silently.
+
+Capture: ``sys_ui_section`` is ``update_synch_custom`` — the platform writes the
+Form Layout entry only when its own code saves the section (its SysSection
+script calls the update manager explicitly), and a Table API write never does.
+So a write diffs the update set before/after and is ``success`` only when every
+rewritten record got a NEW entry; otherwise it says what is missing and how to
+capture it. The capture is never faked by writing ``sys_update_xml``.
 
 Out of scope: related lists, formatters, annotations, per-user layouts.
 Removing a field from the form never touches the column or its data.
@@ -41,7 +49,8 @@ logger = logging.getLogger(__name__)
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 _DEFAULT_VIEW = "Default view"
 _MAIN = "main"  # how the caption-less first section is named in approvals
-_SPLIT, _END_SPLIT = ".split", ".end_split"
+_BEGIN_SPLIT, _SPLIT, _END_SPLIT = ".begin_split", ".split", ".end_split"
+_MARKERS = (_BEGIN_SPLIT, _SPLIT, _END_SPLIT)
 _TABLES = ("sys_ui_form", "sys_ui_section", "sys_ui_form_section", "sys_ui_element")
 
 
@@ -289,27 +298,91 @@ def _unknown_fields(config, auth_manager, table: str, fields: List[str]) -> List
     return [f for f in fields if f not in known]
 
 
-def _captures(config, auth_manager, layout: Dict[str, Any], section_ids: List[str]):
-    """Update-set entries a layout change writes: each section + the form's section order."""
-    names = [f"sys_ui_section_{i}" for i in section_ids] + [
-        f"sys_ui_form_sections_{layout['form_id']}"
-    ]
-    try:
-        rows = _read(
-            config,
-            auth_manager,
-            "sys_update_xml",
-            "nameIN" + ",".join(names),
-            "name,update_set.name,update_set.state,action",
+def _capture_names(layout: Dict[str, Any], section_ids: List[str], form_order: bool):
+    names = [f"sys_ui_section_{i}" for i in section_ids]
+    return names + ([f"sys_ui_form_sections_{layout['form_id']}"] if form_order else [])
+
+
+def _capture_rows(config, auth_manager, names: List[str]) -> Dict[str, List[Dict[str, str]]]:
+    """name -> its sys_update_xml entries, in any update set. Raises."""
+    found: Dict[str, List[Dict[str, str]]] = {n: [] for n in names}
+    if not names:
+        return found
+    _fresh()
+    for r in _read(
+        config,
+        auth_manager,
+        "sys_update_xml",
+        "nameIN" + ",".join(names),
+        "sys_id,name,sys_updated_on,update_set.name,update_set.state",
+    ):
+        found.setdefault(_s(r.get("name")), []).append(
+            {
+                "key": f"{_s(r.get('sys_id'))}@{_s(r.get('sys_updated_on'))}",
+                "label": f"{_s(r.get('update_set.name'))} ({_s(r.get('update_set.state'))}, "
+                f"{_s(r.get('sys_updated_on'))})",
+            }
         )
+    return found
+
+
+def _snapshot(config, auth_manager, names: List[str]) -> Optional[Dict[str, set]]:
+    """Capture entries before a write; None when unreadable (then capture is undetermined)."""
+    try:
+        return {
+            n: {e["key"] for e in es}
+            for n, es in _capture_rows(config, auth_manager, names).items()
+        }
+    except Exception:
+        return None
+
+
+def _captures(config, auth_manager, names: List[str]) -> Dict[str, Any]:
+    """Which update sets hold these layout records (read-only report)."""
+    try:
+        found = _capture_rows(config, auth_manager, names)
     except Exception as e:
         return {"checked": False, "error": str(e)}
-    found: Dict[str, List[str]] = {}
-    for r in rows:
-        found.setdefault(_s(r.get("name")), []).append(
-            f"{_s(r.get('update_set.name'))} ({_s(r.get('update_set.state'))})"
-        )
-    return {"checked": True, "entries": {n: sorted(found.get(n, [])) for n in names}}
+    return {"checked": True, "entries": {n: sorted(e["label"] for e in found[n]) for n in names}}
+
+
+def _settle_capture(
+    config, auth_manager, names: List[str], before: Optional[Dict[str, set]], out, where: str
+) -> Dict[str, Any]:
+    """A layout write is done only when the update set holds it. Proven by a NEW entry per
+    name since the pre-write snapshot — an old entry is an older copy of the layout."""
+    found: Optional[Dict[str, List[Dict[str, str]]]] = None
+    try:
+        found = _capture_rows(config, auth_manager, names)
+    except Exception as e:
+        out["update_set_capture"] = {"checked": False, "error": str(e)}
+    else:
+        out["update_set_capture"] = {
+            "checked": True,
+            "entries": {n: sorted(e["label"] for e in found[n]) for n in names},
+        }
+    if found is None or before is None:
+        out["captured"] = "undetermined"
+        missing = names
+        why = "the update set could not be read before and after the write"
+    else:
+        missing = [
+            n for n in names if not any(e["key"] not in before.get(n, set()) for e in found[n])
+        ]
+        out["captured"] = not missing
+        why = "no new update-set entry appeared"
+    if out["captured"] is True:
+        return out
+    out["success"] = False
+    out["not_captured"] = missing
+    note = (
+        f"Applied on this instance only; NOT shown to be in an update set ({why}): {missing}. "
+        "This platform records layout tables (update_synch_custom) only when its own code saves "
+        f"them, which a Table API write does not. To ship it: open {where} in the UI and Save, "
+        "then call get; update_set_capture must name your update set with a newer time."
+    )
+    out["message"] = f"{out['message']} {note}" if out.get("message") else note
+    return out
 
 
 def _approval(p: ManageFormLayoutParams) -> str:
@@ -335,8 +408,19 @@ def _gate(p: ManageFormLayoutParams, preview: Dict[str, Any]) -> Optional[Dict[s
     }
 
 
-def _verify(config, auth_manager, p, expect: List[Dict[str, Any]], touched: List[str], out):
-    """Re-read the form; success only when it is exactly the layout the preview promised."""
+def _verify(
+    config,
+    auth_manager,
+    p,
+    expect: List[Dict[str, Any]],
+    touched: List[str],
+    out,
+    before_capture: Optional[Dict[str, set]],
+    form_order: bool = False,
+    gone_ids: Tuple[str, ...] = (),
+):
+    """Re-read the form; success only when it is exactly the layout the preview promised
+    AND the update set holds every record the change rewrote."""
     try:
         after = _layout(config, auth_manager, p.table, p.view)
     except Exception as e:
@@ -353,9 +437,16 @@ def _verify(config, auth_manager, p, expect: List[Dict[str, Any]], touched: List
         out["success"] = False
         out["expected"] = expect
     live = {s["caption"].lower(): s["sys_id"] for s in after["sections"]}
-    ids = [live[c.lower()] for c in touched if c.lower() in live]
-    out["update_set_capture"] = _captures(config, auth_manager, after, ids)
-    return out
+    ids = [live[c.lower()] for c in touched if c.lower() in live] + list(gone_ids)
+    names = _capture_names(after, ids, form_order)
+    return _settle_capture(
+        config,
+        auth_manager,
+        names,
+        before_capture,
+        out,
+        f"Configure > Form Layout for {p.table} ({p.view})",
+    )
 
 
 def _rows_for(fields: List[str], columns: int) -> List[Tuple[str, str]]:
@@ -364,7 +455,8 @@ def _rows_for(fields: List[str], columns: int) -> List[Tuple[str, str]]:
         return [(f, "") for f in fields]
     left = (len(fields) + 1) // 2
     return (
-        [(f, "") for f in fields[:left]]
+        [(_BEGIN_SPLIT, _BEGIN_SPLIT)]
+        + [(f, "") for f in fields[:left]]
         + [(_SPLIT, _SPLIT)]
         + [(f, "") for f in fields[left:]]
         + [(_END_SPLIT, _END_SPLIT)]
@@ -387,7 +479,9 @@ def _get(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, Any]:
         "view": p.view,
         "layout": _shape(layout),
         "update_set_capture": _captures(
-            config, auth_manager, layout, [s["sys_id"] for s in layout["sections"]]
+            config,
+            auth_manager,
+            _capture_names(layout, [s["sys_id"] for s in layout["sections"]], True),
         ),
     }
 
@@ -514,12 +608,13 @@ def _add_section(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, A
     if gate:
         return gate
 
+    snap = _snapshot(config, auth_manager, _capture_names(layout, [], True))
     out: Dict[str, Any] = {"success": True, "done": []}
     try:
         _create_section(config, auth_manager, p.table, layout, caption, rows, tab, out)
     except Exception as e:
         out.update(success=False, message=f"Stopped part-way ({e}); see done and layout.")
-    return _verify(config, auth_manager, p, expect, [caption], out)
+    return _verify(config, auth_manager, p, expect, [caption], out, snap, form_order=True)
 
 
 def _add_fields(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, Any]:
@@ -553,6 +648,7 @@ def _add_fields(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, An
     if gate:
         return gate
 
+    snap = _snapshot(config, auth_manager, _capture_names(layout, [section["sys_id"]], False))
     out: Dict[str, Any] = {"success": True, "done": []}
     try:
         shift = len(p.fields or [])
@@ -583,7 +679,7 @@ def _add_fields(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, An
             out["done"].append(f)
     except Exception as e:
         out.update(success=False, message=f"Stopped part-way ({e}); see done and layout.")
-    return _verify(config, auth_manager, p, expect, [section["caption"]], out)
+    return _verify(config, auth_manager, p, expect, [section["caption"]], out, snap)
 
 
 def _remove_fields(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, Any]:
@@ -623,6 +719,7 @@ def _remove_fields(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str,
     )
     if gate:
         return gate
+    snap = _snapshot(config, auth_manager, _capture_names(layout, [section["sys_id"]], False))
     out: Dict[str, Any] = {"success": True, "done": []}
     try:
         for f in p.fields or []:
@@ -630,7 +727,7 @@ def _remove_fields(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str,
             out["done"].append(f)
     except Exception as e:
         out.update(success=False, message=f"Stopped part-way ({e}); see done and layout.")
-    return _verify(config, auth_manager, p, expect, [section["caption"]], out)
+    return _verify(config, auth_manager, p, expect, [section["caption"]], out, snap)
 
 
 def _remove_section(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, Any]:
@@ -669,6 +766,7 @@ def _remove_section(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str
     )
     if gate:
         return gate
+    snap = _snapshot(config, auth_manager, _capture_names(layout, [section["sys_id"]], True))
     out: Dict[str, Any] = {"success": True, "done": []}
     try:
         for el in section["elements"]:
@@ -680,9 +778,17 @@ def _remove_section(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str
         out["done"].append("section")
     except Exception as e:
         out.update(success=False, message=f"Stopped part-way ({e}); see done and layout.")
-    out = _verify(config, auth_manager, p, expect, [], out)
-    out["update_set_capture"] = _captures(config, auth_manager, layout, [section["sys_id"]])
-    return out
+    return _verify(
+        config,
+        auth_manager,
+        p,
+        expect,
+        [],
+        out,
+        snap,
+        form_order=True,
+        gone_ids=(section["sys_id"],),
+    )
 
 
 def _copy_from(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, Any]:
@@ -713,7 +819,7 @@ def _copy_from(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, Any
             continue
         rows = []
         for el in s["elements"]:
-            if el["element"] in (_SPLIT, _END_SPLIT):
+            if el["element"] in _MARKERS:
                 rows.append((el["element"], el["type"]))
             elif el["type"]:
                 not_copied.append(f"{s['caption']}: {el['element']} ({el['type']})")
@@ -751,6 +857,7 @@ def _copy_from(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, Any
     gate = _gate(p, preview)
     if gate:
         return gate
+    snap = _snapshot(config, auth_manager, _capture_names(target, [], True))
     out: Dict[str, Any] = {
         "success": True,
         "done": [],
@@ -763,7 +870,9 @@ def _copy_from(config, auth_manager, p: ManageFormLayoutParams) -> Dict[str, Any
             )
     except Exception as e:
         out.update(success=False, message=f"Stopped part-way ({e}); see done and layout.")
-    return _verify(config, auth_manager, p, expect, [c for c, _ in plan], out)
+    return _verify(
+        config, auth_manager, p, expect, [c for c, _ in plan], out, snap, form_order=True
+    )
 
 
 @register_tool(

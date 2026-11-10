@@ -4,8 +4,12 @@ A list layout is one ``sys_ui_list`` row (table + view; no parent, relationship
 or user — those are related lists and personal layouts, out of scope) and its
 ``sys_ui_list_element`` rows by ``position``.
 
-Like a form section, the list is captured in the update set as a whole, so
-importing it replaces the target's columns for that view. Every write previews
+Like a form section, the list is captured in the update set as a whole
+(``sys_ui_list_<table>_null`` for the Default view), so importing it replaces
+the target's columns for that view. ``sys_ui_list`` is ``update_synch_custom``:
+the platform captures it only when its own code saves it, and a Table API write
+does not, so a write reports ``captured`` from a before/after diff of the update
+set and is never ``success`` without a new entry. Every write previews
 first and only ``confirm_list='<table>:<view>'`` changes it. A table with no
 list row of its own shows its parent's list; this tool never creates one —
 that would silently fork the list for one table.
@@ -20,7 +24,18 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
-from .form_layout_tools import _NAME, _call, _fail, _read, _s, _unknown_fields, _view_id
+from .form_layout_tools import (
+    _NAME,
+    _call,
+    _captures,
+    _fail,
+    _read,
+    _s,
+    _settle_capture,
+    _snapshot,
+    _unknown_fields,
+    _view_id,
+)
 from .sn_api import invalidate_query_cache
 
 logger = logging.getLogger(__name__)
@@ -117,28 +132,12 @@ def _names(lst: Dict[str, Any]) -> List[str]:
     return [c["element"] for c in lst["columns"]]
 
 
-def _capture(config, auth_manager, list_id: str) -> Dict[str, Any]:
-    """Update-set entries that hold this list (matched by the list's sys_id in the name)."""
-    try:
-        rows = _read(
-            config,
-            auth_manager,
-            "sys_update_xml",
-            f"nameLIKE{list_id}",
-            "name,type,update_set.name,update_set.state",
-        )
-    except Exception as e:
-        return {"checked": False, "error": str(e)}
-    return {
-        "checked": True,
-        "entries": sorted(
-            {
-                f"{_s(r.get('name'))}: {_s(r.get('update_set.name'))} "
-                f"({_s(r.get('update_set.state'))})"
-                for r in rows
-            }
-        ),
-    }
+def _capture_name(p: "ManageListLayoutParams") -> str:
+    """The update-set name of a base list: ``sys_ui_list_<table>_<view>``, Default view as
+    ``null`` (read off live sys_update_version rows; other views' spelling is unverified, and
+    a wrong name can only read as NOT captured, never as captured)."""
+    view = "null" if p.view == _DEFAULT_VIEW else p.view
+    return f"sys_ui_list_{p.table}_{view}"
 
 
 def _gate(p: ManageListLayoutParams, preview: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -157,7 +156,9 @@ def _gate(p: ManageListLayoutParams, preview: Dict[str, Any]) -> Optional[Dict[s
     }
 
 
-def _verify(config, auth_manager, p, expect: List[str], out: Dict[str, Any]) -> Dict[str, Any]:
+def _verify(
+    config, auth_manager, p, expect: List[str], out: Dict[str, Any], before_capture
+) -> Dict[str, Any]:
     try:
         after = _list(config, auth_manager, p.table, p.view)
     except Exception as e:
@@ -169,8 +170,14 @@ def _verify(config, auth_manager, p, expect: List[str], out: Dict[str, Any]) -> 
         out["message"] = f"{out['message']} {mismatch}" if out.get("message") else mismatch
         out["success"] = False
         out["expected"] = expect
-    out["update_set_capture"] = _capture(config, auth_manager, after["list_id"])
-    return out
+    return _settle_capture(
+        config,
+        auth_manager,
+        [_capture_name(p)],
+        before_capture,
+        out,
+        f"Configure > List Layout for {p.table} ({p.view})",
+    )
 
 
 def _context(config, auth_manager, p: ManageListLayoutParams, check: bool):
@@ -203,7 +210,7 @@ def _get(config, auth_manager, p: ManageListLayoutParams) -> Dict[str, Any]:
         "table": p.table,
         "view": p.view,
         "columns": _names(lst),
-        "update_set_capture": _capture(config, auth_manager, lst["list_id"]),
+        "update_set_capture": _captures(config, auth_manager, [_capture_name(p)]),
     }
 
 
@@ -222,6 +229,7 @@ def _add_columns(config, auth_manager, p: ManageListLayoutParams) -> Dict[str, A
     gate = _gate(p, {"before": names, "after": expect})
     if gate:
         return gate
+    snap = _snapshot(config, auth_manager, [_capture_name(p)])
     out: Dict[str, Any] = {"success": True, "done": []}
     try:
         shift = len(p.columns or [])
@@ -246,7 +254,7 @@ def _add_columns(config, auth_manager, p: ManageListLayoutParams) -> Dict[str, A
             out["done"].append(col)
     except Exception as e:
         out.update(success=False, message=f"Stopped part-way ({e}); see done and columns.")
-    return _verify(config, auth_manager, p, expect, out)
+    return _verify(config, auth_manager, p, expect, out, snap)
 
 
 def _remove_columns(config, auth_manager, p: ManageListLayoutParams) -> Dict[str, Any]:
@@ -271,6 +279,7 @@ def _remove_columns(config, auth_manager, p: ManageListLayoutParams) -> Dict[str
     )
     if gate:
         return gate
+    snap = _snapshot(config, auth_manager, [_capture_name(p)])
     out: Dict[str, Any] = {"success": True, "done": []}
     try:
         for col in p.columns or []:
@@ -278,7 +287,7 @@ def _remove_columns(config, auth_manager, p: ManageListLayoutParams) -> Dict[str
             out["done"].append(col)
     except Exception as e:
         out.update(success=False, message=f"Stopped part-way ({e}); see done and columns.")
-    return _verify(config, auth_manager, p, expect, out)
+    return _verify(config, auth_manager, p, expect, out, snap)
 
 
 @register_tool(

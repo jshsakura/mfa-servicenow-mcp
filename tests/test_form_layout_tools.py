@@ -74,11 +74,12 @@ class Store:
                 self.el(NOTES, "comments", 0),
                 self.el(SRC_MAIN, "number", 0),
                 self.el(SRC_NOTES, "comments", 0),
-                self.el(SRC_EXTRA, "u_a", 0),
-                self.el(SRC_EXTRA, ".split", 1, ".split"),
-                self.el(SRC_EXTRA, "u_b", 2),
-                self.el(SRC_EXTRA, ".end_split", 3, ".end_split"),
-                self.el(SRC_EXTRA, "activity.xml", 4, "formatter"),
+                self.el(SRC_EXTRA, ".begin_split", 0, ".begin_split"),
+                self.el(SRC_EXTRA, "u_a", 1),
+                self.el(SRC_EXTRA, ".split", 2, ".split"),
+                self.el(SRC_EXTRA, "u_b", 3),
+                self.el(SRC_EXTRA, ".end_split", 4, ".end_split"),
+                self.el(SRC_EXTRA, "activity.xml", 5, "formatter"),
                 self.el(SRC_OTHER, "state", 0),
             ],
             "sys_dictionary": [
@@ -93,6 +94,38 @@ class Store:
         self.auto_link = False
         self.ignore_patch = False
         self.fail_on = None
+        # True: a platform that records each layout write in the update set. The real Table
+        # API does NOT (sys_ui_section is update_synch_custom) — tests that set False pin that.
+        self.capture = True
+
+    def _stamp(self, name):
+        self.n += 1
+        xml = self.t["sys_update_xml"]
+        row = next((r for r in xml if r["name"] == name), None)
+        if row is None:
+            row = {"sys_id": f"x{self.n}", "name": name}
+            xml.append(row)
+        row.update(
+            {
+                "sys_updated_on": f"t{self.n}",
+                "update_set.name": "Sprint 12 fixes",
+                "update_set.state": "in progress",
+            }
+        )
+
+    def _captured_names(self, method, table, sid, json, new_id):
+        def row(t, i):
+            return next((r for r in self.t[t] if r["sys_id"] == i), {})
+
+        if table == "sys_ui_element":
+            sec = (json or {}).get("sys_ui_section") or row(table, sid).get("sys_ui_section")
+            return [f"sys_ui_section_{sec}"]
+        if table == "sys_ui_section":
+            return [f"sys_ui_section_{new_id or sid}"]
+        if table == "sys_ui_form_section":
+            form = (json or {}).get("sys_ui_form") or row(table, sid).get("sys_ui_form")
+            return [f"sys_ui_form_sections_{form}"]
+        return []
 
     def el(self, sec, element, pos, etype=""):
         self.n += 1
@@ -147,6 +180,7 @@ class Store:
             raise RuntimeError("HTTP 500")
         resp = MagicMock()
         rows = self.t[table]
+        stamp = self._captured_names(method, table, sid, json, f"new{self.n + 1}")
         if method == "POST":
             self.n += 1
             row = {k: str(v) for k, v in json.items()}
@@ -170,6 +204,9 @@ class Store:
                         r.update({k: str(v) for k, v in json.items()})
         else:
             self.t[table] = [r for r in rows if r["sys_id"] != sid]
+        if self.capture:
+            for name in stamp:
+                self._stamp(name)
         return resp
 
 
@@ -224,7 +261,7 @@ def test_add_section_two_columns_is_written_and_verified(env):
     assert r["success"] is True, r
     assert r["layout"][-1] == {
         "section": "Extra",
-        "fields": ["u_a", "u_b", ".split", "u_c", ".end_split"],
+        "fields": [".begin_split", "u_a", "u_b", ".split", "u_c", ".end_split"],
     }
 
 
@@ -411,7 +448,10 @@ def test_get_is_the_only_read_action():
     assert MANAGE_READ_ACTIONS["manage_form_layout"] == frozenset({"get"})
 
 
-EXTRA = {"section": "Extra info", "fields": ["u_a", ".split", "u_b", ".end_split"]}
+EXTRA = {
+    "section": "Extra info",
+    "fields": [".begin_split", "u_a", ".split", "u_b", ".end_split"],
+}
 
 
 def test_copy_previews_the_finished_target_form(env):
@@ -478,3 +518,62 @@ def test_copy_needs_a_different_source():
         ManageFormLayoutParams(action="copy_from", table="t")
     with pytest.raises(ValidationError):
         ManageFormLayoutParams(action="copy_from", table="t", source_table="t")
+
+
+# --- update-set capture -----------------------------------------------------
+# Live (2026-11): a Table API write to sys_ui_section / sys_ui_element /
+# sys_ui_form_section is NOT captured. The tool must never call that success.
+
+
+def test_an_applied_but_uncaptured_section_is_not_success(env):
+    st, call = env
+    st.capture = False
+    r = call(
+        action="add_section", section="Extra", fields=["u_a"], confirm_layout="child_tbl:Extra"
+    )
+    assert r["layout"][-1] == {"section": "Extra", "fields": ["u_a"]}
+    assert r["success"] is False and r["captured"] is False
+    assert "sys_ui_form_sections_" + FORM in r["not_captured"]
+    assert any(n.startswith("sys_ui_section_") for n in r["not_captured"])
+    assert "Form Layout" in r["message"] and "Applied on this instance only" in r["message"]
+
+
+def test_an_older_capture_of_the_section_does_not_count(env):
+    st, call = env
+    st.capture = False
+    st._stamp(f"sys_ui_section_{MAIN}")
+    r = call(
+        action="remove_fields", section="main", fields=["state"], confirm_layout="child_tbl:main"
+    )
+    assert r["success"] is False and r["captured"] is False
+    assert r["not_captured"] == [f"sys_ui_section_{MAIN}"]
+    assert r["update_set_capture"]["entries"][f"sys_ui_section_{MAIN}"]
+
+
+def test_a_captured_write_says_so(env):
+    _, call = env
+    r = call(
+        action="remove_fields", section="main", fields=["state"], confirm_layout="child_tbl:main"
+    )
+    assert r["success"] is True and r["captured"] is True
+    assert r["update_set_capture"]["entries"][f"sys_ui_section_{MAIN}"]
+
+
+def test_an_unreadable_update_set_is_undetermined_not_success(env):
+    st, call = env
+    real = st.query
+
+    def boom(config, auth, *, table, **kw):
+        if table == "sys_update_xml":
+            raise RuntimeError("HTTP 403")
+        return real(config, auth, table=table, **kw)
+
+    with patch.object(fl, "sn_query_page", side_effect=boom):
+        r = call(
+            action="remove_fields",
+            section="main",
+            fields=["state"],
+            confirm_layout="child_tbl:main",
+        )
+    assert r["success"] is False and r["captured"] == "undetermined"
+    assert r["update_set_capture"]["checked"] is False
