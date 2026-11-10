@@ -2367,6 +2367,34 @@ class TestStartupNonFatalChromium:
 
         assert mgr._browser_setup_error is None
 
+    def test_login_reprobe_never_runs_on_the_running_loop(self):
+        """Tool dispatch runs under asyncio. The re-probe is Playwright Sync API,
+        which on a live loop raised "Sync API inside the asyncio loop" and hid
+        the install remediation. It must run where no loop runs, and its own
+        error must still reach the caller."""
+        import asyncio
+
+        mgr = _make_browser_manager()
+        mgr._browser_setup_error = "flagged at startup"
+        browser_cfg = BrowserAuthConfig(timeout_seconds=10)
+        seen = {}
+
+        def probe():
+            try:
+                asyncio.get_running_loop()
+                seen["loop"] = True
+            except RuntimeError:
+                seen["loop"] = False
+            raise RuntimeError(self._MISSING)
+
+        async def dispatch():
+            mgr._login_with_browser(browser_cfg, force_interactive=False)
+
+        with patch.object(AuthManager, "_ensure_playwright_ready", side_effect=probe):
+            with pytest.raises(RuntimeError, match="Chromium binary missing"):
+                asyncio.run(dispatch())
+        assert seen == {"loop": False}
+
 
 class _ImmediateThread:
     """Drop-in for threading.Thread that runs the target synchronously on

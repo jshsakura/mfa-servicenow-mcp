@@ -61,6 +61,7 @@ from ._http_session import (  # noqa: F401
     _strip_sensitive_headers,
 )
 from ._keepalive import SessionKeepalive
+from ._off_loop import run_off_event_loop
 from ._process import _is_pid_alive  # noqa: F401
 from ._response_predicates import (  # noqa: F401
     _STALE_PROFILE_COOKIE_NAMES,
@@ -2557,7 +2558,10 @@ class AuthManager:
         # Skip the re-probe when startup was already clean: it launches a real
         # browser, so doing it every login would be wasteful.
         if self._browser_setup_error is not None:
-            self._ensure_playwright_ready()
+            # The probe is Playwright Sync API; on the dispatch thread's running
+            # loop it raised "Sync API inside the asyncio loop" instead of the
+            # install remediation it exists to surface.
+            run_off_event_loop(self._ensure_playwright_ready)
             self._browser_setup_error = None
 
         # Hard ceiling for thread join — in interactive mode give generous time
