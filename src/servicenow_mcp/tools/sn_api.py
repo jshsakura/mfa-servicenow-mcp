@@ -1728,12 +1728,15 @@ def _chromium_health_fields(config: ServerConfig) -> Dict[str, Any]:
     discover a missing binary before they hit a real tool call."""
     if not (config.auth and config.auth.type.value == "browser"):
         return {}
-    from servicenow_mcp.utils.chromium import check_chromium_install_hint
+    from servicenow_mcp.utils.chromium import chromium_status
 
-    hint = check_chromium_install_hint()
-    if hint is None:
+    state, detail = chromium_status()
+    if state == "ready":
         return {"chromium": "ready"}
-    return {"chromium": "missing", "chromium_install_hint": hint}
+    if state == "missing":
+        return {"chromium": "missing", "chromium_install_hint": detail}
+    # Could not find out — never reported as ready.
+    return {"chromium": "undetermined", "chromium_detail": detail}
 
 
 def _auth_identity_fields(config: ServerConfig, auth_manager: AuthManager) -> Dict[str, Any]:

@@ -10,30 +10,53 @@ from __future__ import annotations
 
 import gc
 import logging
-from typing import Optional
+import os
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
+_MISSING_HINT = (
+    "Playwright Chromium browser is not installed (browser auth will fail "
+    "on the next tool call). Run this once:\n"
+    "  uvx --with playwright playwright install chromium\n"
+    "Then retry. To prevent this from recurring after a Playwright release, "
+    "pin both packages in your MCP client config:\n"
+    '  args = ["--with", "playwright==<version>", '
+    '"--from", "mfa-servicenow-mcp==<version>", "servicenow-mcp"]'
+)
+
+
 def check_chromium_install_hint() -> Optional[str]:
-    """Return an LLM-facing instructions string if Chromium needs installing.
+    """Install instructions when Chromium is PROVEN missing, else None.
 
-    Browser auth requires a Playwright Chromium binary. When it's missing or
-    version-mismatched we surface the exact install command through every
-    user-visible channel (MCP `instructions` + sn_health) so the LLM can guide
-    the user immediately instead of letting them discover it via a cryptic
-    handshake timeout on the first tool call.
+    None is not "ready": the probe may also have been undetermined. Callers that
+    report a state (sn_health) use :func:`chromium_status`."""
+    state, detail = chromium_status()
+    return detail if state == "missing" else None
 
-    Returns:
-        Multi-line instructions string when remediation is needed, else None.
+
+def chromium_status() -> Tuple[str, Optional[str]]:
+    """("ready" | "missing" | "undetermined", hint-or-reason).
+
+    "ready" only when the binary Playwright will launch exists on disk. It used to
+    be "the probe did not complain": ``executable_path`` returns the EXPECTED path
+    whether or not the file is there, and a timed-out or failed probe returned the
+    same None — so sn_health said "chromium: ready" on a machine with no Chromium
+    while the login on the next call failed with "binary missing".
+
+    Browser auth requires a Playwright Chromium binary. When it is missing the
+    exact install command goes out through every user-visible channel (MCP
+    `instructions` + sn_health), so the LLM can guide the user immediately.
     """
     try:
         import playwright.sync_api  # type: ignore[import-not-found]  # noqa: F401
     except ImportError:
         return (
+            "missing",
             "Playwright Python package is missing. Run the server with "
             "`uvx --with playwright --from mfa-servicenow-mcp servicenow-mcp …` "
-            "or install it manually (`pip install playwright`)."
+            "or install it manually (`pip install playwright`).",
         )
 
     # The Sync API cannot run on a thread that already has a RUNNING asyncio
@@ -63,10 +86,12 @@ def check_chromium_install_hint() -> Optional[str]:
         t = threading.Thread(target=_run, daemon=True)
         t.start()
         t.join(timeout=30)
-        if t.is_alive() or "exc" in holder:
-            logger.debug("Chromium probe thread failed/timed out: %s", holder.get("exc"))
-            return None
-        return holder.get("result")
+        if t.is_alive():
+            return "undetermined", "Chromium probe did not finish within 30s"
+        if "exc" in holder:
+            logger.debug("Chromium probe thread failed: %s", holder.get("exc"))
+            return "undetermined", f"Chromium probe failed: {holder['exc']}"
+        return holder["result"]
 
     return _probe_chromium()
 
@@ -113,7 +138,7 @@ class _PlaywrightTeardownNoise(logging.Filter):
         return True
 
 
-def _probe_chromium() -> Optional[str]:
+def _probe_chromium() -> Tuple[str, Optional[str]]:
     """Actually open Playwright and check the Chromium binary. MUST run on a
     thread with NO running asyncio loop (the Sync API requirement)."""
     from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
@@ -139,22 +164,17 @@ def _probe_chromium() -> Optional[str]:
         asyncio_logger.removeFilter(noise_filter)
 
 
-def _probe_chromium_unfiltered(sync_playwright) -> Optional[str]:  # type: ignore[no-untyped-def]
+def _probe_chromium_unfiltered(sync_playwright) -> Tuple[str, Optional[str]]:  # type: ignore[no-untyped-def]
     try:
         with sync_playwright() as pw:
-            _ = pw.chromium.executable_path
+            path = pw.chromium.executable_path
     except Exception as exc:  # noqa: BLE001
         msg = str(exc).lower()
         if "executable" in msg or "browser" in msg or "doesn't exist" in msg:
-            return (
-                "Playwright Chromium browser is not installed (browser auth will fail "
-                "on the next tool call). Run this once:\n"
-                "  uvx --with playwright playwright install chromium\n"
-                "Then retry. To prevent this from recurring after a Playwright release, "
-                "pin both packages in your MCP client config:\n"
-                '  args = ["--with", "playwright==<version>", '
-                '"--from", "mfa-servicenow-mcp==<version>", "servicenow-mcp"]'
-            )
-        # Non-binary error — let it surface elsewhere; don't pollute instructions.
+            return "missing", _MISSING_HINT
         logger.debug("Chromium probe raised non-binary error: %s", exc)
-    return None
+        return "undetermined", f"Chromium probe failed: {exc}"
+    # executable_path is where Playwright WILL look, not proof anything is there.
+    if not path or not os.path.exists(path):
+        return "missing", _MISSING_HINT
+    return "ready", None

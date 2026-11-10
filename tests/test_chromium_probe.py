@@ -107,6 +107,62 @@ def test_the_probe_still_answers(monkeypatch):
         def __exit__(self, *exc):
             return False
 
-    hint = chromium._probe_chromium_unfiltered(_PW)
+    state, hint = chromium._probe_chromium_unfiltered(_PW)
 
-    assert hint is not None and "playwright install chromium" in hint
+    assert state == "missing" and "playwright install chromium" in hint
+
+
+def _pw_with_path(path):
+    class _Chromium:
+        executable_path = path
+
+    class _PW:
+        chromium = _Chromium()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    return _PW
+
+
+def test_a_path_with_no_file_behind_it_is_missing(tmp_path):
+    """executable_path is where Playwright WILL look. With no Chromium installed it
+    still returns that path, and the probe used to call that "ready" — sn_health
+    said ready while the next login failed with "binary missing"."""
+    state, hint = chromium._probe_chromium_unfiltered(_pw_with_path(str(tmp_path / "nope")))
+    assert state == "missing" and "playwright install chromium" in hint
+
+
+def test_ready_only_when_the_binary_exists(tmp_path):
+    exe = tmp_path / "chrome"
+    exe.write_text("")
+    assert chromium._probe_chromium_unfiltered(_pw_with_path(str(exe))) == ("ready", None)
+
+
+def test_a_probe_that_could_not_answer_is_undetermined_not_ready():
+    class _Boom:
+        def __enter__(self):
+            raise RuntimeError("driver crashed")
+
+        def __exit__(self, *exc):
+            return False
+
+    state, detail = chromium._probe_chromium_unfiltered(lambda: _Boom())
+    assert state == "undetermined" and "driver crashed" in detail
+
+
+def test_sn_health_never_says_ready_on_an_undetermined_probe(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from servicenow_mcp.tools import sn_api
+
+    monkeypatch.setattr(chromium, "chromium_status", lambda: ("undetermined", "timed out"))
+    config = MagicMock()
+    config.auth.type.value = "browser"
+    assert sn_api._chromium_health_fields(config) == {
+        "chromium": "undetermined",
+        "chromium_detail": "timed out",
+    }

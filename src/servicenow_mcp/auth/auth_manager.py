@@ -582,6 +582,9 @@ class AuthManager:
                     "Playwright release ships a different Chromium build, pin the\n"
                     "Playwright version in your MCP client config:\n"
                     '  args = ["--with", "playwright==<version>", "--from", "mfa-servicenow-mcp==<version>", "servicenow-mcp"]'
+                    # "browser" also matches a launch that failed for another
+                    # reason (timeout, sandbox); say what Playwright actually said.
+                    f"\n\nPlaywright said: {str(exc).strip().splitlines()[0][:300] if str(exc).strip() else type(exc).__name__}"
                 ) from None
             # Some other Playwright error — re-raise so callers see the real cause.
             raise
