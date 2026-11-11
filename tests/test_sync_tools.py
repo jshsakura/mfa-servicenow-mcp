@@ -5172,3 +5172,121 @@ class TestRedownloadCall:
             instance_url="https://test.service-now.com",
         )
         assert expected in _redownload_call(resolved)
+
+
+# ---------------------------------------------------------------------------
+# Editing a ServiceNow-delivered record asks first (utils/record_origin.py)
+# ---------------------------------------------------------------------------
+
+_SN_OWNED = {
+    "verdict": "servicenow",
+    "package": "Employee Center",
+    "package_class": "sys_store_app",
+    "vendor": "ServiceNow",
+    "record_class": "sp_widget",
+}
+
+
+def _push_mocks(mock_fetch, mock_update):
+    mock_fetch.side_effect = [
+        {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 0;",
+            "sys_updated_on": "2025-01-10 10:00:00",
+        },
+        {"sys_id": "wid-1", "script": "var x = 1;", "sys_updated_on": "2025-01-10 11:00:00"},
+    ]
+    mock_update.return_value = {
+        "message": "Update successful",
+        "sys_id": "wid-1",
+        "fields": ["script"],
+        "validation": {"verified_fields": ["script"], "mismatched_fields": []},
+    }
+
+
+@patch("servicenow_mcp.utils.record_origin.record_origin", return_value=_SN_OWNED)
+@patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+@patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+@patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+def test_a_servicenow_owned_widget_is_not_pushed_without_approval(
+    mock_fetch, mock_update, _meta, _origin, mock_config, mock_auth, download_root
+):
+    _push_mocks(mock_fetch, mock_update)
+    path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+    result = update_remote_from_local(
+        mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+    )
+
+    assert result["error"] == "SERVICENOW_OWNED"
+    mock_update.assert_not_called()
+    options = result["decision_required"]["options"]
+    assert options[0]["call"].endswith("confirm_servicenow_edit='approve')")
+    clone = options[1]["calls"][0]
+    assert "action='clone_widget'" in clone and "source='wid-1'" in clone
+    assert "replace_widget" in options[1]["calls"][1]
+
+
+@patch("servicenow_mcp.utils.record_origin.record_origin", return_value=_SN_OWNED)
+@patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+@patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+@patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+def test_an_approved_edit_of_a_servicenow_widget_pushes_and_says_so(
+    mock_fetch, mock_update, _meta, _origin, mock_config, mock_auth, download_root
+):
+    _push_mocks(mock_fetch, mock_update)
+    path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+    result = update_remote_from_local(
+        mock_config,
+        mock_auth,
+        PushLocalComponentParams(path=str(path), confirm_servicenow_edit="approve"),
+    )
+
+    assert result["success"] is True
+    mock_update.assert_called_once()
+    assert "upgrade will skip it" in result["servicenow_owned_edited"]
+
+
+@patch(
+    "servicenow_mcp.utils.record_origin.record_origin",
+    return_value={"verdict": "undetermined", "reason": "package not readable"},
+)
+@patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+@patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+@patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+def test_an_undetermined_origin_pushes_but_never_reads_as_checked(
+    mock_fetch, mock_update, _meta, _origin, mock_config, mock_auth, download_root
+):
+    _push_mocks(mock_fetch, mock_update)
+    path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+    result = update_remote_from_local(
+        mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+    )
+
+    assert result["success"] is True
+    assert "package not readable" in result["origin_undetermined"]
+
+
+@patch(
+    "servicenow_mcp.utils.record_origin.record_origin",
+    return_value={**_SN_OWNED, "record_class": "sp_header_footer"},
+)
+@patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+@patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+@patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+def test_a_header_downloaded_as_a_widget_is_cloned_as_a_header(
+    mock_fetch, mock_update, _meta, _origin, mock_config, mock_auth, download_root
+):
+    _push_mocks(mock_fetch, mock_update)
+    path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+    result = update_remote_from_local(
+        mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+    )
+
+    calls = result["decision_required"]["options"][1]["calls"]
+    assert "action='clone_header_footer'" in calls[0]
+    assert "theme" in calls[1]

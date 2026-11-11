@@ -311,6 +311,10 @@ class PushLocalComponentParams(BaseModel):
         default=False,
         description="Deploy to a DIFFERENT instance than origin; target re-resolved by name.",
     )
+    confirm_servicenow_edit: Optional[Literal["approve"]] = Field(
+        default=None,
+        description="Edit a ServiceNow-delivered record in place (upgrade will skip it).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3575,6 +3579,22 @@ def update_remote_from_local(
             result_nc["stale_watermark_refreshed"] = remote_updated_on
         return result_nc
 
+    # 3a. ServiceNow-delivered record? Read LIVE from the record's package — the
+    # verdict at download time is a local copy of a server fact, and the target
+    # of a cross-instance deploy is not even the record that was downloaded.
+    # Gate, not wall: editing baseline is sometimes the call; it should be made
+    # knowing the upgrade will skip this record from now on. Only a PROVEN
+    # ServiceNow origin asks. Undetermined does not ask (an unreadable package
+    # would otherwise nag on every push until the approval is filled in by
+    # reflex) — but it is said, never dropped.
+    from servicenow_mcp.utils.record_origin import SERVICENOW as _SN_OWNED
+    from servicenow_mcp.utils.record_origin import UNDETERMINED as _ORIGIN_UNKNOWN
+    from servicenow_mcp.utils.record_origin import clone_call, record_origin
+
+    record_owner = record_origin(config, auth_manager, resolved.table, resolved.sys_id)
+    if record_owner.get("verdict") == _SN_OWNED and params.confirm_servicenow_edit != "approve":
+        return _servicenow_owned_decision(resolved, path, record_owner, clone_call)
+
     # 3b. Align the session scope to the component's scope BEFORE writing. A REST
     # write to a scoped record is rejected (403 cross-scope) when the session's
     # current app is a different scope — even though the same user can save it in
@@ -3912,4 +3932,60 @@ def update_remote_from_local(
         ack["origin_unverified"] = _ORIGIN_UNVERIFIED_MSG
     if promotion_proof:
         ack["promotion"] = promotion_proof
+    if record_owner.get("verdict") == _SN_OWNED:
+        ack["servicenow_owned_edited"] = (
+            f"Edited a ServiceNow-delivered record ({record_owner.get('package')}) in place: "
+            "the next upgrade will skip it."
+        )
+    elif record_owner.get("verdict") == _ORIGIN_UNKNOWN:
+        ack["origin_undetermined"] = (
+            "Could not tell whether ServiceNow delivered this record "
+            f"({record_owner.get('reason', 'unknown')}); it was pushed without that check."
+        )
     return ack
+
+
+def _servicenow_owned_decision(
+    resolved: "_ResolvedComponent",
+    path: Path,
+    origin: Dict[str, Any],
+    clone_call: Any,
+) -> Dict[str, Any]:
+    """A question, with each answer as a ready call — not a refusal."""
+    options: List[Dict[str, Any]] = [
+        {
+            "choice": "edit in place",
+            "effect": "the next upgrade skips this record; ServiceNow fixes stop reaching it",
+            "call": f"update_remote_from_local(path='{path}', confirm_servicenow_edit='approve')",
+        }
+    ]
+    record_class = str(origin.get("record_class") or resolved.table)
+    clone = clone_call(record_class, resolved.sys_id, resolved.name)
+    if clone:
+        options.append(
+            {
+                "choice": "clone and edit the copy",
+                "effect": "the original stays upgradeable; pages must be pointed at the copy",
+                "calls": [
+                    clone,
+                    (
+                        "manage_portal_layout(action='replace_widget', instance_id=<each instance "
+                        "of the original>, sp_widget=<new_id>)"
+                        if record_class == "sp_widget"
+                        else "set the clone on the theme (sp_theme header/footer)"
+                    ),
+                    "download_portal_sources(widget_ids=['<new_id>']) — then edit and push it",
+                ],
+            }
+        )
+    return {
+        "success": False,
+        "error": "SERVICENOW_OWNED",
+        "message": (
+            f"{resolved.table}/{resolved.name} is delivered by ServiceNow "
+            f"({origin.get('package')}). Nothing was pushed. Ask the user which option."
+        ),
+        "component": {"table": resolved.table, "sys_id": resolved.sys_id, "name": resolved.name},
+        "origin": origin,
+        "decision_required": {"options": options},
+    }

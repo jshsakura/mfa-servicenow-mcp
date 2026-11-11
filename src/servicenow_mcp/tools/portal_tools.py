@@ -22,6 +22,9 @@ from ..utils.download_map import map_sys_ids, merge_map_file, read_download_map,
 from ..utils.encoded_query import encoded_value
 from ..utils.http_result import json_result
 from ..utils.progress import emit_progress
+from ..utils.record_origin import SERVICENOW
+from ..utils.record_origin import classify as classify_origin
+from ..utils.record_origin import clone_call, summarize
 from ..utils.registry import register_tool
 from ..utils.source_layout import FIELD_FILENAME, field_filename, normalize_source_eol
 from ..utils.sync_anchor import (
@@ -196,6 +199,14 @@ class DownloadPortalSourcesParams(BaseModel):
     widget_ids: List[str] | None = Field(
         default=None,
         description="Optional list of widget sys_id/id/name. If empty, exports all widgets in scope.",
+    )
+    portal: str | None = Field(
+        default=None,
+        description="Portal url_suffix/sys_id: its header, footer, menu and the pages it names.",
+    )
+    page_ids: List[str] | None = Field(
+        default=None,
+        description="sp_page id/sys_id: download every widget placed on these pages.",
     )
     include_linked_script_includes: bool | None = Field(
         default=None,
@@ -3478,6 +3489,68 @@ def _download_linked_script_includes(
     return exported
 
 
+def _attach_origin_summary(result: Dict[str, Any], exported_widgets: List[Dict[str, Any]]) -> None:
+    """Count widgets by who delivered them and name the ServiceNow-owned ones.
+
+    Editing a ServiceNow-owned widget is allowed — the push asks once — but it
+    makes the widget a customization the next upgrade skips. Saying so at
+    download time, with the clone call ready, lets that be decided before any
+    edit rather than discovered at push.
+    """
+    origins = [w.get("origin") or {} for w in exported_widgets]
+    result["summary"]["origin"] = summarize(origins)
+    owned = [
+        {
+            "id": w.get("id"),
+            "sys_id": w.get("sys_id"),
+            "package": (w.get("origin") or {}).get("package"),
+            "clone": clone_call(
+                str((w.get("origin") or {}).get("record_class") or "sp_widget"),
+                str(w.get("sys_id") or ""),
+                w.get("id"),
+            ),
+        }
+        for w in exported_widgets
+        if (w.get("origin") or {}).get("verdict") == SERVICENOW
+    ]
+    if owned:
+        result["servicenow_owned"] = owned
+        result["servicenow_owned_note"] = (
+            f"{len(owned)} widget(s) are delivered by ServiceNow. Editing one in place "
+            "makes it a customization the next upgrade skips; pushing it asks for "
+            "confirm_servicenow_edit='approve'. To keep it upgradeable, clone it and "
+            "swap the page instance: manage_portal_layout(action='replace_widget', "
+            "instance_id=<instance>, sp_widget=<clone id>)."
+        )
+
+
+def _slice_summary(
+    slice_resolution: Dict[str, Any], exported_widgets: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """What the portal/page walk covered, and whether it is the whole of it."""
+    out: Dict[str, Any] = {
+        "complete": slice_resolution["complete"],
+        "pages": slice_resolution["pages"],
+        "widgets_resolved": len(slice_resolution["widget_sys_ids"]),
+        "widgets_downloaded": len(exported_widgets),
+    }
+    if slice_resolution.get("portal"):
+        out["portal"] = slice_resolution["portal"]
+    if slice_resolution.get("unresolved"):
+        out["unresolved"] = slice_resolution["unresolved"]
+    themes = slice_resolution.get("themes") or []
+    if themes:
+        # Theme CSS variables and stylesheets are theme-family records, not
+        # widgets; name the call that fetches exactly these rather than a scope.
+        out["themes"] = themes
+        out["theme_download"] = [
+            f"download_server_sources(scope='{t['scope'] or 'global'}', families=['theme'], "
+            f"sys_ids=['{t['sys_id']}'])"
+            for t in themes
+        ]
+    return out
+
+
 @register_tool(
     "download_portal_sources",
     params=DownloadPortalSourcesParams,
@@ -3499,6 +3572,37 @@ def download_portal_sources(
     # Canonicalize the scope to its namespace so the folder/query are
     # deterministic even when a display name or sys_id is passed.
     params, scope_resolution = apply_scope_namespace(config, auth_manager, params)
+    # A portal / page set is resolved to the widgets it renders and then
+    # downloaded exactly like widget_ids — same targeted path, same anchors.
+    slice_resolution: Optional[Dict[str, Any]] = None
+    if params.portal or params.page_ids:
+        from ..services.portal_slice import resolve_slice
+
+        def _slice_query(*, table: str, query: str, fields: str, max_records: int):
+            return _sn_query_all(
+                config,
+                auth_manager,
+                table=table,
+                query=query,
+                fields=fields,
+                page_size=params.page_size,
+                max_records=max_records,
+                fail_silently=False,
+            )
+
+        slice_resolution = resolve_slice(
+            _slice_query, portal=params.portal, page_ids=params.page_ids
+        )
+        merged = _dedupe_preserve_order_strings(
+            list(params.widget_ids or []) + slice_resolution["widget_sys_ids"]
+        )
+        if not merged:
+            return {
+                "success": False,
+                "error": "Nothing to download: the portal/pages resolved to no widgets.",
+                "slice": slice_resolution,
+            }
+        params = params.model_copy(update={"widget_ids": merged})
     scope_name = _safe_name(params.scope or "global")
     if params.output_dir:
         # output_dir is the final scope root — no auto-appending of instance/scope
@@ -3663,6 +3767,14 @@ def download_portal_sources(
         include_linked_script_includes=include_linked_script_includes,
     )
 
+    # Who delivered each widget (ServiceNow / vendor / customer), read in the
+    # same query — no extra round trip. See utils/record_origin.py.
+    from ..utils.record_origin import ORIGIN_FIELDS
+
+    widget_fields = ",".join(
+        _dedupe_preserve_order_strings(widget_fields.split(",") + list(ORIGIN_FIELDS))
+    )
+
     widgets: List[Dict[str, Any]] = []
     missing_widget_tokens: List[str] = []
     try:
@@ -3734,7 +3846,7 @@ def download_portal_sources(
         )
 
     widget_map: Dict[str, str] = {}
-    exported_widgets: List[Dict[str, str]] = []
+    exported_widgets: List[Dict[str, Any]] = []
     script_include_candidates: List[str] = []
     scope_sys_ids: Dict[str, str] = {}
 
@@ -3770,6 +3882,10 @@ def download_portal_sources(
             "sys_id": sys_id,
             "widget": _build_widget_payload(widget, dictionary_by_field),
         }
+        widget_origin = classify_origin(widget)
+        # Descriptive only. A push re-reads the origin LIVE — a server fact is
+        # never taken from a local file.
+        metadata["origin"] = widget_origin
         _write_json_file(widget_dir / "_widget.json", metadata)
 
         if params.include_widget_template:
@@ -3834,7 +3950,9 @@ def download_portal_sources(
         scope_label = params.scope or _as_display_text(widget.get("sys_scope"))
         if scope_label and scope_value and scope_label not in scope_sys_ids:
             scope_sys_ids[scope_label] = scope_value
-        exported_widgets.append({"sys_id": sys_id, "id": widget_id, "name": widget_name})
+        exported_widgets.append(
+            {"sys_id": sys_id, "id": widget_id, "name": widget_name, "origin": widget_origin}
+        )
 
     merge_map_file(
         scope_root / "sp_widget" / "_map.json",
@@ -4153,6 +4271,10 @@ def download_portal_sources(
     }
     if targeted_widget_export:
         result["missing_widget_ids"] = missing_widget_tokens
+    _attach_origin_summary(result, exported_widgets)
+    if slice_resolution is not None:
+        result["slice"] = _slice_summary(slice_resolution, exported_widgets)
+        warnings.extend(slice_resolution["warnings"])
     if scope_resolution:
         result["scope_resolution"] = scope_resolution
     if held_paths:

@@ -62,6 +62,24 @@ def _reset_window_slots():
 
 
 @pytest.fixture(autouse=True)
+def _record_origin_customer(request, monkeypatch):
+    """Pushes read the record's package live to ask before editing ServiceNow's
+    own records. Push tests mock the record reads they care about and would
+    otherwise feed that extra read whatever their fixture returns, so it is
+    pinned to "customer" here; the verdict itself is tested where it is the
+    subject (marker: real_record_origin)."""
+    if request.node.get_closest_marker("real_record_origin"):
+        return
+    from servicenow_mcp.utils import record_origin
+
+    monkeypatch.setattr(
+        record_origin,
+        "record_origin",
+        lambda *_a, **_kw: {"verdict": record_origin.CUSTOMER, "package": "global"},
+    )
+
+
+@pytest.fixture(autouse=True)
 def _isolate_deploy_ledger(tmp_path, monkeypatch):
     """Redirect the deploy-XML dir registry to a per-test file.
 
