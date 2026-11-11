@@ -104,4 +104,11 @@ def test_every_prose_rule_captures_exactly_one_number():
         compiled = re.compile(pattern_text)
         assert compiled.groups == 1, f"{pattern_text!r} must have exactly one group"
         assert "n" in compiled.groupindex, f"{pattern_text!r} must name its group 'n'"
-        assert key in {"registry", "full", "standard", "unpackaged"}, f"unknown key {key}"
+        assert key in {
+            "registry",
+            "full",
+            "standard",
+            "unpackaged",
+            "skills",
+            "skill_categories",
+        }, f"unknown key {key}"

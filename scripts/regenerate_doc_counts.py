@@ -315,7 +315,26 @@ PROSE_RULES: list[tuple[str, str]] = [
     (r"(?<=등록 도구 )(?P<n>\d+)(?=개가 활성)", "registry"),
     (r"(?P<n>\d+)(?= 个已注册工具通过活动包配置)", "registry"),
     (r"(?<=bundled workflows \()(?P<n>\d+)(?= tools\))", "full"),
+    # --- skills: files under skills/<category>/, not the tool registry ------
+    (r"(?P<n>\d+)(?= skills today)", "skills"),
+    (r"(?P<n>\d+)(?= skills across \d+ categories)", "skills"),
+    (r"(?<=skills across )(?P<n>\d+)(?= categories)", "skill_categories"),
+    (r"(?P<n>\d+)(?=개 워크플로우 스킬)", "skills"),
+    (r"(?P<n>\d+)(?=개 스킬 파일)", "skills"),
+    (r"(?<=현재 )(?P<n>\d+)(?=개 카테고리에 \d+개 스킬)", "skill_categories"),
+    (r"(?<=개 카테고리에 )(?P<n>\d+)(?=개 스킬을 제공)", "skills"),
+    (r"(?<=현재 )(?P<n>\d+)(?=개 스킬을 지원)", "skills"),
 ]
+
+
+def live_skill_counts() -> dict[str, int]:
+    """Skill playbooks on disk — the same files the skills test counts."""
+    files = [
+        p
+        for p in (ROOT / "skills").rglob("*.md")
+        if p.name not in ("SKILL.md", "_mcp_info.md") and ".ipynb_checkpoints" not in str(p)
+    ]
+    return {"skills": len(files), "skill_categories": len({p.parent.name for p in files})}
 
 
 def live_registry_counts() -> dict[str, int]:
@@ -431,7 +450,7 @@ def _rewrite(text: str, counts: dict[str, int]) -> str:
 
 
 def apply(check: bool) -> int:
-    counts = {**live_package_counts(), **live_registry_counts()}
+    counts = {**live_package_counts(), **live_registry_counts(), **live_skill_counts()}
     stale: list[str] = []
 
     for name in DOC_FILES:

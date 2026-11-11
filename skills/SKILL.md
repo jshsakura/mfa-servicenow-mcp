@@ -2,12 +2,12 @@
 name: mfa-servicenow-skills
 version: 2.0.0
 author: jshsakura
-description: Portal-specialized ServiceNow skills — LLM execution blueprints with safety gates, sub-agent delegation, and context optimization
+description: ServiceNow skills — LLM execution blueprints with safety gates, sub-agent delegation, and context optimization
 ---
 
 # MFA ServiceNow Skills
 
-Execution blueprints for AI agents working with ServiceNow portals. Not documentation — these are **pipelines** with mandatory safety gates, sub-agent delegation hints, and exact tool calls.
+Execution blueprints for AI agents working with ServiceNow. Not documentation — these are **pipelines** with mandatory safety gates, sub-agent delegation hints, and exact tool calls.
 
 ## Why Skills (vs raw tools)
 
@@ -85,6 +85,7 @@ target — or a normal Update Set promotion.
 | Skill | Cost | Delegatable | Trigger Examples |
 |-------|------|-------------|-----------------|
 | [local-source-audit](analyze/local-source-audit.md) | low | yes | "로컬 검수", "dead code", "cross reference" |
+| [data-question](analyze/data-question.md) | low | yes | "몇 건이야", "일괄 수정", "BG로 돌려", "how many" |
 
 ### manage/ — CRUD and operations
 
@@ -99,6 +100,7 @@ target — or a normal Update Set promotion.
 |-------|------|-------------|-----------------|
 | [flow-trigger-tracing](explore/flow-trigger-tracing.md) | medium | yes | "트리거 추적", "what runs on this table" |
 | [asset-itom-map](explore/asset-itom-map.md) | low | yes | "자재 재고", "자산 현황", "discovery failed" |
+| [record-forensics](explore/record-forensics.md) | medium | yes | "누가 바꿨어", "메일 나갔어", "what happened to this record" |
 
 ## Workflow Chains
 
