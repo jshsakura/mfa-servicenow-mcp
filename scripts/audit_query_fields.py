@@ -486,7 +486,13 @@ def _client():
     else:
         auth_cfg = AuthConfig(
             type=AuthType.BROWSER,
-            browser=BrowserAuthConfig(username=os.environ.get("SERVICENOW_USERNAME", "")),
+            # The password too: without it the login window opens on an empty
+            # login.do and waits out its full 5-minute cap for nobody — the
+            # server passes it, so a script that re-auths must as well.
+            browser=BrowserAuthConfig(
+                username=os.environ.get("SERVICENOW_USERNAME", ""),
+                password=os.environ.get("SERVICENOW_PASSWORD") or None,
+            ),
         )
     config = ServerConfig(instance_url=url, auth=auth_cfg)
     # The server keys its browser session by the active instance alias. Without
