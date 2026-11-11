@@ -594,3 +594,76 @@ def test_no_tool_module_chunks_by_a_bare_number_above_the_limit():
                 if int(match.group(1)) > 50:
                     offenders.append(f"{path.name}:{lineno}: {line.strip()}")
     assert not offenders, offenders
+
+
+# The field check runs BEFORE the real read, so it is the call that triggers a
+# login. Measured: the window waited on MFA until its limit, the check swallowed
+# LOGIN_CANCELLED_BY_USER as "could not check", and the real read then hit the
+# cooldown — the caller was told "no login window will open yet" about a window
+# that had been open for five minutes.
+_WALKED_AWAY = (
+    "LOGIN_CANCELLED_BY_USER (instance=x profile=y): the login window waited on the "
+    "MFA/SSO page until its time limit and was closed automatically"
+)
+_COOLDOWN = "Browser session expired — NOT authenticated for x. Re-login is on cooldown"
+
+
+def test_sn_query_reports_the_login_that_failed_not_the_cooldown_after_it():
+    from servicenow_mcp.utils.query_fields import forget_columns
+
+    invalidate_query_cache()
+    forget_columns()
+    am = MagicMock()
+    am.make_request.side_effect = [ValueError(_WALKED_AWAY), ValueError(_COOLDOWN)]
+
+    result = sn_query(
+        _browser_cfg_for("https://walkaway.service-now.com"),
+        am,
+        GenericQueryParams(table="incident", query="active=true"),
+    )
+
+    assert result["success"] is False
+    assert "waited on the MFA/SSO page" in result["message"]
+    assert "cooldown" not in result["message"]
+    assert am.make_request.call_count == 1, "the read never runs behind a failed login"
+
+
+def test_sn_aggregate_reports_the_login_that_failed_in_the_field_check():
+    from servicenow_mcp.tools.sn_api import AggregateParams, sn_aggregate
+    from servicenow_mcp.utils.query_fields import forget_columns
+
+    invalidate_query_cache()
+    forget_columns()
+    am = MagicMock()
+    am.make_request.side_effect = [ValueError(_WALKED_AWAY), ValueError(_COOLDOWN)]
+
+    result = sn_aggregate(
+        _browser_cfg_for("https://walkaway-agg.service-now.com"),
+        am,
+        AggregateParams(table="incident", query="active=true"),
+    )
+
+    assert result["success"] is False
+    assert "waited on the MFA/SSO page" in result["message"]
+
+
+def test_a_non_auth_failure_in_the_field_check_still_lets_the_read_run():
+    from servicenow_mcp.utils.query_fields import forget_columns
+
+    invalidate_query_cache()
+    forget_columns()
+    ok = MagicMock()
+    ok.content = b'{"result": [{"sys_id": "1"}]}'
+    ok.headers = {"X-Total-Count": "1"}
+    ok.raise_for_status.return_value = None
+    ok.json.return_value = {"result": [{"sys_id": "1"}]}
+    am = MagicMock()
+    am.make_request.side_effect = [RuntimeError("connection reset"), ok]
+
+    result = sn_query(
+        _browser_cfg_for("https://blip.service-now.com"),
+        am,
+        GenericQueryParams(table="incident", query="active=true"),
+    )
+
+    assert result["success"] is True

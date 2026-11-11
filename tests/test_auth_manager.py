@@ -3388,6 +3388,10 @@ class TestLoginCancelledMessage:
         assert "did NOT close it" in msg
         assert "on purpose" not in msg
         assert "retry this same tool call after 15s" in msg
+        # Not parked for later: "when they are ready" made a model hand the
+        # login back as a chore and sit idle instead of opening a new window.
+        assert "when they are ready" not in msg
+        assert "a new one is opening" in msg
 
     def test_walk_away_timeout_log_does_not_say_the_user_closed_it(self, caplog):
         """The log must tell the same story as the message: a window the MCP

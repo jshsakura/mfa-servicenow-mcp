@@ -151,7 +151,7 @@ class ManageNotificationParams(BaseModel):
     # notification name / create_template/update_template
     name: Optional[str] = Field(
         default=None,
-        description="Record name — notification or template (required on create_template)",
+        description="Record name (required on create_template/_mail_script/_layout)",
     )
 
     # template -> layout link

@@ -239,3 +239,13 @@ def test_a_query_with_nothing_to_check_never_costs_a_read():
 def test_a_near_match_is_offered_when_there_is_one():
     assert "sales_document" in near_matches("sales_documnt", ["sales_document", "plant"])
     assert near_matches("zzzzz", ["sales_document", "plant"]) == []
+
+
+def test_a_login_failure_is_not_scored_as_could_not_check():
+    """'Could not find out' is for the schema read. A session that is not
+    signed in fails the real call too, and its message is the one to keep."""
+    auth = MagicMock()
+    auth.make_request.side_effect = ValueError("LOGIN_CANCELLED_BY_USER (x): timed out")
+
+    with pytest.raises(ValueError, match="LOGIN_CANCELLED_BY_USER"):
+        table_ancestry(_config(), auth, "incident")

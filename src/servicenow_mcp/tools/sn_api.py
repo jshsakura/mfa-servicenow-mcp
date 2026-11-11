@@ -2191,7 +2191,17 @@ def sn_query(
     # "Could not check" is deliberately not treated as clean; it simply does not
     # block. Only a PROVEN absence stops the call. `fields_clean` is kept so a
     # later 403 is only called an ACL answer when the fields were proven real.
-    unknown, fields_clean = _field_check(config, auth_manager, params.table, params.query or "")
+    try:
+        unknown, fields_clean = _field_check(config, auth_manager, params.table, params.query or "")
+    except ValueError as exc:
+        if not _is_auth_error(exc):
+            raise
+        return {
+            "success": False,
+            "table": params.table,
+            "message": f"Query failed: {exc}",
+            "query_echo": params.query or "",
+        }
     if unknown:
         return unknown
 
@@ -2400,9 +2410,19 @@ def sn_aggregate(
     # hands back a whole-table number, and nothing about a number looks wrong.
     named = [part.strip() for part in (params.group_by or "").split(",") if part.strip()]
     named += [part.strip() for part in (params.field or "").split(",") if part.strip()]
-    unknown, fields_clean = _field_check(
-        config, auth_manager, params.table, params.query or "", also_check=named
-    )
+    try:
+        unknown, fields_clean = _field_check(
+            config, auth_manager, params.table, params.query or "", also_check=named
+        )
+    except ValueError as exc:
+        if not _is_auth_error(exc):
+            raise
+        return {
+            "success": False,
+            "table": params.table,
+            "aggregate": agg,
+            "message": f"Aggregate failed: {exc}",
+        }
     if unknown:
         unknown["aggregate"] = agg
         return unknown

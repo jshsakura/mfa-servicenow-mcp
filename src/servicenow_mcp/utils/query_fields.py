@@ -179,6 +179,16 @@ def _rows(auth_manager: Any, url: str, params: Dict[str, Any], timeout: int) -> 
         result = payload.get("result")
         return result if isinstance(result, list) else None
     except Exception as exc:  # noqa: BLE001 - a diagnostic must never raise
+        # ...except about the session itself. A login failure is not "could not
+        # check the schema": the real call behind this check fails the same way.
+        # Swallowed here, the one message that said what happened (the window
+        # waited on MFA until its limit) was replaced by the NEXT attempt's
+        # "on cooldown", and a window that did open was reported as one that
+        # never would.
+        from servicenow_mcp.tools.sn_api import _is_auth_error
+
+        if _is_auth_error(exc):
+            raise
         logger.debug("Field-check read failed (%s): %s", url, exc)
         return None
 

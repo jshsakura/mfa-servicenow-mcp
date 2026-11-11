@@ -55,6 +55,12 @@ def _login_cancelled_message(profile_label: str, cooldown_s: int, error_text: st
     window itself; telling the model "the user closed it on purpose, do NOT
     auto-retry" was false there, and weaker models obeyed it literally and
     never offered a new window. Each variant ends in ONE next step.
+
+    The walk-away step used to read "when they are ready to complete MFA,
+    retry" — and a model parked the login as a chore for later ("tell me when
+    you're done and I'll open a window"), so a read that needed one MFA sat
+    idle. Measured: the window does come to the front, so the fix is to open
+    the next one, not to wait to be told.
     """
     head = f"LOGIN_CANCELLED_BY_USER ({profile_label}): "
     retry = f"retry this same tool call after {cooldown_s}s — that retry opens a new login window."
@@ -62,8 +68,8 @@ def _login_cancelled_message(profile_label: str, cooldown_s: int, error_text: st
         return (
             head + "the login window waited on the MFA/SSO page until its time limit and was "
             "closed automatically — the user did NOT close it. This profile is NOT "
-            "authenticated. Tell the user the login timed out; when they are ready to "
-            "complete MFA, " + retry
+            "authenticated. Do not hand the login back to the user as a later step: tell "
+            "them the window timed out and a new one is opening for MFA, then " + retry
         )
     return (
         head + "the login window was closed before authentication completed — this profile "
