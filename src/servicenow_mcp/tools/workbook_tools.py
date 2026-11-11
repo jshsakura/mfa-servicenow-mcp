@@ -55,7 +55,10 @@ class ManageWorkbookParams(BaseModel):
     # write/fill
     spec: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="write: {sheets:[{title,rows,header_row,widths,label_col,images:[{path,cell}]}]}",
+        description=(
+            "write: {sheets:[{title,rows|source:{table,query,fields},header_row,widths,images}]}; "
+            "source = server reads rows into the file"
+        ),
     )
     output_file: Optional[str] = Field(default=None, description="The .xlsx to create")
     cells: Optional[Dict[str, Any]] = Field(
@@ -89,6 +92,25 @@ class ManageWorkbookParams(BaseModel):
         if self.action == "fill" and not (self.cells or self.rows_at or self.images):
             raise ValueError("fill needs at least one of cells / rows_at / images")
         return self
+
+
+def _write(
+    config: ServerConfig, auth_manager: AuthManager, params: "ManageWorkbookParams"
+) -> Dict[str, Any]:
+    """``source`` sheets are read by the server into the file; only counts come back."""
+    from servicenow_mcp.services.table_export import resolve_sources
+
+    spec, proofs, refusal = resolve_sources(config, auth_manager, dict(params.spec or {}))
+    if refusal:
+        return refusal
+    result = write_workbook(spec, str(params.output_file))
+    if proofs and result.get("success"):
+        result["exported"] = proofs
+        result["next"] = (
+            "The rows are in the file, not here. To look at some: manage_workbook("
+            "action='find'|'read', path=<file>). To count or group: sn_aggregate on the server."
+        )
+    return result
 
 
 @register_tool(
@@ -128,7 +150,7 @@ def manage_workbook(
                 columns=params.columns,
             )
         if params.action == "write":
-            return write_workbook(dict(params.spec or {}), str(params.output_file))
+            return _write(config, auth_manager, params)
         return fill_workbook(
             str(params.path),
             str(params.output_file),

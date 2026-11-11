@@ -51,7 +51,7 @@ to paste.
 | a value on a related record | dot-walk in `fields` / `query`: `caller_id.department` | a second query per row |
 | to change field values on many rows | `manage_data_update` (below) | a BG update loop |
 | to create/close/assign one ITSM record | the domain tool (`manage_incident`, `manage_change`, …) | `manage_data_update` |
-| a spreadsheet of a small result | `manage_workbook(action="write", spec=...)` | openpyxl in a script |
+| a spreadsheet, or many rows to analyse | `manage_workbook(action="write", spec={sheets:[{title, source:{table, query, fields}}]})` | reading the rows into context, or openpyxl in a script |
 | one record's history | skill `explore/record-forensics` | — |
 
 ## Reading — three traps
@@ -64,6 +64,21 @@ to paste.
    count is what you expected and small. `sn_query` returns at most 100 per call.
 3. **Values are codes.** `state=2`, not `state=In Progress`. Use
    `display_value=true` to show labels; query on the stored value.
+
+## Many rows — never through the conversation
+
+Reading rows into context to analyse or re-type them costs every value twice
+and can silently change one. Instead:
+
+1. `sn_aggregate` answers counts, groups and sums on the server — try it first.
+2. When rows are needed, export them: a `source` sheet in `manage_workbook`
+   write. The server reads into the file; the response is `matched`, `rows`,
+   `complete`, and a per-column profile (empties, distinct, common values).
+3. To look at particular rows: `manage_workbook(action="find", path=<file>, query=<regex>)`
+   or `action="read"` with `min_row`/`limit` — a bounded slice, not the file.
+
+`complete: false` means the server counted more rows than it returned (ACL):
+say so; the file is not the full set.
 
 ## Changing data — `manage_data_update`
 
