@@ -107,6 +107,16 @@ _SELF_HEAL_CIRCUIT_THRESHOLD = 3
 # least this many seconds must elapse between successive login attempts.
 _MIN_LOGIN_INTERVAL_SECONDS = 60.0
 
+# A re-auth cooldown this short is waited out inside the call instead of
+# refused. The cooldown exists to stop a login storm, and a call that sleeps
+# out the last few seconds before opening ONE window cannot storm — calls are
+# serialized behind the login lock and login.do keeps its own 60s floor. What
+# a refusal did instead: a call queued behind a 5-minute MFA window that timed
+# out came back "no login window will open yet, retry in 10s", and the model
+# parked the login as a later chore. Escalated backoff (30s/60s after repeated
+# real failures) is past this bound and still refuses.
+_COOLDOWN_WAIT_OUT_MAX_SECONDS = 20.0
+
 # How often a proven-alive session may push its slid TTL out to the session
 # JSON. The slide itself is free (an in-memory float); the write is not —
 # siblings poll this file by mtime, so persisting on every 200 would have
@@ -1673,6 +1683,20 @@ class AuthManager:
                                 f"{self._instance_profile_label()}. "
                                 "Please complete MFA/SSO there, or close that browser window first."
                             )
+                    if not self._can_attempt_browser_reauth():
+                        wait_s = max(
+                            0.0,
+                            self._browser_reauth_cooldown_seconds
+                            - (time.time() - (self._browser_last_reauth_attempt_at or 0.0)),
+                        )
+                        if wait_s <= _COOLDOWN_WAIT_OUT_MAX_SECONDS:
+                            logger.info(
+                                "Re-auth cooldown has %.1fs left — waiting it out, then "
+                                "opening the login window (not refusing the call).",
+                                wait_s,
+                            )
+                            self._auth_event("login.cooldown.waited", wait_s=f"{wait_s:.1f}")
+                            time.sleep(wait_s)
                     if not self._can_attempt_browser_reauth():
                         self._release_login_lock()
                         cooldown_remaining = self._get_reauth_cooldown_remaining()

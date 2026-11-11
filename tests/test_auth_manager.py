@@ -1624,6 +1624,41 @@ class TestBrowserGetHeadersEdgeCases:
                 with pytest.raises(ValueError, match="Browser session expired"):
                     mgr.get_headers()
 
+    def test_a_short_cooldown_is_waited_out_and_the_window_opens(self):
+        """The hold stops a login storm; it must not turn away a call that only
+        has seconds left on it. A walk-away timeout arms 15s, and the call queued
+        behind that window used to come back "no login window will open yet"."""
+        mgr = _make_browser_manager()
+        mgr._browser_cookie_header = None
+        mgr._browser_cookie_expires_at = None
+        mgr._browser_login_in_progress = False
+        mgr._browser_reauth_cooldown_seconds = 15
+        mgr._browser_last_reauth_attempt_at = time.time() - 5  # ~10s left
+
+        def _login(*_a, **_kw):
+            mgr._browser_cookie_header = "fresh=1"
+            mgr._browser_cookie_expires_at = time.time() + 600
+
+        with patch.object(mgr, "_try_restore_browser_session", return_value=False):
+            with patch.object(mgr, "_acquire_login_lock", return_value=True):
+                with patch.object(mgr, "_release_login_lock"):
+                    with patch("servicenow_mcp.auth.auth_manager.time.sleep") as slept:
+                        with patch.object(mgr, "_login_with_browser", side_effect=_login) as login:
+                            # Freeze the clock past the cooldown once it has been "slept".
+                            real_time = time.time
+                            offset = {"s": 0.0}
+                            slept.side_effect = lambda s: offset.__setitem__("s", offset["s"] + s)
+                            with patch(
+                                "servicenow_mcp.auth.auth_manager.time.time",
+                                side_effect=lambda: real_time() + offset["s"],
+                            ):
+                                headers = mgr.get_headers()
+
+        assert login.called, "the window opened instead of the call being refused"
+        assert headers["Cookie"] == "fresh=1"
+        waited = slept.call_args_list[0].args[0]
+        assert 0 < waited <= 15
+
     def test_another_terminal_login_wait_success(self):
         mgr = _make_browser_manager()
         mgr._browser_cookie_header = None
