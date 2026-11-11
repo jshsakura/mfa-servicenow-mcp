@@ -194,7 +194,7 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **85 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **86 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **4 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge
@@ -504,7 +504,7 @@ Read-only (safe defaults):
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + incident and change operational writes |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
 | `platform_developer` | 48 | ~13.7K | ~15.3K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 71 | ~21.8K | ~24.2K | ⚠️ **Most advanced** — all write tools across all domains at once |
+| `full` | 72 | ~21.8K | ~24.2K | ⚠️ **Most advanced** — all write tools across all domains at once |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ Standalone ITSM: diagnose a record, map table automation, configure catalog/policies/notifications, approvals and test orders, assignment/approval rules and choice lists, portal themes, ship by update set or XML. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materials, asset and ITOM work: queries plus asset writes checked against the instance (`manage_asset`). Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 

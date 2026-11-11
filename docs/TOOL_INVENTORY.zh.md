@@ -2,8 +2,8 @@
 
 为避免逐行翻译清单的维护成本，本文件是快速了解当前公开工具面的**摘要版**。其中的数字由 `scripts/regenerate_doc_counts.py` 自动更新。
 
-实时注册表中已注册的工具数：**85**
-`full` 中打包的工具数：**71**
+实时注册表中已注册的工具数：**86**
+`full` 中打包的工具数：**72**
 已注册但当前未打包的工具数：**11**
 
 - 逐个工具的完整清单：[英文版 TOOL_INVENTORY.md](./TOOL_INVENTORY.md)
@@ -23,7 +23,7 @@
 | `service_desk` | 34 | standard 加上用于运营支持的事件与变更写入工作流。 |
 | `portal_developer` | 53 | standard 加上门户、变更集、script include 和本地同步交付工作流。 |
 | `platform_developer` | 48 | standard 加上工作流、Flow Designer、UI policy、incident/change 和脚本写入。 |
-| `full` | 71 | 最广泛的打包功能面：所有 manage_* 工作流加上高级操作。 |
+| `full` | 72 | 最广泛的打包功能面：所有 manage_* 工作流加上高级操作。 |
 
 ## 运行时注入的辅助工具
 

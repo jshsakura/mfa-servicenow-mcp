@@ -365,7 +365,7 @@ TTL을 변경하려면 `--browser-session-ttl` 옵션을 사용하세요 (단위
 | `service_desk` | 34 | standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 53 | standard + 포털, 체인지셋, Script Include, 로컬 동기화 워크플로우 |
 | `platform_developer` | 48 | standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 71 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 고급 운영 도구 |
+| `full` | 72 | 가장 넓은 패키지 표면: 번들 `manage_*` 워크플로우 + 고급 운영 도구 |
 
 수정 권한이 필요하면 `MCP_TOOL_PACKAGE` 값만 바꾸면 됩니다:
 

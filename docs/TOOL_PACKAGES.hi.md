@@ -34,7 +34,7 @@ Add-on — सामान्य-उद्देश्य, अपने आप �
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ सर्विस डेस्क एजेंट जिन्हें incidents और changes को अपडेट/बंद करने की आवश्यकता हो |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
 | `platform_developer` | 48 | ~13.7K | ~15.3K | ⚠️ प्लेटफ़ॉर्म इंजीनियर जो workflows, Flow Designer, और scripts प्रबंधित करते हैं |
-| `full` | 71 | ~21.8K | ~24.2K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
+| `full` | 72 | ~21.8K | ~24.2K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ स्वतंत्र ITSM: record का निदान, table automation का नक्शा, catalog/policy/notification config, approval और test order, assignment/approval rule और choice list, portal theme, update set या XML से ship. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ सामग्री, asset और ITOM कार्य के लिए न्यूनतम सतह: query, और इंस्टेंस पर पहले जाँचे गए asset write (`manage_asset`)। Add-on comma से जोड़ें: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 

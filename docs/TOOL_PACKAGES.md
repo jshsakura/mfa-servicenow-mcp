@@ -34,7 +34,7 @@ Add-ons — general-purpose, not packages on their own. Combine with any package
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ Service desk agents who need to update/close incidents and changes |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ Portal developers who deploy widgets, changesets, and script includes |
 | `platform_developer` | 48 | ~13.7K | ~15.3K | ⚠️ Platform engineers who manage workflows, Flow Designer, and scripts |
-| `full` | 71 | ~21.8K | ~24.2K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
+| `full` | 72 | ~21.8K | ~24.2K | ⚠️ Most advanced — all write tools across all domains at once (see warning below) |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ Standalone ITSM: diagnose a record, map table automation, configure catalog/policies/notifications, approvals and test orders, assignment/approval rules and choice lists, portal themes, ship by update set or XML. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materials, asset and ITOM work: queries plus asset writes checked against the instance (`manage_asset`). Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
@@ -100,4 +100,4 @@ No silent failures — the LLM knows exactly which package to request.
 
 ## Full tool list
 
-For the complete list of all 85 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).
+For the complete list of all 86 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).

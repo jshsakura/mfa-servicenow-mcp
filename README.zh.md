@@ -194,7 +194,7 @@ TLS 检查代理（Zscaler 之类）和被封锁的 PyPI 访问各有对应的�
 
 - 面向 MFA/SSO 环境（Okta、Entra ID、SAML、MFA）的**浏览器认证**
 - **4 种认证模式**：Browser、Basic、OAuth、API Key
-- **85 个已注册工具**，含 **6 个活动工具包配置**外加禁用的 `none`——从最简只读到广泛的捆绑式 CRUD
+- **86 个已注册工具**，含 **6 个活动工具包配置**外加禁用的 `none`——从最简只读到广泛的捆绑式 CRUD
 - **4 个工作流技能**，带安全门、子代理委派和经过验证的流水线
 - **可流式 HTTP 传输**——保留 stdio 作为默认值，或为支持 HTTP 的客户端和桥接器暴露 `/mcp`
 - **本地源代码审计**，带 HTML 报告、交叉引用图、死代码检测和自动生成的领域知识
@@ -500,7 +500,7 @@ python -m servicenow_mcp \
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + incident 和 change 运营写入 |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + portal、changeset、script include 和本地同步交付写入 |
 | `platform_developer` | 48 | ~13.7K | ~15.3K | ⚠️ standard + workflow、Flow Designer、UI policy、incident/change 和脚本写入 |
-| `full` | 71 | ~21.8K | ~24.2K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
+| `full` | 72 | ~21.8K | ~24.2K | ⚠️ **最高级**——一次性提供所有领域的全部写入工具 |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ 独立的 ITSM 组合：诊断记录、梳理表自动化、配置目录/策略/通知、审批与测试下单、分配/审批规则与选项列表、门户主题，通过更新集或 XML 交付。 |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 面向物料、资产和 ITOM 工作的最简组合：查询，以及先在实例上校验的资产写入（`manage_asset`）。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 

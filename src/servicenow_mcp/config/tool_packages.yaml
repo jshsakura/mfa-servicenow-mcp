@@ -300,6 +300,13 @@ office_files:
   - manage_workbook
   - download_attachment
 
+# --- Add-on (general): bulk data updates in place of a Background Script. ---
+# Data tables only (sys_* and sys_metadata children refused). preview is a read and
+# runs on read-only instances; apply needs the preview's token + count and leaves
+# a snapshot that preview_revert/revert restore from.
+data_management:
+  - manage_data_update
+
 # --- Add-on (general): the shared debug browser (~1.2k tokens). ---
 debug_window:
   - open_debug_window
@@ -361,6 +368,8 @@ full:
     # ServiceNow surface at all, but `full` is defined as every manage_*
     # workflow, and it was the one missing from that claim.
     - manage_workbook
+    # Bulk data updates (preview → apply with token, snapshot → revert)
+    - manage_data_update
     # Flow Designer (Read) — unified tool; it has no write actions any more
     - manage_flow_designer
     # Portal debugging (specialized read — moved out of standard)

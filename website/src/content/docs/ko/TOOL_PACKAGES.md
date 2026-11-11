@@ -38,7 +38,7 @@ slug: ko/TOOL_PACKAGES
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ 인시던트/변경 업데이트·종료가 필요한 서비스 데스크 담당자 |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ 위젯, 체인지셋, Script Include를 배포하는 포털 개발자 |
 | `platform_developer` | 48 | ~13.7K | ~15.3K | ⚠️ 워크플로우, Flow Designer, 스크립트를 관리하는 플랫폼 엔지니어 |
-| `full` | 71 | ~21.8K | ~24.2K | ⚠️ 가장 고급 — 모든 도메인의 쓰기 도구 전체를 동시에 (아래 경고 참고) |
+| `full` | 72 | ~21.8K | ~24.2K | ⚠️ 가장 고급 — 모든 도메인의 쓰기 도구 전체를 동시에 (아래 경고 참고) |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ 단독 ITSM 구성: 레코드 진단, 테이블 자동화 파악, 카탈로그·정책·알림 설정, 승인과 테스트 주문, 배정·승인 규칙과 선택지 목록, 포털 테마, 업데이트 세트나 XML로 배포. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 자재·자산·ITOM 업무용 최소 구성: 조회와, 인스턴스에서 먼저 검증하는 자산 쓰기(`manage_asset`). 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
@@ -101,4 +101,4 @@ Enable package 'portal_developer' or higher to use this tool.
 
 ## 전체 도구 목록
 
-카테고리와 패키지별 전체 85개 도구 목록은 [도구 목록](../TOOL_INVENTORY/)에서 확인하세요.
+카테고리와 패키지별 전체 86개 도구 목록은 [도구 목록](../TOOL_INVENTORY/)에서 확인하세요.

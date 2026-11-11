@@ -2,8 +2,8 @@
 
 Para evitar el coste de mantener un inventario traducido fila por fila, este archivo es un **resumen** de la superficie de herramientas actual. Las cifras las actualiza `scripts/regenerate_doc_counts.py`.
 
-Herramientas registradas en el registro activo: **85**
-Recuento de herramientas empaquetadas en `full`: **71**
+Herramientas registradas en el registro activo: **86**
+Recuento de herramientas empaquetadas en `full`: **72**
 Herramientas registradas pero actualmente sin empaquetar: **11**
 
 - Listado completo herramienta por herramienta: [TOOL_INVENTORY.md en inglés](./TOOL_INVENTORY.md)
@@ -23,7 +23,7 @@ Está documentado más abajo, pero los recuentos de paquetes en este archivo ref
 | `service_desk` | 34 | standard más flujos de escritura de incidentes y cambios para soporte operativo. |
 | `portal_developer` | 53 | standard más flujos de portal, changeset, script include y entrega de sincronización local. |
 | `platform_developer` | 48 | standard más flujos de workflow, Flow Designer, UI policy, incidentes/cambios y escrituras de scripts. |
-| `full` | 71 | La superficie empaquetada más amplia: todos los flujos manage_* más operaciones avanzadas. |
+| `full` | 72 | La superficie empaquetada más amplia: todos los flujos manage_* más operaciones avanzadas. |
 
 ## Auxiliares Inyectados en Tiempo de Ejecución
 

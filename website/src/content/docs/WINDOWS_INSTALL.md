@@ -369,7 +369,7 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 | `service_desk` | 34 | standard + incident and change operational writes |
 | `portal_developer` | 53 | standard + portal, changeset, script include, and local-sync delivery workflows |
 | `platform_developer` | 48 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
-| `full` | 71 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
+| `full` | 72 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
 
 To change, update the `MCP_TOOL_PACKAGE` value:
 

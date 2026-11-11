@@ -194,7 +194,7 @@ TLS インスペクションを行うプロキシ（Zscaler など）や PyPI �
 
 - MFA/SSO 環境向けの **ブラウザ認証**（Okta、Entra ID、SAML、MFA）
 - **4 つの認証モード**: Browser、Basic、OAuth、API Key
-- **85 個の登録済みツール** と **6 つのアクティブなパッケージプロファイル**、加えて無効化用の `none` — 最小限の読み取り専用から幅広いバンドル CRUD まで
+- **86 個の登録済みツール** と **6 つのアクティブなパッケージプロファイル**、加えて無効化用の `none` — 最小限の読み取り専用から幅広いバンドル CRUD まで
 - 安全ゲート、サブエージェント委譲、検証済みパイプラインを備えた **4 個のワークフロースキル**
 - **Streamable HTTP トランスポート** — デフォルトとして stdio を維持しつつ、HTTP 対応クライアントやブリッジ向けに `/mcp` を公開可能
 - HTML レポート、相互参照グラフ、デッドコード検出、自動生成されるドメイン知識を備えた **ローカルソース監査**
@@ -500,7 +500,7 @@ python -m servicenow_mcp \
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + インシデントと変更の運用書き込み |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + ポータル、changeset、script include、ローカル同期配信の書き込み |
 | `platform_developer` | 48 | ~13.7K | ~15.3K | ⚠️ standard + ワークフロー、Flow Designer、UI policy、インシデント/変更、スクリプトの書き込み |
-| `full` | 71 | ~21.8K | ~24.2K | ⚠️ **最も高度** — すべてのドメインにまたがるすべての書き込みツールを一度に |
+| `full` | 72 | ~21.8K | ~24.2K | ⚠️ **最も高度** — すべてのドメインにまたがるすべての書き込みツールを一度に |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ 単体で完結する ITSM：レコードの診断、テーブル自動化の把握、カタログ・ポリシー・通知の設定、承認とテスト発注、割り当て・承認ルールと選択肢リスト、ポータルテーマ、更新セットまたは XML で出荷。 |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 資材・資産・ITOM 業務向けの最小構成：クエリと、インスタンスで事前に検証する資産の書き込み（`manage_asset`）。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 

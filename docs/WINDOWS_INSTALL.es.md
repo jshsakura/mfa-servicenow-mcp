@@ -365,7 +365,7 @@ Establece `MCP_TOOL_PACKAGE` para elegir un conjunto de herramientas. Predetermi
 | `service_desk` | 34 | standard + escrituras operativas de incidentes y cambios |
 | `portal_developer` | 53 | standard + flujos de trabajo de portal, changeset, script include y entrega de sincronización local |
 | `platform_developer` | 48 | standard + escrituras de flujos de trabajo, Flow Designer, UI policy, incidentes/cambios y scripts |
-| `full` | 71 | La superficie empaquetada más amplia: todos los flujos de trabajo `manage_*` más operaciones avanzadas |
+| `full` | 72 | La superficie empaquetada más amplia: todos los flujos de trabajo `manage_*` más operaciones avanzadas |
 
 Para cambiarlo, actualiza el valor de `MCP_TOOL_PACKAGE`:
 

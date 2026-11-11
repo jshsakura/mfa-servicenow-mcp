@@ -193,7 +193,7 @@ TLS 검사 프록시(Zscaler 등)나 PyPI 차단 환경은 별도 안내가 있�
 
 - **브라우저 인증** — MFA/SSO 환경 지원 (Okta, Entra ID, SAML, MFA)
 - **4가지 인증 모드**: Browser, Basic, OAuth, API Key
-- **등록 도구 85개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
+- **등록 도구 86개**, **실사용 패키지 6개**와 비활성 `none` 프로필 — 최소 읽기 전용부터 넓은 번들 CRUD까지
 - **5개 워크플로우 스킬** — 안전 게이트, 서브에이전트 위임, 검증된 파이프라인
 - **Streamable HTTP transport** — 기본 stdio는 그대로 두고, HTTP 지원 클라이언트/브리지에는 `/mcp` 엔드포인트 제공
 - **로컬 소스 검수** — HTML 리포트, 상호참조 그래프, 데드코드 탐지, 도메인 지식 자동 생성
@@ -501,7 +501,7 @@ python -m servicenow_mcp \
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
 | `platform_developer` | 48 | ~13.7K | ~15.3K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
-| `full` | 71 | ~21.8K | ~24.2K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
+| `full` | 72 | ~21.8K | ~24.2K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ 단독 ITSM 구성: 레코드 진단, 테이블 자동화 파악, 카탈로그·정책·알림 설정, 승인과 테스트 주문, 배정·승인 규칙과 선택지 목록, 포털 테마, 업데이트 세트나 XML로 배포. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ 자재·자산·ITOM 업무용 최소 구성: 조회와, 인스턴스에서 먼저 검증하는 자산 쓰기(`manage_asset`). 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 

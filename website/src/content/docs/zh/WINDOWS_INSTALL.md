@@ -369,7 +369,7 @@ uvx --from mfa-servicenow-mcp servicenow-mcp-skills claude
 | `service_desk` | 34 | standard + 事件与变更的操作性写入 |
 | `portal_developer` | 53 | standard + 门户、变更集、script include 和本地同步交付工作流 |
 | `platform_developer` | 48 | standard + 工作流、Flow Designer、UI policy、incident/change 和脚本写入 |
-| `full` | 71 | 最广泛的打包功能面：所有 `manage_*` 工作流加上高级操作 |
+| `full` | 72 | 最广泛的打包功能面：所有 `manage_*` 工作流加上高级操作 |
 
 要更改，更新 `MCP_TOOL_PACKAGE` 的值：
 

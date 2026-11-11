@@ -38,7 +38,7 @@ Complementos — de uso general, no son paquetes por sí solos. Combínalos con 
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ Agentes de mesa de servicio que necesitan actualizar/cerrar incidentes y cambios |
 | `portal_developer` | 53 | ~16.8K | ~18.6K | ⚠️ Desarrolladores de portal que despliegan widgets, changesets y script includes |
 | `platform_developer` | 48 | ~13.7K | ~15.3K | ⚠️ Ingenieros de plataforma que gestionan flujos de trabajo, Flow Designer y scripts |
-| `full` | 71 | ~21.8K | ~24.2K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
+| `full` | 72 | ~21.8K | ~24.2K | ⚠️ El más avanzado — todas las herramientas de escritura en todos los dominios a la vez (consulta la advertencia más abajo) |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
 | `asset_manager` | 7 | ~1.2K | ~1.6K | ⚠️ Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 
