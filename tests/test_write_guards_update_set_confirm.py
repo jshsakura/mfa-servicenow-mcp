@@ -104,6 +104,12 @@ def test_approval_by_sys_id_passes() -> None:
 def test_approval_naming_a_different_set_does_not_pass() -> None:
     msg = _raise(_ctx(**{CONFIRM_UPDATE_SET_FIELD: "Sprint 13 work"}), CUR, REC, RECENT)
     assert "[G11]" in msg
+    assert "You approved 'Sprint 13 work', but this write would be captured into" in msg
+
+
+def test_a_first_ask_does_not_claim_an_approval() -> None:
+    msg = _raise(_ctx(), CUR, REC, RECENT)
+    assert "You approved" not in msg
 
 
 def test_switched_set_asks_again() -> None:

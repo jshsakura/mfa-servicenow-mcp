@@ -129,6 +129,18 @@ def update(
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Update an existing update set. Supports dry-run preview."""
+    if state and state.strip().lower() == "complete":
+        # Completing goes through commit: it shows what the set holds, whose work
+        # is in it, and where the session lands — a bare state PATCH checks none.
+        return {
+            "success": False,
+            "error": "USE_COMMIT",
+            "message": "Completing an update set is action='commit', not update: commit "
+            "lists the set's entries and authors first and verifies the stored state.",
+            "next": [
+                f"manage_changeset(action='commit', changeset_id='{changeset_id}', dry_run=True)"
+            ],
+        }
     data: Dict[str, Any] = {}
     if name:
         data["name"] = name
@@ -168,35 +180,208 @@ def update(
         return _write_failure("updating", changeset_id, e)
 
 
+def _commit_preflight(
+    config: ServerConfig, auth_manager: AuthManager, changeset_id: str
+) -> Dict[str, Any]:
+    """Everything the user should see before a set is closed — each part read live.
+
+    A part that could not be read is reported as unread and stops the commit:
+    "no other authors" may only be said when the author counts came back.
+    """
+    from servicenow_mcp.tools.sn_api import _authenticated_user, sn_count_by_group
+
+    invalidate_query_cache(table="sys_update_set")
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table="sys_update_set",
+        query=f"sys_id={changeset_id}",
+        fields="sys_id,name,state,application,is_default,description",
+        limit=1,
+        offset=0,
+        fail_silently=False,
+    )
+    if not rows:
+        return {
+            "refusal": _refuse(
+                f"No update set {changeset_id} was returned (missing or not readable)."
+            )
+        }
+    us = rows[0]
+    info: Dict[str, Any] = {
+        "set": {
+            "sys_id": changeset_id,
+            "name": us.get("name"),
+            "state": us.get("state"),
+            "application": _ref_value(us.get("application")),
+        },
+        "description": us.get("description") or "",
+    }
+    if str(us.get("is_default")).lower() == "true":
+        info["refusal"] = _refuse(
+            f"'{us.get('name')}' is a Default update set. It is the catch-all every session "
+            "falls back to; it is not completed to ship work. Move the entries to a named set "
+            "(action='move_file') and complete that."
+        )
+        return info
+
+    query = f"update_set={changeset_id}"
+    by_type = sn_count_by_group(config, auth_manager, "sys_update_xml", query, "type")
+    created = sn_count_by_group(config, auth_manager, "sys_update_xml", query, "sys_created_by")
+    updated = sn_count_by_group(config, auth_manager, "sys_update_xml", query, "sys_updated_by")
+    if by_type is None or created is None or updated is None:
+        info["refusal"] = _refuse(
+            "The set's entries could not be counted, so who they belong to is not known. "
+            "Nothing was changed. Read them with action='get' and retry."
+        )
+        return info
+    info["entries"] = sum(by_type.values())
+    info["entries_by_type"] = dict(sorted(by_type.items(), key=lambda kv: -kv[1])[:15])
+
+    me = _authenticated_user(config, auth_manager, allow_live=True)
+    authors = {a for a in list(created) + list(updated)}
+    others = sorted(
+        {(a or _UNKNOWN_AUTHOR) for a in authors if me is None or not a or a.lower() != me.lower()},
+        key=str.lower,
+    )
+    info["you"] = me
+    if others:
+        info["other_authors"] = others
+        if me is None:
+            info["other_authors_note"] = (
+                "Your own user could not be confirmed, so no author can be treated as you."
+            )
+
+    current = None
+    try:
+        from servicenow_mcp.tools.session_context_tools import get_current_update_set
+
+        current = get_current_update_set(config, auth_manager)
+    except Exception:  # noqa: BLE001 - reported as unknown below, never as "not current"
+        current = None
+    if current and current.get("sys_id"):
+        info["is_current"] = current.get("sys_id") == changeset_id
+    else:
+        info["is_current"] = "unknown"
+    return info
+
+
 def commit(
     config: ServerConfig,
     auth_manager: AuthManager,
     *,
     changeset_id: str,
     commit_message: Optional[str] = None,
+    confirm_other_author: Optional[str] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Finalize an update set by marking it complete."""
+    """Mark an update set complete — after showing what it holds and whose it is."""
+    try:
+        info = _commit_preflight(config, auth_manager, changeset_id)
+    except Exception as exc:  # noqa: BLE001
+        return _refuse(f"The update set could not be read, so nothing was changed: {exc}")
+    if "refusal" in info:
+        return {**info.pop("refusal"), "preflight": info}
+
+    state = str(info["set"].get("state") or "")
+    if state == "complete":
+        return {
+            "success": True,
+            "written": False,
+            "message": f"'{info['set']['name']}' is already complete. Nothing was changed.",
+            "preflight": info,
+        }
+    if state != _IN_PROGRESS:
+        return _refuse(
+            f"'{info['set']['name']}' is '{state}', not in progress; only an in-progress set "
+            "is completed here.",
+            preflight=info,
+        )
+
+    notes: List[str] = []
+    if info["entries"] == 0:
+        notes.append("The set is EMPTY — completing it ships nothing.")
+    if info["is_current"] is True:
+        notes.append(
+            "This is your session's CURRENT update set. Once complete, the session captures "
+            "into Default: choose or create a set before the next change."
+        )
+    elif info["is_current"] == "unknown":
+        notes.append("Whether this is your current update set could not be read.")
+
+    required = info.get("other_authors") or []
+    approvals: Dict[str, Any] = {"confirm": "approve", "confirm_publish": "approve"}
+    unapproved: List[str] = []
+    if required:
+        approvals["confirm_other_author"] = ",".join(required)
+        unapproved = [a for a in required if a.lower() not in _approved_names(confirm_other_author)]
+        notes.append(
+            "It holds changes by " + ", ".join(repr(a) for a in required) + ". Completing it "
+            "ships their work too; the user must agree by name."
+        )
+
+    if dry_run or unapproved:
+        out: Dict[str, Any] = {
+            "success": not unapproved,
+            "dry_run": dry_run,
+            "written": False,
+            "preflight": info,
+            "notes": notes,
+            "approvals_needed": approvals,
+            "message": (
+                "Show this to the user. Only on their go-ahead: manage_changeset(action='commit', "
+                f"changeset_id='{changeset_id}', "
+                + ", ".join(f"{k}='{v}'" for k, v in approvals.items())
+                + ")."
+            ),
+        }
+        if unapproved:
+            out["error"] = "OTHER_AUTHORS_NOT_APPROVED"
+        return out
+
     data: Dict[str, Any] = {"state": "complete"}
     if commit_message:
-        data["description"] = commit_message
+        # Appended, never replacing what the set already says about itself.
+        prior = str(info.get("description") or "").rstrip()
+        data["description"] = f"{prior}\n\n{commit_message}" if prior else commit_message
 
     url = f"{config.api_url}/table/sys_update_set/{changeset_id}"
     headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
-
     try:
         response = auth_manager.make_request("PATCH", url, json=data, headers=headers)
         response.raise_for_status()
         result = response.json()
-        invalidate_query_cache(table="sys_update_set")
-        return {
-            "success": True,
-            "message": "Changeset committed successfully",
-            "changeset": result["result"],
-        }
     except Exception as e:
         logger.error("Error committing changeset: %s", e)
-        return _write_failure("committing", changeset_id, e)
+        return {**_write_failure("committing", changeset_id, e), "preflight": info}
+    invalidate_query_cache(table="sys_update_set")
+    stored = str(((result or {}).get("result") or {}).get("state") or "")
+    out = {
+        "success": stored == "complete",
+        "written": True,
+        "message": (
+            f"'{info['set']['name']}' is complete ({info['entries']} entries)."
+            if stored == "complete"
+            else f"The write returned state '{stored}', not complete — a business rule may "
+            "have changed it. Read the set before treating it as done."
+        ),
+        "changeset": {"sys_id": changeset_id, "name": info["set"]["name"], "state": stored},
+        "preflight": info,
+    }
+    if info["is_current"] is True:
+        try:
+            from servicenow_mcp.tools.session_context_tools import get_current_update_set
+
+            now = get_current_update_set(config, auth_manager) or {}
+            out["current_update_set_now"] = {"sys_id": now.get("sys_id"), "name": now.get("name")}
+        except Exception:  # noqa: BLE001
+            out["current_update_set_now"] = "could not be read"
+        out["next"] = (
+            "The session now captures into the set above (usually Default). Choose or create "
+            "the next set before any change: manage_session_context(action='set_update_set', ...)."
+        )
+    return out
 
 
 def get(

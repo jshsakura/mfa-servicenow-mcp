@@ -1090,6 +1090,14 @@ def _g11_update_set_confirmation(ctx: WriteGuardContext) -> None:
     me = (_current_username(ctx.server) or "").strip()
 
     lines: List[str] = []
+    if approval:
+        # The approval named a set, just not this one — say so, or the caller
+        # reads the repeated question as the approval being ignored.
+        lines.append(
+            f"You approved '{ctx.arguments.get(CONFIRM_UPDATE_SET_FIELD)}', but this "
+            f"write would be captured into '{name}' (sys_id {sys_id}). An approval only "
+            f"counts for the set the write actually lands in."
+        )
     if is_default_update_set(us):
         lines.append(
             f"Current update set is 'Default'{f' ({scope})' if scope else ''}. Changes "

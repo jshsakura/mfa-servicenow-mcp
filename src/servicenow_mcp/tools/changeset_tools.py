@@ -102,7 +102,10 @@ class ManageChangesetParams(BaseModel):
     application: Optional[str] = Field(
         default=None, description="Required for create; filter for get"
     )
-    state: Optional[str] = Field(default=None, description="Update only; filter for get")
+    state: Optional[str] = Field(
+        default=None,
+        description="update: in progress/ignore (complete is action=commit); get filter",
+    )
 
     # Commit-specific
     commit_message: Optional[str] = Field(default=None)
@@ -221,6 +224,8 @@ def manage_changeset(
             auth_manager,
             changeset_id=params.changeset_id,
             commit_message=params.commit_message,
+            confirm_other_author=params.confirm_other_author,
+            dry_run=params.dry_run,
         )
     # move_file / remove_file
     assert params.changeset_id is not None
