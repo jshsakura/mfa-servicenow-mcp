@@ -141,3 +141,58 @@ class TestAddFileRetired(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _http_error(status, body):
+    import requests
+
+    resp = MagicMock()
+    resp.status_code = status
+    resp.json.return_value = body
+    err = requests.exceptions.HTTPError(f"{status} Client Error", response=resp)
+    return err
+
+
+def test_a_refused_commit_carries_the_server_reason_and_where_to_look():
+    auth = MagicMock()
+    auth.get_headers.return_value = {}
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = _http_error(
+        403,
+        {
+            "error": {
+                "message": "Operation Failed",
+                "detail": "ACL Exception Update Failed due to security constraints",
+            }
+        },
+    )
+    auth.make_request.return_value = resp
+    out = cs_svc.commit(_config(), auth, changeset_id="aaaa1111bbbb2222cccc3333dddd4444")
+    assert out["success"] is False and out["error"] == "WRITE_REFUSED" and out["http_status"] == 403
+    assert "ACL Exception" in out["server_message"]
+    assert "not a missing MCP capability" in out["refused_by"]
+    assert "business rule" in out["refused_by"]  # a BR abort answers 403 too
+    assert any("get_table_automation" in step for step in out["next"])
+    assert any("sys_security_acl_role" in step for step in out["next"])
+
+
+def test_a_refused_update_is_the_same_answer():
+    auth = MagicMock()
+    auth.get_headers.return_value = {}
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = _http_error(403, {"error": {"message": "Forbidden"}})
+    auth.make_request.return_value = resp
+    out = cs_svc.update(
+        _config(), auth, changeset_id="aaaa1111bbbb2222cccc3333dddd4444", state="complete"
+    )
+    assert out["error"] == "WRITE_REFUSED" and out["server_message"] == "Forbidden"
+
+
+def test_a_server_error_is_not_called_a_permission_refusal():
+    auth = MagicMock()
+    auth.get_headers.return_value = {}
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = _http_error(500, {"error": {"message": "boom"}})
+    auth.make_request.return_value = resp
+    out = cs_svc.commit(_config(), auth, changeset_id="aaaa1111bbbb2222cccc3333dddd4444")
+    assert "error" not in out and out["server_message"] == "boom"

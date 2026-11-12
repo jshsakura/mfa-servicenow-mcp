@@ -16,6 +16,59 @@ from servicenow_mcp.utils.config import ServerConfig
 
 logger = logging.getLogger(__name__)
 
+# What to read when the server refuses a write to an update set. The refusal is
+# the server's; WHY it refused is in its ACLs, and those are readable — so the
+# answer to a 403 is a lookup, not "this cannot be done over MCP".
+_ACL_LOOKUPS = (
+    # Field names as SOURCE_CONFIG['acl'] uses them (proven live). `operation` is
+    # read, not filtered on: its column type differs between releases, and a
+    # filter the server cannot apply is DROPPED, not refused.
+    "sn_query(table='sys_security_acl', query='name=sys_update_set^ORnameSTARTSWITHsys_update_set."
+    "^active=true', fields='name,operation,condition,admin_overrides,advanced,sys_id')",
+    # Required roles are rows in the m2m table, not a column on the ACL.
+    "sn_query(table='sys_security_acl_role', query='sys_security_acl.name=sys_update_set"
+    "^ORsys_security_acl.nameSTARTSWITHsys_update_set.', "
+    "fields='sys_security_acl.name,sys_security_acl.operation,sys_user_role.name')",
+)
+
+
+def _write_failure(verb: str, changeset_id: str, exc: Exception) -> Dict[str, Any]:
+    """The server's own words, not just the status line — and, for a refusal, where to look."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    detail = ""
+    if response is not None:
+        try:
+            err = (response.json() or {}).get("error") or {}
+            detail = " — ".join(str(x) for x in (err.get("message"), err.get("detail")) if x)
+        except Exception:  # noqa: BLE001 - a non-JSON body is reported as text
+            detail = str(getattr(response, "text", "") or "")[:300]
+    out: Dict[str, Any] = {
+        "success": False,
+        "message": f"Error {verb} changeset: {exc}" + (f" ({detail})" if detail else ""),
+        "http_status": status,
+    }
+    if detail:
+        out["server_message"] = detail
+    if status in (401, 403):
+        out["error"] = "WRITE_REFUSED"
+        out["refused_by"] = (
+            "ServiceNow refused this write, so nothing changed. Two things answer 403: an "
+            "ACL/role check, or a business rule that aborted the save — server_message is "
+            "the server's own reason and usually names which. It is a rule on the instance, "
+            "not a missing MCP capability: do not tell the user it cannot be done over MCP."
+        )
+        out["next"] = [
+            "Quote server_message to the user first; it often says the reason outright.",
+            "Business rules that can abort it: get_table_automation(table='sys_update_set', "
+            "operation='update')",
+            f"ACLs on the table: {_ACL_LOOKUPS[0]}",
+            f"Roles those ACLs require: {_ACL_LOOKUPS[1]}",
+            f"The set itself: manage_changeset(action='get', changeset_id='{changeset_id}')",
+        ]
+    return out
+
+
 # `developer` is NOT a sys_update_set column — probed on a live instance, a
 # filter on it returns all 177 rows, i.e. the condition is dropped, and a write
 # setting it is accepted and ignored. Update sets record their author in
@@ -112,7 +165,7 @@ def update(
         }
     except Exception as e:
         logger.error("Error updating changeset: %s", e)
-        return {"success": False, "message": f"Error updating changeset: {str(e)}"}
+        return _write_failure("updating", changeset_id, e)
 
 
 def commit(
@@ -143,7 +196,7 @@ def commit(
         }
     except Exception as e:
         logger.error("Error committing changeset: %s", e)
-        return {"success": False, "message": f"Error committing changeset: {str(e)}"}
+        return _write_failure("committing", changeset_id, e)
 
 
 def get(
