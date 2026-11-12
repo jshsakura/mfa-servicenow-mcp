@@ -215,6 +215,7 @@ class DebugAction(BaseModel):
         "press",
         "type",
         "scroll_to",
+        "drag",
         "wait_for",
         "wait",
         "goto",
@@ -228,7 +229,10 @@ class DebugAction(BaseModel):
     )
     value: Optional[str] = Field(
         default=None,
-        description="fill/type text, select option, goto path, eval JS, or who to impersonate.",
+        description="fill/type text, select option, goto path, eval JS, who to impersonate, drag top|center|bottom.",
+    )
+    to: Optional[str] = Field(
+        default=None, description="drag: selector to drop on (selector is what is dragged)."
     )
     key: Optional[str] = Field(default=None, description="Key for press, e.g. Enter.")
     ms: Optional[int] = Field(
@@ -255,8 +259,8 @@ class ActInDebugWindowParams(BaseModel):
     screenshot: str = Field(
         default="none",
         description=(
-            "none | viewport | full | element. Visual questions only — read values "
-            "with an eval step. full can come back as one screen; the reply says why."
+            "none | viewport | full | element. Visual questions only: page_state already "
+            "gives focus, open options, dialogs, alerts as text. full may be one screen."
         ),
     )
     selector: Optional[str] = Field(
@@ -1109,6 +1113,9 @@ def act_in_debug_window(
         "window_open": True,
         **_window_identity(state, config, auth_manager),
         "steps": raw.get("steps", []),
+        # Focused field, open list/menu, dialogs, alerts — as text. This is what
+        # a screenshot was being taken for after nearly every step.
+        "page_state": raw.get("page_state") or {},
         **report,
     }
     if failed_step is not None:

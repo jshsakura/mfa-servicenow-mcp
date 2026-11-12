@@ -69,11 +69,37 @@ assumed from either picker.
 7. REPORT: what was built, the get_detail summary, the update set it is in,
    active or draft.
 
+## Workflow Studio recipes (measured on a live instance)
+
+Read the outcome of every batch from `page_state` in the act reply — focused
+field, `near_focus` (the items of a menu that just opened), `dialogs` (title +
+its buttons), `alerts` (the editor announces moves there). Take a screenshot
+only for a layout question; one per step is what made a session slow.
+
+- **Edit mode**: a published flow opens Read-only (status bar). Click
+  `text=Edit flow` first; Undo/Redo appear once it took.
+- **Autosave**: in edit mode EVERY change is saved to the server as a draft
+  (History shows "Autosaved") and captured into the window's update set. There
+  is no "try it without saving" — undo a change with History → Restore.
+- **Move a step** (also into / out of an If): never delete and recreate it.
+  `press` Enter on `[aria-label^="Hit enter to move action N,"]`, then ArrowUp /
+  ArrowDown (each one is announced in `alerts`), then Enter. A dialog "Are you
+  sure you want to make this change?" may follow → `[role=dialog] button:has-text("OK")`.
+  Moving can drop data-pill references the dialog names; a red asterisk on a
+  step afterwards is a broken pill — fix it before the next block.
+- **Step rows**: `.section-item[data-position-order="N"]` (N = the number shown).
+- **More actions menu**: `[aria-label="More Actions menu"]` — items arrive in `near_focus`.
+- **History / restore**: `button[data-tooltip="History"]` → click the version
+  (e.g. `text=Deployed`) → `button:has-text("Restore")` → `[role=dialog] button:has-text("Restore")`.
+- Icon buttons are named only by `aria-label` / `data-tooltip`. On a miss, the
+  step's `near_matches` gives the selector to use (`[data-tooltip="History"]`).
+- Batch several steps per call; wait with `wait_for` on the next element, not
+  a fixed `wait`.
+
 ## ON ERROR
 
-- Element not found or off screen → read the visible controls as text
-  (`inspect_debug_window(evaluate="[...document.querySelectorAll('button')].map(b=>b.innerText).filter(Boolean).slice(0,40)")`),
-  scroll or open the panel that holds it, retry once; then say which step failed
+- Element not found → use the step's `near_matches` (text and label-attribute
+  candidates) and retry once; then say which step failed
 - `WINDOW_NOT_AVAILABLE` → another terminal holds that window; pick another or ask
 - The window shows a login or MFA page → the user signs in; wait, do not retry
   a login yourself

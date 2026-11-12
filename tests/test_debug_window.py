@@ -1663,10 +1663,19 @@ class FakeLocator:
     def is_enabled(self):
         return self.selector not in self.target.disabled
 
+    def bounding_box(self):
+        if self.selector in self.target.boxes:
+            return self.target.boxes[self.selector]
+        return {"x": 0, "y": 0, "width": 10, "height": 10}
+
 
 class FakeTextHit:
-    def __init__(self, text, tag, enabled):
+    def __init__(self, text, tag, enabled, attrs=None):
         self.text, self.tag, self.enabled = text, tag, enabled
+        self.attrs = attrs or {}
+
+    def get_attribute(self, name, timeout=None):
+        return self.attrs.get(name)
 
     def is_visible(self):
         return True
@@ -1708,10 +1717,19 @@ class FakeTarget:
         self.calls = []
         self.unactionable = set(unactionable)
         self.disabled = set(disabled)
+        self.boxes = {}
+        # (text, tag, enabled, {attr: value}) — reachable only by attribute
+        self.labelled = []
         # (visible text, tag, enabled) — what get_by_text can find
         self.texts = list(texts)
 
     def locator(self, selector):
+        if '*="' in selector and selector.endswith(" i]"):
+            # near_matches' label-attribute probe: icon buttons named only by an attribute
+            needle = selector.split('*="', 1)[1].split('"', 1)[0].lower()
+            return FakeTextHits(
+                [h for h in self.labelled if any(needle in v.lower() for v in h[3].values())]
+            )
         return FakeLocator(self, selector)
 
     def get_by_text(self, probe):
@@ -1729,6 +1747,20 @@ class FakeTarget:
         self.calls.append(("click", selector))
 
 
+class FakeMouse:
+    def __init__(self):
+        self.events = []
+
+    def move(self, x, y, steps=1):
+        self.events.append(("move", x, y, steps))
+
+    def down(self):
+        self.events.append(("down",))
+
+    def up(self):
+        self.events.append(("up",))
+
+
 class FakeKeyboard:
     def __init__(self):
         self.pressed = []
@@ -1742,6 +1774,7 @@ class FakePage(FakeTarget):
         super().__init__(known=known, url=url, **kwargs)
         self._frames = list(frames)
         self.keyboard = FakeKeyboard()
+        self.mouse = FakeMouse()
         self.waited_for = []
 
     @property
@@ -2168,9 +2201,9 @@ def test_the_byte_count_still_describes_the_real_payload():
 
 def test_an_unknown_action_is_rejected_with_the_supported_list():
     with pytest.raises(ValueError) as excinfo:
-        actions.normalize([{"action": "drag", "selector": "#x"}])
+        actions.normalize([{"action": "swipe", "selector": "#x"}])
 
-    assert "drag" in str(excinfo.value)
+    assert "swipe" in str(excinfo.value)
     assert "click" in str(excinfo.value)
 
 
@@ -2316,6 +2349,18 @@ def test_a_miss_names_what_resembles_it():
     assert {"text": "Is empty or null", "tag": "button", "enabled": False} in excinfo.value.near
 
 
+def test_an_icon_button_named_only_by_an_attribute_is_offered():
+    page = FakePage(known=["#header"])
+    page.labelled = [("", "button", True, {"data-tooltip": "History"})]
+
+    with pytest.raises(actions.ActionError) as excinfo:
+        actions._run_step(page, _step(selector='button[aria-label="History"]', timeout_ms=100), 1)
+
+    assert excinfo.value.near == [
+        {"text": '[data-tooltip="History"]', "tag": "button", "enabled": True}
+    ]
+
+
 def test_a_css_miss_has_no_near_matches():
     page = FakePage(known=["#header"], texts=[("Save", "button", True)])
 
@@ -2332,10 +2377,50 @@ def test_a_css_miss_has_no_near_matches():
         ("button:has-text('Save')", "Save"),
         ("text=/^\\s*\\[sc_request\\]\\s*$/", "[sc_request]"),
         ("#save", ""),
+        ('[aria-label*="version" i]', "version"),
     ],
 )
 def test_text_of_selector(selector, text):
     assert actions._text_of_selector(selector) == text
+
+
+def test_drag_presses_moves_in_steps_and_releases_on_the_target():
+    page = FakePage(known=["#step3", "#if_body"])
+    page.boxes = {
+        "#step3": {"x": 100, "y": 300, "width": 200, "height": 40},
+        "#if_body": {"x": 120, "y": 100, "width": 200, "height": 100},
+    }
+
+    out = actions._run_step(
+        page, _step(action="drag", selector="#step3", to="#if_body", value="bottom"), 1
+    )
+
+    kinds = [e[0] for e in page.mouse.events]
+    assert kinds[0] == "move" and kinds[1] == "down" and kinds[-1] == "up"
+    assert page.mouse.events[0][1:3] == (200, 320)  # source centre
+    last_move = [e for e in page.mouse.events if e[0] == "move"][-1]
+    assert abs(last_move[1] - 220) < 1 and abs(last_move[2] - 185) <= 1  # 85% down
+    assert any(e[0] == "move" and e[3] > 1 for e in page.mouse.events)  # stepped, not a jump
+    assert out == {"dropped_at": "bottom"}
+
+
+def test_drag_with_a_missing_target_moves_nothing():
+    page = FakePage(known=["#step3"])
+
+    with pytest.raises(actions.ActionError) as excinfo:
+        actions._run_step(
+            page, _step(action="drag", selector="#step3", to="#nope", timeout_ms=100), 1
+        )
+
+    assert "Nothing was moved" in str(excinfo.value)
+    assert ("down",) not in page.mouse.events
+
+
+def test_drag_needs_a_target_and_a_known_position():
+    with pytest.raises(ValueError, match="needs `to`"):
+        actions.normalize([{"action": "drag", "selector": "#a"}])
+    with pytest.raises(ValueError, match="top, center, bottom"):
+        actions.normalize([{"action": "drag", "selector": "#a", "to": "#b", "value": "left"}])
 
 
 def test_reason_of_reads_playwrights_call_log():

@@ -81,6 +81,7 @@ from .capture import (
 )
 from .evaluate import run_in_page
 from .impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, become, restore
+from .page_state import read_page_state
 from .server_scripts import ACTIVATING_ACTIONS, ServerScriptBlocked
 from .server_scripts import rejection as script_rejection
 from .server_scripts import surface_for_url
@@ -115,6 +116,7 @@ ACTIONS_NEEDING_SELECTOR = frozenset(
         "hover",
         "scroll_to",
         "wait_for",
+        "drag",
     }
 )
 ACTIONS_NEEDING_VALUE = frozenset({"fill", "select", "type", "goto", "eval", IMPERSONATE_ACTION})
@@ -147,6 +149,7 @@ SUPPORTED_ACTIONS: Tuple[str, ...] = (
     "press",
     "type",
     "scroll_to",
+    "drag",
     "wait_for",
     "wait",
     "goto",
@@ -275,6 +278,10 @@ _ENABLE_GRACE_S = 1.5
 _TEXT_IN_SELECTOR = re.compile(
     r"""(?:text(?:-is)?\s*=\s*|has-text\(\s*|text-is\(\s*)['"]?/?\^?\\?s?\*?([^'")/$>]+)"""
 )
+# `[aria-label*="History" i]` — an icon button's only name is often an attribute.
+_ATTR_IN_SELECTOR = re.compile(r"""\[[\w-]+\s*[*^$~|]?=\s*['"]([^'"]+)['"]""")
+# Where an icon button keeps its name. Text probes cannot see these.
+_LABEL_ATTRS = ("aria-label", "title", "data-tooltip", "data-tooltip-content")
 # Playwright's own reason, from the call log a failed action raises with.
 _ACTION_REASONS = (
     ("not enabled", "it is disabled"),
@@ -294,7 +301,7 @@ def _reason_of(message: str) -> str:
 
 
 def _text_of_selector(selector: str) -> str:
-    found = _TEXT_IN_SELECTOR.search(selector or "")
+    found = _TEXT_IN_SELECTOR.search(selector or "") or _ATTR_IN_SELECTOR.search(selector or "")
     if not found:
         return ""
     # A regex selector (/^\s*\[sc_request\]\s*$/) keeps only its literal text.
@@ -317,35 +324,52 @@ def near_matches(page: Any, selector: str, limit: int = 6) -> List[Dict[str, Any
     seen: set = set()
     out: List[Dict[str, Any]] = []
     for probe in probes:
+        quoted = probe.replace('"', '\\"')
+        by_attr = ", ".join(f'[{a}*="{quoted}" i]' for a in _LABEL_ATTRS)
         for target in _targets(page):
-            try:
-                found = target.get_by_text(probe)
-                count = min(found.count(), 20)
-            except Exception:  # noqa: BLE001 - a detached frame is simply skipped
-                continue
-            for i in range(count):
+            for kind in ("text", "attr"):
                 try:
-                    el = found.nth(i)
-                    if not el.is_visible():
-                        continue
-                    label = " ".join(el.inner_text(timeout=300).split())[:60]
-                    if not label or label in seen:
-                        continue
-                    seen.add(label)
-                    out.append(
-                        {
-                            "text": label,
-                            "tag": str(el.evaluate("e => e.tagName.toLowerCase()")),
-                            "enabled": bool(el.is_enabled()),
-                        }
-                    )
-                except Exception:  # noqa: BLE001
+                    found = target.get_by_text(probe) if kind == "text" else target.locator(by_attr)
+                    count = min(found.count(), 20)
+                except Exception:  # noqa: BLE001 - a detached frame is simply skipped
                     continue
-                if len(out) >= limit:
-                    return out
+                for i in range(count):
+                    item = _near_item(found.nth(i))
+                    if not item or item["text"] in seen:
+                        continue
+                    seen.add(item["text"])
+                    out.append(item)
+                    if len(out) >= limit:
+                        return out
         if out:
             return out
     return out
+
+
+def _near_item(el: Any) -> Optional[Dict[str, Any]]:
+    """One visible candidate as {text, tag, enabled}, named the way a selector can reach it."""
+    try:
+        if not el.is_visible():
+            return None
+        text = " ".join(el.inner_text(timeout=300).split())[:60]
+        attr = ""
+        for name in _LABEL_ATTRS:
+            value = el.get_attribute(name, timeout=300)
+            if value:
+                attr = f'[{name}="{" ".join(value.split())[:60]}"]'
+                break
+        if not text and not attr:
+            return None
+        item: Dict[str, Any] = {
+            "text": text or attr,
+            "tag": str(el.evaluate("e => e.tagName.toLowerCase()")),
+            "enabled": bool(el.is_enabled()),
+        }
+        if text and attr:
+            item["attr"] = attr
+        return item
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _wait_enabled(locator: Any) -> bool:
@@ -359,6 +383,39 @@ def _wait_enabled(locator: Any) -> bool:
         if time.time() >= deadline:
             return False
         time.sleep(_RESOLVE_POLL_S)
+
+
+# Where on the drop target the pointer is released, as a fraction of its height.
+# Editors that insert by position (a step list) read above/below from the pointer.
+_DROP_AT = {"top": 0.15, "center": 0.5, "bottom": 0.85}
+# Moves between press and release. Drag libraries start a drag only after the
+# pointer has travelled a few pixels, and some track pointermove rather than
+# the end point, so one jump from source to target never registers.
+_DRAG_MOVES = 12
+
+
+def _drag(page: Any, source: Any, target: Any, at: str, timeout_ms: int) -> Dict[str, Any]:
+    """Press on ``source``, move in steps, release on ``target``: a person's drag.
+
+    Raw mouse events rather than ``drag_to``: they are what a person produces, so
+    HTML5 drag-and-drop and pointer-driven editors both see a real drag.
+    """
+    source.scroll_into_view_if_needed(timeout=timeout_ms)
+    src = source.bounding_box()
+    dst = target.bounding_box()
+    if not src or not dst:
+        raise RuntimeError("element is not visible (no bounding box)")
+    sx, sy = src["x"] + src["width"] / 2, src["y"] + src["height"] / 2
+    tx, ty = dst["x"] + dst["width"] / 2, dst["y"] + dst["height"] * _DROP_AT[at]
+    mouse = page.mouse
+    mouse.move(sx, sy)
+    mouse.down()
+    mouse.move(sx + 6, sy + 6, steps=3)
+    mouse.move(tx, ty, steps=_DRAG_MOVES)
+    time.sleep(0.2)  # the drop zone highlights on hover; release onto it, not before
+    mouse.move(tx, ty + 1)
+    mouse.up()
+    return {"dropped_at": at}
 
 
 def _same_instance_url(page: Any, destination: str, instance_host: str) -> str:
@@ -415,6 +472,13 @@ def normalize(raw_actions: Sequence[Any]) -> List[Dict[str, Any]]:
             raise ValueError(f"Action {index} ('{name}') needs a value.")
         if name == "press" and not raw.get("key"):
             raise ValueError(f"Action {index} ('press') needs a key, e.g. 'Enter'.")
+        if name == "drag" and not raw.get("to"):
+            raise ValueError(f"Action {index} ('drag') needs `to`: the selector to drop on.")
+        if name == "drag" and str(raw.get("value") or "center") not in _DROP_AT:
+            raise ValueError(
+                f"Action {index} ('drag'): value is where on `to` to drop — "
+                f"{', '.join(_DROP_AT)}."
+            )
 
         timeout_ms = int(raw.get("timeout_ms") or DEFAULT_STEP_TIMEOUT_MS)
         normalized.append(
@@ -426,6 +490,7 @@ def normalize(raw_actions: Sequence[Any]) -> List[Dict[str, Any]]:
                 "ms": max(0, min(int(raw.get("ms") or 0), MAX_WAIT_MS)),
                 "timeout_ms": max(100, min(timeout_ms, MAX_STEP_TIMEOUT_MS)),
                 "state": str(raw.get("state") or "visible"),
+                "to": (str(raw["to"]) if raw.get("to") else None),
             }
         )
     return normalized
@@ -639,6 +704,23 @@ def _run_step(
             index=index,
         )
 
+    if name == "drag":
+        try:
+            target = _resolve_locator(page, step["to"], timeout_ms, need_visible=True)
+        except LookupError as exc:
+            raise ActionError(
+                f"drag: no drop target matched '{step['to']}' within {timeout_ms}ms. "
+                "Nothing was moved.",
+                index=index,
+                near=near_matches(page, step["to"]),
+            ) from exc
+        try:
+            return _drag(page, locator, target, step["value"] or "center", timeout_ms)
+        except Exception as exc:  # noqa: BLE001
+            raise ActionError(
+                f"drag '{selector}' -> '{step['to']}' failed: {str(exc)[:200]}", index=index
+            ) from exc
+
     try:
         if name == "click":
             locator.click(timeout=timeout_ms)
@@ -788,6 +870,7 @@ def act(
                     logger.debug("Could not detach the dialog listener: %s", exc)
 
                 drained = _drain(page, marks)
+                page_state = read_page_state(page)
                 shot, shot_note = _screenshot(
                     page, mode=screenshot, selector=selector, destination=screenshot_path
                 )
@@ -813,6 +896,7 @@ def act(
                     "events_unread": bool(drained.get("events_unread")),
                     "events_note": drained.get("events_note"),
                     "steps": results,
+                    "page_state": page_state,
                     "dialogs": dialogs,
                     "failed_step": (failure["step"] if failure else None),
                     "skipped": max(0, len(steps) - len(results)),
