@@ -369,3 +369,54 @@ def test_change_categories_capped_and_unreadable_are_stated():
 class ServiceError(Exception):
     def __init__(self):
         super().__init__("HTTP 403")
+
+
+# --- size: what the answer carries for one operation ---------------------------
+
+
+def _actions(n):
+    return [
+        row(
+            name=f"Action {i}",
+            table="incident",
+            action_name=f"a{i}",
+            active="true",
+            order=str(i),
+            client="false",
+            form_button="true",
+            condition="x" * 900,
+        )
+        for i in range(n)
+    ], n
+
+
+def test_an_operation_does_not_read_form_side_categories():
+    out, fake = run({"sys_ui_action": _actions(3)}, operation="insert")
+    assert out["summary"]["ui_actions"] == "not_read"
+    assert out["ui_actions"]["checked"] is False and "form-side" in out["ui_actions"]["not_read"]
+    assert not any(t == "sys_ui_action" for t, _q in fake.calls)
+    assert "categories=[...]" in out["form_side_not_read"]
+
+
+def test_named_categories_are_read_even_for_an_operation():
+    out, _ = run({"sys_ui_action": _actions(3)}, operation="insert", categories=["ui_actions"])
+    assert out["summary"] == {"ui_actions": 3} and len(out["ui_actions"]["rows"]) == 3
+
+
+def test_any_still_reads_everything():
+    out, _ = run({"sys_ui_action": _actions(2)}, operation="any")
+    assert out["summary"]["ui_actions"] == 2 and "form_side_not_read" not in out
+
+
+def test_an_unknown_category_is_named_not_dropped():
+    out, _ = run({}, categories=["ui_action"])
+    assert out["error"] == "unknown_categories" and "ui_actions" in out["valid_categories"]
+
+
+def test_an_oversized_answer_withholds_rows_and_says_how_to_ask():
+    out, _ = run({"sys_ui_action": _actions(50)}, operation="any")
+    assert ta._size(out) <= ta._BUDGET
+    held = out["ui_actions"]["rows_withheld"]
+    assert held["count"] == 50 and held["bytes"] > ta._BUDGET // 2
+    assert "categories=['ui_actions']" in held["ask"]
+    assert out["summary"]["ui_actions"] == 50  # the count is never touched

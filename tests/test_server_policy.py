@@ -354,6 +354,32 @@ def test_cross_instance_write_without_confirm_instance_rejected(monkeypatch, tmp
     assert seen == {}  # never executed
 
 
+def test_cross_instance_evaluate_says_why_a_read_counts_as_a_write(monkeypatch, tmp_path):
+    # inspect_debug_window is a read until evaluate is passed; the refusal must say
+    # that, or "would write" reads as a mistake and the caller drops the read.
+    server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=True)
+    seen = _register_recorder(server, "inspect_debug_window")
+
+    with pytest.raises(ValueError) as err:
+        asyncio.run(
+            server._call_tool_impl(
+                "inspect_debug_window", {"instance": "test", "evaluate": "document.title"}
+            )
+        )
+    assert "with evaluate counts as a write" in str(err.value)
+    assert "confirm_instance='test'" in str(err.value)
+    assert seen == {}
+
+
+def test_a_plain_cross_instance_write_has_no_evaluate_note(monkeypatch, tmp_path):
+    server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=True)
+    _register_recorder(server, "update_foo")
+
+    with pytest.raises(ValueError) as err:
+        asyncio.run(server._call_tool_impl("update_foo", {"instance": "test"}))
+    assert "counts as a write" not in str(err.value)
+
+
 def test_cross_instance_write_to_read_only_target_rejected(monkeypatch, tmp_path):
     # Even with confirm_instance, a read-only (allow_writes=false) target is blocked.
     server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=False)

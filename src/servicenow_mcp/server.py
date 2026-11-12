@@ -147,6 +147,7 @@ TOOL_PACKAGE_CONFIG_PATH = os.getenv("TOOL_PACKAGE_CONFIG_PATH", "config/tool_pa
 from servicenow_mcp.policies.write_guards import (  # noqa: E402
     _PUBLISH_CLASS_TOOLS,
     ALLOW_DUPLICATE_FIELD,
+    ARG_TRIGGERED_WRITE_ARGS,
     CONFIRM_PUBLISH_FIELD,
     CONFIRM_PUBLISH_VALUE,
     MANAGE_READ_ACTIONS,
@@ -1810,8 +1811,17 @@ class ServiceNowMCP:
                 # right after this call (no persistent swap to forget to revert).
                 confirm_instance = str(arguments.get(CONFIRM_INSTANCE_FIELD, "")).strip()
                 if confirm_instance != target_alias:
+                    # A read flipped to a write by one argument (evaluate) must say
+                    # so, or "would write" reads as a wrong refusal and the caller
+                    # drops the read instead of passing the approval.
+                    why = (
+                        f"'{name}' with {'/'.join(sorted(ARG_TRIGGERED_WRITE_ARGS[name]))} counts "
+                        "as a write (a JS expression can fetch or post), so "
+                        if is_arg_triggered_write(name, arguments)
+                        else ""
+                    )
                     raise ValueError(
-                        f"'{name}' would write to the NON-active instance '{target_alias}' "
+                        f"{why}'{name}' would write to the NON-active instance '{target_alias}' "
                         f"(active is '{self.active_instance_alias}'). This needs explicit "
                         f"acknowledgement of the target: pass {CONFIRM_INSTANCE_FIELD}="
                         f"'{target_alias}' AND {CONFIRM_FIELD}='{CONFIRM_VALUE}'. Only this one "

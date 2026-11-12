@@ -35,8 +35,10 @@ def _ctx(tool="manage_script_include", auth="browser", url="https://test.service
 @pytest.fixture(autouse=True)
 def _fresh_memory():
     wg._CONFIRMED_UPDATE_SETS.clear()
+    wg._ASKED_UPDATE_SETS.clear()
     yield
     wg._CONFIRMED_UPDATE_SETS.clear()
+    wg._ASKED_UPDATE_SETS.clear()
 
 
 def _patches(current, rec=None, recent=None, me="alice"):
@@ -216,3 +218,25 @@ def test_enough_names_of_mine_skip_the_team_read() -> None:
         with pytest.raises(PolicyViolation):
             _g11_update_set_confirmation(_ctx())
     assert rec.call_count == 1
+
+
+def test_a_repeat_of_the_same_question_is_short_and_still_names_the_set() -> None:
+    first = _raise(_ctx(), CUR, REC, RECENT)
+    again = _raise(_ctx(), CUR, REC, RECENT)
+
+    assert "ASK THE USER" in first
+    assert "Same question as the earlier G11 refusal" in again
+    assert "Sprint 12 fixes" in again and SET_ID in again
+    assert len(again) < len(first) // 2
+
+
+def test_a_repeat_with_a_wrong_name_still_says_so() -> None:
+    _raise(_ctx(), CUR, REC, RECENT)
+    again = _raise(_ctx(**{CONFIRM_UPDATE_SET_FIELD: "Sprint 13 work"}), CUR, REC, RECENT)
+    assert "You approved 'Sprint 13 work', not this set." in again
+
+
+def test_the_right_answer_after_a_repeat_passes() -> None:
+    _raise(_ctx(), CUR, REC, RECENT)
+    _raise(_ctx(), CUR, REC, RECENT)
+    _run(_ctx(**{CONFIRM_UPDATE_SET_FIELD: "Sprint 12 fixes"}), CUR, REC, RECENT)

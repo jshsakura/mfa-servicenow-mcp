@@ -55,6 +55,7 @@ Deferred:
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -971,6 +972,11 @@ _UPDATE_SET_EXEMPT_TOOLS = frozenset(
 # approved. Process memory on purpose: a restart is a new session, and a new
 # session is exactly when the leftover set deserves the question again.
 _CONFIRMED_UPDATE_SETS: set = set()
+# When each set was last asked about, unanswered. Seven parallel pushes into one
+# set got the full question seven times (measured in a live log): one answer
+# covers them all, so a repeat inside the window says only that.
+_ASKED_UPDATE_SETS: Dict[Tuple[str, str], float] = {}
+_G11_REPEAT_WINDOW_S = 600.0
 
 
 def _instance_key(config: Any) -> str:
@@ -1082,6 +1088,21 @@ def _g11_update_set_confirmation(ctx: WriteGuardContext) -> None:
             _CONFIRMED_UPDATE_SETS.add(key)
         return
 
+    asked_at = _ASKED_UPDATE_SETS.get(key)
+    if asked_at is not None and time.time() - asked_at < _G11_REPEAT_WINDOW_S:
+        mismatch = (
+            f"You approved '{ctx.arguments.get(CONFIRM_UPDATE_SET_FIELD)}', not this set. "
+            if approval
+            else ""
+        )
+        raise PolicyViolation(
+            "G11",
+            f"{mismatch}Same question as the earlier G11 refusal, still unanswered: this "
+            f"write would be captured into update set '{name}' (sys_id {sys_id}). One answer "
+            f"covers every write into it — ask the user once, then retry with "
+            f"{CONFIRM_UPDATE_SET_FIELD}='{name}', or switch sets first. Nothing was written.",
+        )
+
     rec = _fetch_one(
         ctx.server, "sys_update_set", f"sys_id={sys_id}", "sys_id,application,sys_created_by"
     )
@@ -1164,6 +1185,7 @@ def _g11_update_set_confirmation(ctx: WriteGuardContext) -> None:
         "(3) new set: propose a name, get approval, then manage_changeset(action='create', "
         "name=..., application=<scope>) and set_update_set. Nothing was written."
     )
+    _ASKED_UPDATE_SETS[key] = time.time()
     raise PolicyViolation("G11", " ".join(lines))
 
 

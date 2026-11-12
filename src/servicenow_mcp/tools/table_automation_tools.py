@@ -43,6 +43,10 @@ class TableAutomationParams(BaseModel):
         default=True, description="Also report automation on parent tables (task for incident)."
     )
     include_inactive: bool = Field(default=False, description="Include inactive records.")
+    categories: Optional[List[str]] = Field(
+        default=None,
+        description="Only these categories (summary keys). Default: all for the operation.",
+    )
 
 
 def _flag(row: Dict[str, Any], field: str) -> bool:
@@ -595,6 +599,42 @@ def _approval_policies(
     }
 
 
+# Form-side: they run in the browser on a form, not on the server's insert or
+# update. A REQ inserted by the cart never meets them, and on one live table they
+# were 22KB of a 54KB answer to "what runs on insert". Read for operation="any"
+# or when named in categories.
+_FORM_SIDE = ("client_scripts", "ui_policies", "ui_actions")
+# Measured: 54KB for one table at operation=insert (44 BRs, 28 SLAs, 46 UI
+# actions). Above this the largest categories give their rows up first —
+# business rules last, they are the usual answer — and say how to ask for them.
+_BUDGET = 24_000
+
+
+def _size(obj: Any) -> int:
+    import json
+
+    return len(json.dumps(obj, ensure_ascii=False, default=str))
+
+
+def _fit(out: Dict[str, Any], names: Tuple[str, ...], ask: str) -> None:
+    """Withhold the rows of the biggest categories until the answer fits."""
+    if _size(out) <= _BUDGET:
+        return
+    order = sorted(
+        (n for n in names if isinstance(out.get(n), dict) and out[n].get("rows")),
+        key=lambda n: (n == "business_rules", -_size(out[n]["rows"])),
+    )
+    for name in order:
+        rows = out[name].pop("rows")
+        out[name]["rows_withheld"] = {
+            "count": len(rows),
+            "bytes": _size(rows),
+            "ask": f"{ask}, categories=['{name}'])",
+        }
+        if _size(out) <= _BUDGET:
+            return
+
+
 @register_tool(
     "get_table_automation",
     params=TableAutomationParams,
@@ -634,6 +674,25 @@ def get_table_automation(
             return _unknown_table(config, auth_manager, table) or {}
     tables = [table] + parents
     names = _CATEGORY_ORDER + (_CHANGE_ONLY if _CHANGE_TABLE in tables else ())
+    skipped: Dict[str, Dict[str, Any]] = {}
+    if params.categories:
+        wanted = {c.strip() for c in params.categories if c and c.strip()}
+        unknown = sorted(wanted - set(names))
+        if unknown:
+            return {
+                "success": False,
+                "error": "unknown_categories",
+                "unknown": unknown,
+                "valid_categories": list(names),
+            }
+        names = tuple(n for n in names if n in wanted)
+    elif operation != "any":
+        for name in _FORM_SIDE:
+            skipped[name] = {
+                "checked": False,
+                "not_read": f"form-side: runs in the browser, not on the server's {operation}",
+            }
+        names = tuple(n for n in names if n not in _FORM_SIDE)
 
     def run(name: str) -> Tuple[str, Dict[str, Any]]:
         try:
@@ -661,10 +720,15 @@ def get_table_automation(
     with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
         results = dict(pool.map(run, names))
 
+    results.update(skipped)
+    names = names + tuple(skipped)
     summary: Dict[str, Any] = {}
     for name in names:
         res = results[name]
-        summary[name] = res["total"] if res.get("checked") else "unread"
+        if name in skipped:
+            summary[name] = "not_read"
+        else:
+            summary[name] = res["total"] if res.get("checked") else "unread"
     out: Dict[str, Any] = {
         "success": True,
         "table": table,
@@ -675,4 +739,11 @@ def get_table_automation(
     if chain_note:
         out["parent_chain"] = chain_note
     out.update({name: results[name] for name in names})
+    if skipped:
+        out["form_side_not_read"] = (
+            f"client scripts, UI policies and UI actions act on a form, not on the server's "
+            f"{operation}. For them: get_table_automation(table='{table}', operation="
+            f"'{operation}', categories=[...])"
+        )
+    _fit(out, names, f"get_table_automation(table='{table}', operation='{operation}'")
     return out
