@@ -9,6 +9,10 @@ output: status
 tools:
   - diff_local_component
   - update_remote_from_local
+  - manage_portal_component
+  - manage_portal_layout
+  - sn_aggregate
+  - sn_query
 triggers:
   - "로컬 동기화"
   - "로컬 푸시"
@@ -79,6 +83,43 @@ Show for each push:
 
 After all pushes, suggest: `git add . && git commit` to create a local checkpoint.
 
+## ServiceNow-owned record (`SERVICENOW_OWNED`)
+
+A push to a record ServiceNow delivers (a baseline widget, an Employee Center
+header) is stopped with `decision_required`. Editing it in place makes it a
+customization: the next upgrade skips it and ServiceNow's fixes stop reaching
+it. That is the user's call — ASK, showing both options from the response.
+
+- **Edit in place** — the user accepts the upgrade cost:
+  `update_remote_from_local(path=..., confirm_servicenow_edit="approve")`.
+- **Clone and edit the copy** — the original stays upgradeable:
+  1. CALL the clone from the response:
+     `manage_portal_component(action="clone_widget"|"clone_header_footer", source=<sys_id>, new_id=..., name=..., scope=...)`.
+     Unapplied fields come back named (e.g. a category value the target does
+     not have) — report them.
+  2. Point the pages at the copy — ONLY the pages the user means. Pages are
+     shared between portals, so "every placement of the original" can include
+     other portals' pages, and swapping those changes screens nobody asked about.
+     - Which pages: `download_portal_sources(portal=...)` or `(page_ids=[...])`
+       lists each widget with the page it sits on (`widget_source`).
+     - Count first: `sn_aggregate(table="sp_instance", query="sp_widget=<original sys_id>")`
+       — `sn_query` returns at most 100 rows, so a list without the count can be partial.
+     - Read the placements: `sn_query(table="sp_instance", query="sp_widget=<original sys_id>", fields="sys_id,sp_column")`.
+     - SHOW the user the instances on THEIR pages and get a go-ahead, then for each:
+       `manage_portal_layout(action="replace_widget", instance_id=<sys_id>, sp_widget=<new_id>)`
+       (parameters and CSS on the instance are kept).
+  3. A header/footer lives on the THEME (`sp_theme.header` / `footer`), not on a
+     page: `manage_portal_component(action="update_code", table="sp_theme", sys_id=<theme>, update_data={"header": <clone sys_id>})`.
+     Check the THEME's own origin first: changing a ServiceNow-delivered theme
+     is itself a customization — the same upgrade trade-off as editing the
+     original header. Tell the user before doing it; a theme used by several
+     portals changes all of them.
+  4. `download_portal_sources(widget_ids=["<new_id>"])`, move the edits into the
+     copy, then the normal Step 2–3 diff → push.
+
+`download_portal_sources(portal=...)` / `(page_ids=[...])` marks every record
+with its `origin`, so this choice can be made before editing, not at push time.
+
 ## Conflict resolution (`.remote` mirror)
 
 When both local and remote changed, re-download does NOT overwrite your edits.
@@ -104,6 +145,7 @@ component. `update_remote_from_local` hard-rejects it (it is a sidecar, not a fi
 | `Component not found` | `_map.json` may be stale — re-download sources |
 | `CROSS_INSTANCE` | Local source is from a DIFFERENT instance than the target (e.g. dev→test). To deploy without re-downloading, re-run with `cross_instance_deploy=true` — the target record is re-resolved BY NAME on the target (its own sys_id), safe whether or not the instances share sys_ids |
 | `TARGET_NOT_FOUND` | Cross-instance deploy: no record of that name on the target. It updates an existing record only — never creates. Create it on the target first if intended |
+| `SERVICENOW_OWNED` | Baseline record — see "ServiceNow-owned record": ask edit-in-place vs clone |
 | `TARGET_AMBIGUOUS` | Cross-instance deploy: multiple records share the name on the target — disambiguate before deploying |
 
 ## Cross-instance deploy (dev → test)

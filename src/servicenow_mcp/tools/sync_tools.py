@@ -3969,10 +3969,13 @@ def _servicenow_owned_decision(
                 "calls": [
                     clone,
                     (
-                        "manage_portal_layout(action='replace_widget', instance_id=<each instance "
-                        "of the original>, sp_widget=<new_id>)"
+                        "manage_portal_layout(action='replace_widget', instance_id=<each "
+                        "instance of the original ON THE PAGES THE USER MEANS — pages are shared "
+                        "between portals>, sp_widget=<new_id>)"
                         if record_class == "sp_widget"
-                        else "set the clone on the theme (sp_theme header/footer)"
+                        else "manage_portal_component(action='update_code', table='sp_theme', "
+                        "sys_id=<theme>, update_data={'header' or 'footer': <clone sys_id>}) — a "
+                        "ServiceNow-delivered theme becomes a customization too; ask first"
                     ),
                     "download_portal_sources(widget_ids=['<new_id>']) — then edit and push it",
                 ],
