@@ -4296,6 +4296,71 @@ class TestContentFirstDriftGate:
         assert "download_portal_sources(scope=" in result["message"]
         assert "force=true" in result["message"]
 
+    @staticmethod
+    def _rename_to_unsafe_name(download_root):
+        """A record whose name is not folder-safe: map/meta keyed 'my widget',
+        files in folder 'my_widget' — what download writes for such a record."""
+        table_dir = download_root / "global" / "sp_widget"
+        (table_dir / "my-widget").rename(table_dir / "my_widget")
+        (table_dir / "_map.json").write_text(json.dumps({"my widget": "wid-1"}), encoding="utf-8")
+        meta = _read_sync_meta(table_dir)
+        meta["my widget"] = meta.pop("my-widget")
+        _write_sync_meta(table_dir, meta)
+        return table_dir / "my_widget"
+
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_an_anchor_keyed_by_the_records_name_is_found_from_its_folder(
+        self, mock_fetch, mock_update, mock_config, mock_auth, download_root
+    ):
+        widget_dir = self._rename_to_unsafe_name(download_root)
+        (widget_dir / "script.js").write_text("var x = 2;", encoding="utf-8")
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my widget",
+            "script": "var x = 1;",
+            "sys_updated_on": "2025-01-10 10:00:00",
+            "sys_updated_by": "admin",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+        mock_update.return_value = {"success": True}
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert result.get("error") != "CONFLICT_NO_ANCHOR", result
+        mock_update.assert_called_once()
+        meta = _read_sync_meta(widget_dir.parent)
+        # One entry for the record, under the key download uses — no folder-keyed twin.
+        assert [k for k, v in meta.items() if v.get("sys_id") == "wid-1"] == ["my widget"]
+
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_diff_finds_the_name_keyed_anchor_too(
+        self, mock_fetch, mock_config, mock_auth, download_root
+    ):
+        widget_dir = self._rename_to_unsafe_name(download_root)
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my widget",
+            "script": "var x = 1;",
+            "sys_updated_on": "2025-01-10 10:00:00",
+            "sys_updated_by": "admin",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+        }
+
+        result = diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=str(widget_dir / "script.js")),
+        )
+
+        assert "no sync anchor" not in str(result.get("conflict_warning") or "").lower()
+
     @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
     def test_diff_says_no_anchor_rather_than_blaming_the_server(
         self, mock_fetch, mock_config, mock_auth, download_root

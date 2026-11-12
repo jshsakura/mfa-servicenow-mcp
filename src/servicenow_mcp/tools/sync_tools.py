@@ -929,6 +929,29 @@ def _local_field_shas(resolved: "_ResolvedComponent") -> Dict[str, str]:
     return shas
 
 
+def _meta_key(meta: SyncMeta, name: str, sys_id: str) -> str:
+    """The key this record's anchor lives under. Found by sys_id, not by name.
+
+    Download keys an entry by the record's NAME ("approval widget hh"); the push
+    and diff paths know the FOLDER ("approval_widget_hh", _safe_name of it). A
+    lookup by folder name missed the anchor of every record whose name is not
+    already folder-safe, and the gate answered CONFLICT_NO_ANCHOR — a re-download
+    rewrote the name key and never fixed it. The sys_id is the same on both sides.
+    """
+    if sys_id:
+        if (meta.get(name) or {}).get("sys_id") == sys_id:
+            return name
+        for key, entry in meta.items():
+            if isinstance(entry, dict) and entry.get("sys_id") == sys_id:
+                return key
+    return name
+
+
+def _meta_for(meta: SyncMeta, name: str, sys_id: str) -> Dict[str, Any]:
+    """This record's anchor entry, by sys_id (see _meta_key); {} when there is none."""
+    return meta.get(_meta_key(meta, name, sys_id)) or {}
+
+
 def _record_sync_meta(
     table_dir: Path,
     name: str,
@@ -951,13 +974,21 @@ def _record_sync_meta(
     provably equals the remote body.
     """
     meta = _read_sync_meta(table_dir)
-    previous = meta.get(name) or {}
+    key = _meta_key(meta, name, sys_id)
+    previous = meta.get(key) or {}
+    # One entry per record: a duplicate left under the other spelling of its name
+    # (an older push keyed it by folder) is folded into this one.
+    others = {
+        k: v
+        for k, v in meta.items()
+        if k == key or not (isinstance(v, dict) and sys_id and v.get("sys_id") == sys_id)
+    }
     # Immutable update: build a new mapping rather than mutating the loaded one.
     _write_sync_meta(
         table_dir,
         {
-            **meta,
-            name: {
+            **others,
+            key: {
                 "sys_id": sys_id,
                 "sys_updated_on": updated_on,
                 "sys_updated_by": updated_by,
@@ -1678,7 +1709,7 @@ def _scan_download_root(
     for table_name, table_dir, map_data, sync_meta in dir_entries:
         remote_meta = remote_by_table.get(table_name, {})
         for name, sys_id in map_data.items():
-            meta = sync_meta.get(name, {})
+            meta = _meta_for(sync_meta, name, str(sys_id or ""))
             local_updated_on = meta.get("sys_updated_on", "")
             downloaded_at = meta.get("downloaded_at", "")
             rmeta = remote_meta.get(sys_id, {})
@@ -2474,7 +2505,9 @@ def _verdict_scan(config: ServerConfig, auth_manager: AuthManager, root: Path) -
                 attention.append({"table": table_name, "name": name, "verdict": "missing_remote"})
                 continue
             field_rows, states, sidecars = _component_field_verdicts(
-                fields, remote_record, table_sync_meta.get(name, {}).get("field_shas", {})
+                fields,
+                remote_record,
+                _meta_for(table_sync_meta, name, sys_id).get("field_shas", {}),
             )
             if not field_rows:
                 in_sync += 1
@@ -2631,7 +2664,7 @@ def diff_local_component(
 
     table_dir = resolved.scope_root / resolved.table
     sync_meta = _read_sync_meta(table_dir)
-    meta = sync_meta.get(resolved.name, {})
+    meta = _meta_for(sync_meta, resolved.name, resolved.sys_id)
 
     # Refresh runs BEFORE anything is measured, and the anchor is re-read after it,
     # so drift, the 3-way split and the diffs all describe what is LEFT once the
@@ -2651,7 +2684,7 @@ def diff_local_component(
                 _alias_for_instance_url(config.instance_url),
             ),
         )
-        meta = _read_sync_meta(table_dir).get(resolved.name, {})
+        meta = _meta_for(_read_sync_meta(table_dir), resolved.name, resolved.sys_id)
 
     local_updated_on = meta.get("sys_updated_on", "")
     remote_updated_on = str(remote_record.get("sys_updated_on") or "")
@@ -3143,7 +3176,7 @@ def update_remote_from_local(
     #    separate, hard _validate_instance_url block above.)
     table_dir = resolved.scope_root / resolved.table
     sync_meta = _read_sync_meta(table_dir)
-    meta = sync_meta.get(resolved.name, {})
+    meta = _meta_for(sync_meta, resolved.name, resolved.sys_id)
     local_updated_on = meta.get("sys_updated_on", "")
     remote_updated_on = str(remote_record.get("sys_updated_on") or "")
     remote_updated_by = str(remote_record.get("sys_updated_by") or "").strip()

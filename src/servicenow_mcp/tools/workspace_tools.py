@@ -19,6 +19,7 @@ from .sync_tools import (
     _all_supported_tables,
     _component_field_files,
     _find_table_dirs,
+    _meta_for,
     _read_map_json,
     _read_sync_meta,
 )
@@ -78,7 +79,8 @@ def _scan_tree_local(tree: Path, component_budget: Optional[int] = None) -> Dict
     for table_name in sorted(_all_supported_tables()):
         for table_dir in _find_table_dirs(tree, table_name):
             sync_meta = _read_sync_meta(table_dir)
-            for name in sorted(_read_map_json(table_dir)):
+            map_data = _read_map_json(table_dir)
+            for name in sorted(map_data):
                 fields = _component_field_files(table_dir, name, table_name)
                 if not fields:
                     continue
@@ -87,7 +89,9 @@ def _scan_tree_local(tree: Path, component_budget: Optional[int] = None) -> Dict
                 hash_this = component_budget is None or hashed < component_budget
                 if hash_this:
                     hashed += 1
-                stored_shas = sync_meta.get(name, {}).get("field_shas", {})
+                stored_shas = _meta_for(sync_meta, name, str(map_data.get(name) or "")).get(
+                    "field_shas", {}
+                )
                 if stored_shas and hash_this:
                     with_anchor += 1
                 for field_name, fpath in sorted(fields.items()):
