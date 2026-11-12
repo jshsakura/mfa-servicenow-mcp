@@ -135,7 +135,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_flow_designer` | R/W | Flow Designer read/analyse: structure, conditions, executions, cross-instance compare, action source. Read-only - edi... | core (list), standard (get_action_source, get_detail, get_executions, list), portal_developer, platform_developer, service_desk (get_action_source, get_detail, get_executions, list), itsm_developer (get_action_source, get_detail, get_executions, list), scripting (get_action_source, get_detail, get_executions, list), full |
+| `manage_flow_designer` | R/W | Flow Designer read/analyse: structure, conditions, executions, cross-instance compare, action source. No write API: b... | core (list), standard (get_action_source, get_detail, get_executions, list), portal_developer, platform_developer, service_desk (get_action_source, get_detail, get_executions, list), itsm_developer (get_action_source, get_detail, get_executions, list), scripting (get_action_source, get_detail, get_executions, list), full |
 
 ### Form Layout Tools (1)
 

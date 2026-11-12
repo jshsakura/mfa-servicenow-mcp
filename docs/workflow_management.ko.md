@@ -228,6 +228,8 @@ Flow Designer(`sys_hub_flow`)는 레거시 워크플로우의 후속 엔진입�
 
 쓰기 액션은 철회되었습니다. `manage_flow_designer`는 플로우를 읽고 분석할 뿐 변경하지 않습니다 — 편집은 Flow Designer UI에서 하세요. 플로우 편집은 processflow 페이로드를 통째로 PUT하는데 이 툴은 그 내부 포맷을 부분적으로만 모델링합니다. `label_cache`에서 빠진 pill 하나 때문에 API로는 정상으로 읽히고 **화면에서는 빈 칸**인 조건이 만들어졌고, 저장은 매번 배포되는 업데이트셋 항목이 됩니다. 핸들러도 함께 제거했습니다. 이유는 `flow_tools.py`의 `git log`에 남아 있습니다.
 
+**UI에서 편집하는 주체는 에이전트입니다.** "Flow Designer UI에서 편집"은 사용자에게 작업을 넘기라는 뜻이 아닙니다. 에이전트가 디버그 브라우저에서 Workflow Studio를 직접 조작해(`act_in_debug_window`) 플로우를 만들고 고칩니다. 저장은 Workflow Studio가 직접 하므로 위의 `label_cache` 문제는 생기지 않습니다. 저장할 때마다 `get_detail`로 결과를 다시 읽고, `sys_update_xml`에서 어느 업데이트셋에 담겼는지 확인합니다. `flow-designer-build` 스킬을 참고하세요.
+
 ### Flow Designer 테이블 맵
 
 | Workflow Studio 탭 | 테이블 |

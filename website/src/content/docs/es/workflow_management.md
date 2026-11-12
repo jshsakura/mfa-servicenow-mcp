@@ -232,6 +232,8 @@ Acciones de lectura (disponibles en `standard`):
 
 Las acciones de escritura se han retirado. `manage_flow_designer` lee y analiza flujos; no los modifica — edítelos en la interfaz de Flow Designer. Una edición de flujo hace PUT de toda la carga de processflow, y esta herramienta modela ese formato interno solo parcialmente: un pill ausente de `label_cache` produjo una condición que se leía bien por la API y aparecía **vacía en pantalla**, y cada guardado se convierte en una entrada del update set que se despliega. Los manejadores se eliminaron con ellas; el motivo queda en el `git log` de `flow_tools.py`.
 
+**Quien edita en la UI es el agente.** "Editar en la UI de Flow Designer" no significa devolver el trabajo al usuario. El agente crea y modifica el flujo manejando Workflow Studio en el navegador de depuración (`act_in_debug_window`); Workflow Studio guarda su propio payload, así que el problema de `label_cache` descrito arriba no ocurre. Tras cada guardado, relee el resultado con `get_detail` y comprueba en `sys_update_xml` qué conjunto de actualizaciones lo capturó. Consulta la skill `flow-designer-build`.
+
 ### Mapa de Tablas de Flow Designer
 
 | Pestaña de Workflow Studio | Tabla |

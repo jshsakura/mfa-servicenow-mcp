@@ -232,6 +232,8 @@ Flow Designer（`sys_hub_flow`）是旧版工作流的现代继任者。MCP 服�
 
 写入操作已撤销。`manage_flow_designer` 只读取和分析流程，不会修改它们 — 请在 Flow Designer 界面中编辑。流程编辑会将整个 processflow 负载 PUT 回去，而本工具只是部分建模了该内部格式：`label_cache` 中缺失的一个 pill 会产生通过 API 读取正常、**在界面上为空**的条件，并且每次保存都会成为随之发布的更新集条目。处理函数也一并删除；原因记录在 `flow_tools.py` 的 `git log` 中。
 
+**在 UI 中编辑的是代理本身。**“在 Flow Designer UI 中编辑”并不是把工作交还给用户。代理在调试浏览器中操作 Workflow Studio（`act_in_debug_window`）来创建和修改流程；保存由 Workflow Studio 自己完成，因此不会出现上述 `label_cache` 问题。每次保存后用 `get_detail` 读回结果，并在 `sys_update_xml` 中确认被哪个更新集捕获。参见 `flow-designer-build` 技能。
+
 ### Flow Designer 表对照
 
 | Workflow Studio 标签页 | 表 |

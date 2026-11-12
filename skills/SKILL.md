@@ -94,6 +94,7 @@ target — or a normal Update Set promotion.
 | [app-source-download](manage/app-source-download.md) | high | yes | "앱 소스 다운로드", "전체 소스 받아", "포털 소스 백업" |
 | [local-sync](manage/local-sync.md) | low | **staged** | "로컬 동기화", "push local changes" |
 | [ui-test-evidence](manage/ui-test-evidence.md) | low | confirm | "테스트 증빙", "스크린샷 붙여", "test evidence" |
+| [flow-designer-build](manage/flow-designer-build.md) | medium | confirm | "플로우 만들어", "트리거 추가", "build the flow" |
 
 ### explore/ — Discover and navigate
 

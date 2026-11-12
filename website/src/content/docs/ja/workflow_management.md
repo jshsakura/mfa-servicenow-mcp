@@ -232,6 +232,8 @@ Flow Designer（`sys_hub_flow`）は、レガシーワークフローのモダ�
 
 書き込みアクションは取り下げられました。`manage_flow_designer` はフローの読み取りと解析のみを行い、変更はしません — 編集は Flow Designer の UI で行ってください。フロー編集は processflow ペイロード全体を PUT しますが、本ツールはその内部フォーマットを部分的にしかモデル化していません。`label_cache` から漏れたピルにより、API では正しく読めて**画面では空**になる条件が生まれ、保存は毎回そのまま配布される更新セット項目になります。ハンドラも併せて削除しました。理由は `flow_tools.py` の `git log` に残っています。
 
+**UI で編集するのはエージェントです。**「Flow Designer の UI で編集」はユーザーに作業を戻すという意味ではありません。エージェントがデバッグブラウザで Workflow Studio を操作して（`act_in_debug_window`）フローを作成・編集します。保存は Workflow Studio 自身が行うため、上記の `label_cache` の問題は起きません。保存のたびに `get_detail` で結果を読み戻し、`sys_update_xml` でどの更新セットに記録されたかを確認します。`flow-designer-build` スキルを参照してください。
+
 ### Flow Designer テーブルマップ
 
 | Workflow Studio タブ | テーブル |

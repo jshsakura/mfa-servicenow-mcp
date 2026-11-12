@@ -232,6 +232,8 @@ Read actions (available in `standard`):
 
 Write actions are withdrawn. `manage_flow_designer` reads and analyses flows; it does not change them — edit in the Flow Designer UI. A flow edit PUTs the whole processflow payload back, and this tool models that internal format only partially: a pill missing from `label_cache` gave a condition that read correctly over the API and was **empty on screen**, and every save becomes an update-set entry that ships. The handlers were removed with them; `git log` on `flow_tools.py` carries the reasoning.
 
+**Who edits in the UI: the agent.** "Edit in the Flow Designer UI" does not mean handing the work back to the user. The agent builds and edits the flow itself by driving Workflow Studio in the debug browser (`act_in_debug_window`); Workflow Studio writes its own payload, so the `label_cache` gap above cannot occur. After every save it reads the result back with `get_detail` and checks on `sys_update_xml` which update set captured it. See the `flow-designer-build` skill.
+
 ### Flow Designer Table Map
 
 | Workflow Studio Tab | Table |

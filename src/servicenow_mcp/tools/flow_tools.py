@@ -511,8 +511,8 @@ _DISPATCH = {
     params=ManageFlowDesignerParams,
     description=(
         "Flow Designer read/analyse: structure, conditions, executions, "
-        "cross-instance compare, action source. Read-only - edit flows in the "
-        "Flow Designer UI."
+        "cross-instance compare, action source. No write API: build/edit by driving "
+        "Workflow Studio with act_in_debug_window yourself, then verify with get_detail."
     ),
     serialization="json",
     return_type=dict,
