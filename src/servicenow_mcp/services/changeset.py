@@ -837,7 +837,13 @@ def change_entries(
             response.raise_for_status()
             done.append(i)
         except Exception as exc:
+            # The status line alone ("403: Forbidden") left the caller guessing at
+            # scope; the server's body usually says which rule refused it.
+            told = _write_failure("writing an entry of", changeset_id, exc)
             failure = {"sys_id": i, "error": str(exc)}
+            for key in ("http_status", "server_message", "error", "refused_by"):
+                if told.get(key) is not None:
+                    failure["reason" if key == "error" else key] = told[key]
             break
     invalidate_query_cache(table="sys_update_xml")
 
@@ -867,7 +873,13 @@ def change_entries(
     if failure:
         message = (
             f"Stopped after {len(done)} of {len(ids)}: entry {failure['sys_id']} failed "
-            f"({failure['error']}). The rest were not touched."
+            f"({failure['error']}"
+            + (
+                f" — server said: {failure['server_message']}"
+                if failure.get("server_message")
+                else ""
+            )
+            + "). The rest were not touched."
         )
     elif not verification["determined"]:
         message = (

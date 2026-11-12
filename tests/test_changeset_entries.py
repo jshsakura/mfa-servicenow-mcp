@@ -62,6 +62,7 @@ class FakeInstance:
         }
         self.writes: List[tuple] = []
         self.fail_write_on: Optional[str] = None
+        self.refusal_body: Optional[dict] = None
         self.ignore_writes = False
         self.fail_reads_after_write = False
 
@@ -106,7 +107,11 @@ class FakeInstance:
         self.writes.append((method, sys_id, json))
         response = MagicMock()
         if sys_id == self.fail_write_on:
-            response.raise_for_status.side_effect = RuntimeError("HTTP 403 Forbidden")
+            err = RuntimeError("HTTP 403 Forbidden")
+            if self.refusal_body is not None:
+                err.response = MagicMock(status_code=403)
+                err.response.json.return_value = self.refusal_body
+            response.raise_for_status.side_effect = err
             return response
         if not self.ignore_writes:
             if method == "PATCH":
@@ -362,6 +367,15 @@ class TestFailures:
         assert result["not_done"] == [E2, E3]
         assert E3 in inst.entries
         assert "The rest were not touched" in result["message"]
+
+    def test_a_refusal_carries_the_servers_reason(self, inst):
+        inst.fail_write_on = E1
+        inst.refusal_body = {"error": {"message": "Operation Failed", "detail": "ACL Exception"}}
+        result = _remove(inst, [E1, E2], confirm_remove="Sprint 12 fixes")
+        assert result["failure"]["http_status"] == 403
+        assert result["failure"]["server_message"] == "Operation Failed — ACL Exception"
+        assert result["failure"]["reason"] == "WRITE_REFUSED"
+        assert "server said: Operation Failed — ACL Exception" in result["message"]
 
     def test_unreadable_read_back_is_not_verified(self, inst):
         inst.fail_reads_after_write = True

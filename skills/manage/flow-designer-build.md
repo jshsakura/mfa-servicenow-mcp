@@ -78,6 +78,11 @@ only for a layout question; one per step is what made a session slow.
 
 - **Edit mode**: a published flow opens Read-only (status bar). Click
   `text=Edit flow` first; Undo/Redo appear once it took.
+- **Update set moves under you**: the current update set is a USER preference,
+  shared by the window and every API session of the account. Editing a flow of
+  a scoped app switches it to that app's last set. Any write's
+  `update_set_context.changed_from` says it happened — switch back before the
+  next save, and never "fix" it by asking the user about another session.
 - **Autosave**: in edit mode EVERY change is saved to the server as a draft
   (History shows "Autosaved") and captured into the window's update set. There
   is no "try it without saving" — undo a change with History → Restore.

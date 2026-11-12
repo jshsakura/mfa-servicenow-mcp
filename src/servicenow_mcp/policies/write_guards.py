@@ -1394,12 +1394,36 @@ def update_set_context(
         # "something is off" — spending it on "everything is fine" both costs
         # every single write and dulls the cases above, which are the ones
         # that must read as alarming.
+        # The current update set is a USER preference, not per session: the
+        # debug window (Workflow Studio autosaving into a scoped app) and every
+        # other session of the same account move it. Measured: it flipped at the
+        # exact seconds the window saved, with one terminal working. Say so on
+        # the write where it is first seen, not on the next wrong capture.
+        instance = str(getattr(server.config, "instance_url", "") or "")
+        before = _LAST_SEEN_UPDATE_SET.get(instance)
+        _LAST_SEEN_UPDATE_SET[instance] = (us["sys_id"], us_name)
+        # A deliberate pick is the caller's own move, not news.
+        if before and before[0] != us["sys_id"] and tool_name != "manage_session_context":
+            ctx["changed_from"] = before[1]
+            notes.append(
+                f"⚠ Current update set changed since your last write: '{before[1]}' → "
+                f"'{us_name}'. It is per USER, not per session: the debug window (Workflow "
+                "Studio saving in a scoped app switches it) or another session of the same "
+                "user moved it. Switch back with "
+                f"manage_session_context(action='set_update_set', update_set_id='{before[0]}') "
+                "if this is not where the next change belongs."
+            )
+
         if notes:
             ctx["note"] = " ".join(notes)
         return ctx
     except Exception:
         logger.debug("update_set_context computation failed", exc_info=True)
         return None
+
+
+# instance_url -> (sys_id, name) of the current update set at this process's last write.
+_LAST_SEEN_UPDATE_SET: Dict[str, Tuple[str, str]] = {}
 
 
 # ---------------------------------------------------------------------------
