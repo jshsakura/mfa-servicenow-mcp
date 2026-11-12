@@ -247,6 +247,120 @@ def claim_window_slot(auth_manager: Any) -> int:
         return 1
 
 
+def _cdp_tabs(
+    port: int, timeout_s: float = _PORT_PROBE_TIMEOUT_S
+) -> Optional[List[Dict[str, str]]]:
+    """Title and URL of each real tab, or None when the window could not be asked."""
+    try:
+        with urllib.request.urlopen(  # noqa: S310 - fixed loopback URL
+            f"http://127.0.0.1:{port}/json/list", timeout=timeout_s
+        ) as response:
+            if not 200 <= response.status < 300:
+                return None
+            targets = json.loads(response.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    if not isinstance(targets, list):
+        return None
+    tabs = []
+    for target in targets:
+        if not isinstance(target, dict) or target.get("type") != "page":
+            continue
+        url = str(target.get("url") or "")
+        if url.startswith("devtools://"):
+            continue
+        parsed = urlparse(url)
+        tabs.append(
+            {
+                "title": str(target.get("title") or "")[:80],
+                "url": f"{parsed.hostname or ''}{parsed.path}" if parsed.hostname else url[:80],
+            }
+        )
+    return tabs
+
+
+def unclaimed_open_windows(auth_manager: Any) -> List[Dict[str, Any]]:
+    """Open windows of this account that no running terminal holds.
+
+    After a restart these are the previous terminals' windows. Which one holds
+    the work in progress is only visible from their tabs, so each comes with its
+    tabs and how long it has been idle — for the caller to pick by, not to guess.
+    """
+    root = _cache_root(auth_manager)
+    base = _base_window_key(auth_manager)
+    found = []
+    for number in window_slot.free_numbers(root, base):
+        state = read_window_state(KeyedWindow(root, base + window_suffix(number)))
+        if state is None or not _is_pid_alive(state.pid) or not _cdp_responds(state.port):
+            continue
+        tabs = _cdp_tabs(state.port)
+        if not tabs:
+            continue  # nothing open to continue in; not a choice worth offering
+        idle = (
+            max(0.0, time.time() - float(state.last_used_at or 0)) if state.last_used_at else None
+        )
+        found.append(
+            {
+                "window": number,
+                "tabs": tabs[:5],
+                "idle_min": round(idle / 60) if idle is not None else None,
+            }
+        )
+    return found
+
+
+def choose_window_slot(auth_manager: Any, number: Optional[int]) -> Optional[Dict[str, Any]]:
+    """Settle which window this terminal drives before anything else runs.
+
+    ``number`` given: lease exactly that window, or say why not. Not given and
+    nothing leased yet (a fresh process, e.g. after an MCP restart): one open
+    window nobody holds is taken — it is where the work was — and two or more
+    are listed for the caller to pick, since taking the lowest number is how a
+    restarted session ended up in an older window on another update set.
+    Returns a reply to hand back instead of running the tool, or None to go on.
+    Never raises.
+    """
+    try:
+        root = _cache_root(auth_manager)
+        base = _base_window_key(auth_manager)
+        if number is not None:
+            result = window_slot.claim_number(root, base, int(number))
+            if result == "ok":
+                return None
+            reasons = {
+                "held": f"Window {number} belongs to another running terminal.",
+                "invalid": f"There is no window {number}; windows are 1-{window_slot.MAX_WINDOWS}.",
+                "unavailable": f"Window {number} could not be leased just now.",
+            }
+            return {
+                "success": False,
+                "error": "WINDOW_NOT_AVAILABLE",
+                "message": reasons.get(result, result),
+                "windows": unclaimed_open_windows(auth_manager),
+            }
+        if window_slot.has_claimed(base):
+            return None
+        open_windows = unclaimed_open_windows(auth_manager)
+        if len(open_windows) == 1:
+            window_slot.claim_number(root, base, open_windows[0]["window"])
+            return None
+        if len(open_windows) > 1:
+            return {
+                "success": False,
+                "error": "CHOOSE_WINDOW",
+                "message": (
+                    f"{len(open_windows)} debug windows are open and none is this terminal's "
+                    "yet (new MCP process). Pick the one holding the work by its tabs and call "
+                    "again with window=<n>. Ask the user if the tabs do not settle it."
+                ),
+                "windows": open_windows,
+            }
+        return None
+    except Exception as exc:  # noqa: BLE001 - choosing must never block the window
+        logger.debug("Could not settle the debug window choice: %s", exc)
+        return None
+
+
 def window_shared_fallback(auth_manager: Any) -> bool:
     """True when every window was held and this process shares window 1."""
     from .window_slot import is_shared
@@ -1311,7 +1425,9 @@ __all__ = [
     "KeyedWindow",
     "Liveness",
     "WindowState",
+    "choose_window_slot",
     "claim_window_slot",
+    "unclaimed_open_windows",
     "clear_window_state",
     "close_windows_of_this_process",
     "ensure_window",

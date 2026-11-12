@@ -427,3 +427,138 @@ def test_an_unreadable_window_is_could_not_tell(monkeypatch):
     monkeypatch.setattr(_offload, "require_playwright", lambda: None)
     monkeypatch.setattr(_offload, "run_off_loop", broken)
     assert session.window_signed_in("http://127.0.0.1:1", ()) is None
+
+
+# ---------------------------------------------------------------------------
+# After an MCP restart: continue in the window that holds the work, never guess
+# ---------------------------------------------------------------------------
+
+
+def _prior_window(tmp_path, number, pid, tabs, last_used_at=0.0):
+    """A previous terminal's window: state file on disk, process and port live."""
+    key = BASE + window_slot.window_suffix(number)
+    state = {
+        "pid": pid,
+        "port": 9000 + number,
+        "profile_dir": str(tmp_path / f"debug_profile_{key}"),
+        "instance_url": "https://dev.example.com",
+        "started_at": 1.0,
+        "last_used_at": last_used_at,
+    }
+    (tmp_path / f"debug_window_{key}.json").write_text(json.dumps(state))
+    return 9000 + number, tabs
+
+
+@pytest.fixture
+def live_windows(monkeypatch):
+    """port -> tabs for every window whose browser answers."""
+    ports = {}
+    monkeypatch.setattr(window, "_is_pid_alive", lambda pid: True)
+    monkeypatch.setattr(window, "_cdp_responds", lambda port, timeout_s=0: port in ports)
+    monkeypatch.setattr(window, "_cdp_tabs", lambda port, timeout_s=0: ports.get(port))
+    return ports
+
+
+_STUDIO = [{"title": "Workflow Studio", "url": "dev.example.com/now/workflow-studio"}]
+_HOME = [{"title": "Dashboard", "url": "dev.example.com/now/nav/ui/home"}]
+
+
+def test_two_open_windows_after_a_restart_are_listed_not_guessed(
+    auth, tmp_path, procs, live_windows
+):
+    live_windows.update(
+        [_prior_window(tmp_path, 2, 501, _HOME), _prior_window(tmp_path, 3, 502, _STUDIO)]
+    )
+
+    out = window.choose_window_slot(auth, None)
+
+    assert out["error"] == "CHOOSE_WINDOW"
+    assert [(w["window"], w["tabs"][0]["title"]) for w in out["windows"]] == [
+        (2, "Dashboard"),
+        (3, "Workflow Studio"),
+    ]
+    assert not (tmp_path / f"debug_slot_{BASE}__w2.lease").exists()  # nothing taken
+
+
+def test_picking_a_window_leases_exactly_that_one_and_sticks(auth, tmp_path, procs, live_windows):
+    live_windows.update(
+        [_prior_window(tmp_path, 2, 501, _HOME), _prior_window(tmp_path, 3, 502, _STUDIO)]
+    )
+
+    assert window.choose_window_slot(auth, 3) is None
+    assert _holder(tmp_path, 3) == os.getpid()
+    assert window.choose_window_slot(auth, None) is None  # chosen: no second question
+    assert window.claim_window_slot(auth) == 3
+    assert window.window_state_path(auth).endswith(f"debug_window_{BASE}__w3.json")
+
+
+def test_a_single_open_window_is_continued_even_when_a_lower_number_is_free(
+    auth, tmp_path, procs, live_windows
+):
+    # The lowest-free scan would open a NEW window 1 next to the work in window 3.
+    live_windows.update([_prior_window(tmp_path, 3, 502, _STUDIO)])
+
+    assert window.choose_window_slot(auth, None) is None
+    assert window.claim_window_slot(auth) == 3
+
+
+def test_a_window_another_terminal_holds_is_refused_and_not_listed(
+    auth, tmp_path, procs, live_windows
+):
+    procs[OTHER_PID] = 2000.0
+    _lease(tmp_path, 3, OTHER_PID)
+    live_windows.update(
+        [_prior_window(tmp_path, 2, 501, _HOME), _prior_window(tmp_path, 3, 502, _STUDIO)]
+    )
+
+    out = window.choose_window_slot(auth, 3)
+
+    assert out["error"] == "WINDOW_NOT_AVAILABLE" and "another running terminal" in out["message"]
+    assert [w["window"] for w in out["windows"]] == [2]
+    assert _holder(tmp_path, 3) == OTHER_PID
+
+
+def test_switching_windows_releases_the_old_lease(auth, tmp_path, procs, live_windows):
+    assert window.choose_window_slot(auth, 2) is None
+    assert window.choose_window_slot(auth, 4) is None
+
+    assert not (tmp_path / f"debug_slot_{BASE}__w2.lease").exists()
+    assert _holder(tmp_path, 4) == os.getpid()
+
+
+def test_no_such_window_number(auth, procs, live_windows):
+    assert window.choose_window_slot(auth, 9)["error"] == "WINDOW_NOT_AVAILABLE"
+
+
+def test_a_window_with_no_tabs_is_not_offered(auth, tmp_path, procs, live_windows):
+    live_windows.update(
+        [_prior_window(tmp_path, 2, 501, []), _prior_window(tmp_path, 3, 502, _STUDIO)]
+    )
+
+    assert window.choose_window_slot(auth, None) is None
+    assert window.claim_window_slot(auth) == 3
+
+
+def test_tabs_are_read_from_the_window_without_devtools_or_query_strings(monkeypatch):
+    import io
+
+    body = json.dumps(
+        [
+            {"type": "page", "title": "Flow", "url": "https://dev.example.com/now/wf?sys_id=x"},
+            {"type": "page", "title": "DevTools", "url": "devtools://devtools/inspector.html"},
+            {"type": "service_worker", "title": "sw", "url": "https://dev.example.com/sw.js"},
+        ]
+    ).encode()
+
+    class _Resp(io.BytesIO):
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(window.urllib.request, "urlopen", lambda *a, **k: _Resp(body))
+
+    assert window._cdp_tabs(9001) == [{"title": "Flow", "url": "dev.example.com/now/wf"}]

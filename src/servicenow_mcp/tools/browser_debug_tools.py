@@ -93,6 +93,7 @@ from ..browser.server_scripts import ServerScriptBlocked, navigation_rejection, 
 from ..browser.session import api_username, describe_window_user
 from ..browser.session import instance_host as _host_of
 from ..browser.window import (
+    choose_window_slot,
     claim_window_slot,
     clear_window_state,
     ensure_window,
@@ -160,6 +161,10 @@ def _script_surface_refusal(target_url: str) -> Optional[Dict[str, Any]]:
 
 
 class OpenDebugWindowParams(BaseModel):
+    window: Optional[int] = Field(
+        default=None,
+        description="Debug window number to drive (from CHOOSE_WINDOW). Sticks for this terminal.",
+    )
     url: Optional[str] = Field(
         default=None, description="Page to open. Relative paths resolve against the instance."
     )
@@ -234,6 +239,10 @@ class DebugAction(BaseModel):
 
 
 class ActInDebugWindowParams(BaseModel):
+    window: Optional[int] = Field(
+        default=None,
+        description="Debug window number to drive (from CHOOSE_WINDOW). Sticks for this terminal.",
+    )
     actions: List[DebugAction] = Field(
         description="Steps in order. Stops at the first failure and reports it."
     )
@@ -273,6 +282,10 @@ class ActInDebugWindowParams(BaseModel):
 
 
 class InspectDebugWindowParams(BaseModel):
+    window: Optional[int] = Field(
+        default=None,
+        description="Debug window number to drive (from CHOOSE_WINDOW). Sticks for this terminal.",
+    )
     watch_seconds: float = Field(
         default=0,
         description="Record while the user clicks. 0 reads what already happened.",
@@ -400,6 +413,9 @@ def open_debug_window(
     params: OpenDebugWindowParams,
 ) -> Dict[str, Any]:
     # First, before any window path is computed: which window is this terminal's.
+    choice = choose_window_slot(auth_manager, params.window)
+    if choice is not None:
+        return choice
     claim_window_slot(auth_manager)
     target_url = _resolve_url(config, params.url)
 
@@ -736,6 +752,9 @@ def inspect_debug_window(
     auth_manager: AuthManager,
     params: InspectDebugWindowParams,
 ) -> Dict[str, Any]:
+    choice = choose_window_slot(auth_manager, params.window)
+    if choice is not None:
+        return choice
     claim_window_slot(auth_manager)
     if params.screenshot not in SCREENSHOT_MODES:
         return {
@@ -911,6 +930,9 @@ def act_in_debug_window(
     auth_manager: AuthManager,
     params: ActInDebugWindowParams,
 ) -> Dict[str, Any]:
+    choice = choose_window_slot(auth_manager, params.window)
+    if choice is not None:
+        return choice
     claim_window_slot(auth_manager)
     if params.screenshot not in SCREENSHOT_MODES:
         return {

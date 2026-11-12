@@ -239,9 +239,63 @@ def claim(root: str, base_key: str) -> int:
         return number
 
 
+def has_claimed(base_key: str) -> bool:
+    """True once this process holds (or shares) a window for ``base_key``."""
+    return base_key in _held
+
+
+def free_numbers(root: str, base_key: str) -> List[int]:
+    """Window numbers no running process holds — the ones this process may take."""
+    out = []
+    for number in range(1, MAX_WINDOWS + 1):
+        holder = _read(lease_path(root, base_key + window_suffix(number)))
+        if holder is None or _is_mine(holder) or not _holder_is_live(holder):
+            out.append(number)
+    return out
+
+
+def claim_number(root: str, base_key: str, number: int) -> str:
+    """Lease window ``number`` specifically. Never raises.
+
+    ``"ok"`` — it is this process's window now (any other lease of ours on the
+    same account is released, the window itself left open). ``"held"`` — another
+    running process holds it. ``"invalid"`` — not a window number.
+    ``"unavailable"`` — the lease could not be written.
+    """
+    if not 1 <= int(number) <= MAX_WINDOWS:
+        return "invalid"
+    if not os.path.isabs(str(root or "")):
+        return "unavailable"
+    with _guard:
+        target = base_key + window_suffix(number)
+        try:
+            os.makedirs(root, exist_ok=True)
+            with launch_claim(os.path.join(root, f"{_LEASE_PREFIX}{base_key}.claim")) as ok:
+                if not ok:
+                    return "unavailable"
+                if not _take(lease_path(root, target)):
+                    holder = _read(lease_path(root, target))
+                    return (
+                        "held" if holder is not None and _holder_is_live(holder) else "unavailable"
+                    )
+        except (LaunchBusy, OSError) as exc:
+            logger.debug("Could not lease debug window %s: %s", number, exc)
+            return "unavailable"
+        previous = _owned.get(base_key)
+        if previous and previous[1] != target:
+            release(*previous)
+        _shared.discard(base_key)
+        _owned[base_key] = (root, target)
+        _held[base_key] = number
+        return "ok"
+
+
 __all__ = [
     "MAX_WINDOWS",
     "claim",
+    "claim_number",
+    "free_numbers",
+    "has_claimed",
     "held_number",
     "is_shared",
     "lease_held_elsewhere",
