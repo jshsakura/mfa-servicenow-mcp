@@ -66,6 +66,21 @@ def _write_failure(verb: str, changeset_id: str, exc: Exception) -> Dict[str, An
             f"Roles those ACLs require: {_ACL_LOOKUPS[1]}",
             f"The set itself: manage_changeset(action='get', changeset_id='{changeset_id}')",
         ]
+    elif status == 404:
+        # Measured on lab: a user without read access to the set gets 404 "No Record
+        # found — Record doesn't exist or ACL restricts the record retrieval". So a
+        # 404 is not proof the set is gone — say both, never just "not found".
+        out["error"] = "NOT_FOUND_OR_HIDDEN"
+        out["refused_by"] = (
+            "ServiceNow answers 404 both when the set does not exist and when a read ACL "
+            "hides it from this session's user. Nothing changed. Do not tell the user the "
+            "set is gone until it is checked by someone who can read it."
+        )
+        out["next"] = [
+            f"The set as this session sees it: manage_changeset(action='get', changeset_id='{changeset_id}')",
+            "Who this session is: manage_session_context(action='get')",
+            f"Read ACLs on the table: {_ACL_LOOKUPS[0]}",
+        ]
     return out
 
 

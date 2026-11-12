@@ -145,6 +145,25 @@ def test_update_will_not_complete_a_set_and_points_at_commit():
 SET_ID_U = "aaaa1111bbbb2222cccc3333dddd4444"
 
 
+def test_a_404_on_write_is_not_called_gone():
+    auth = MagicMock()
+    auth.get_headers.return_value = {}
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = _http_error(
+        404,
+        {
+            "error": {
+                "message": "No Record found",
+                "detail": "Record doesn't exist or ACL restricts the record retrieval",
+            }
+        },
+    )
+    auth.make_request.return_value = resp
+    out = cs_svc.update(_config(), auth, changeset_id=SET_ID_U, name="x")
+    assert out["error"] == "NOT_FOUND_OR_HIDDEN" and "read ACL" in out["refused_by"]
+    assert "ACL restricts" in out["server_message"]
+
+
 # --- commit: what is shown and checked before a set is closed -----------------
 
 SET_ID = "aaaa1111bbbb2222cccc3333dddd4444"
