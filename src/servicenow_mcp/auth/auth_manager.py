@@ -3123,7 +3123,14 @@ class AuthManager:
             username = browser_config.username
             password = browser_config.password
 
-            if username and password:
+            if username and getattr(browser_config, "login", "password") == "sso":
+                # SSO drops the password by design (cli.py), so the both-fields
+                # branch below never ran and the locator's user ID stayed empty.
+                from servicenow_mcp.browser.login import fill_sso_user_id
+
+                sso_status = fill_sso_user_id(page, username, wait_ms=min(timeout_ms, 10_000))
+                logger.info("SSO login: user ID on the locator page -> %s", sso_status)
+            elif username and password:
                 # Wait for any username selector to become visible before filling.
                 # Some login pages (SSO, custom portals) render the form via JS after
                 # the load event — without this wait, fill() silently finds nothing.

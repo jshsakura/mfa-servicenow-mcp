@@ -364,3 +364,36 @@ def test_every_sso_outcome_says_something(result):
 
     assert note
     assert "password in the config" not in note
+
+
+# ---------------------------------------------------------------------------
+# The MCP's own login window (AuthManager): SSO has no password, so the user ID
+# must still go into the locator — it used to wait for both and fill nothing.
+# ---------------------------------------------------------------------------
+
+
+def test_sso_user_id_is_typed_and_submitted_on_the_locator():
+    page = FakePage(known={_SSO_FIELD, _SSO_SUBMIT}, url=_LOCATOR)
+
+    assert login.fill_sso_user_id(page, "alice", wait_ms=10) == "submitted"
+    assert page.calls == [("fill", _SSO_FIELD, "alice"), ("click", _SSO_SUBMIT)]
+
+
+def test_off_the_locator_nothing_is_typed():
+    page = FakePage(
+        known={"input#password", "input[type='password']"}, url="https://idp.example.com/"
+    )
+
+    assert login.fill_sso_user_id(page, "alice", wait_ms=10) == "no_sso_field"
+    assert page.calls == []
+
+
+def test_the_api_login_window_takes_the_sso_branch_without_a_password():
+    import inspect
+
+    from servicenow_mcp.auth.auth_manager import AuthManager
+
+    src = inspect.getsource(AuthManager._login_with_browser_sync)
+    sso_at = src.index('== "sso"')
+    assert "fill_sso_user_id(page, username" in src[sso_at : sso_at + 600]
+    assert sso_at < src.index("elif username and password:")

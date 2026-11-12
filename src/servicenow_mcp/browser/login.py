@@ -444,6 +444,37 @@ def _sso_verdict(page: Any, locator_url: str) -> Optional[bool]:
         time.sleep(_VERDICT_POLL_S)
 
 
+def fill_sso_user_id(page: Any, user: str, *, wait_ms: int) -> str:
+    """Type the user ID into the SSO locator page and submit it — nothing else.
+
+    For the MCP's own login window (``AuthManager``), where SSO has no password
+    by design. Never raises; returns what happened. Not on the locator (already
+    at the identity provider, or a custom login_url) is ``no_sso_field``: the
+    window stays open for the user, and no password field is ever touched.
+    """
+    target = _sso_field(page)
+    if target is None:
+        try:
+            page.wait_for_selector(SSO_USER_FIELD, timeout=wait_ms, state="visible")
+        except Exception:  # noqa: BLE001 - not the locator page
+            return "no_sso_field"
+        target = _sso_field(page)
+        if target is None:
+            return "no_sso_field"
+    try:
+        target.fill(SSO_USER_FIELD, user)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Could not type into the SSO user ID field: %s", exc)
+        return "fill_failed"
+    if _click_first_matching(target, SSO_SUBMIT_SELECTORS):
+        return "submitted"
+    try:
+        target.locator(SSO_USER_FIELD).press("Enter")
+        return "submitted"
+    except Exception:  # noqa: BLE001 - filled; the user can press Submit
+        return "filled"
+
+
 def _sso_sign_in(
     page: Any, state: WindowState, *, user: str, locator: str, marker_path: str
 ) -> Dict[str, Any]:
