@@ -1903,6 +1903,12 @@ class ServiceNowMCP:
             if read_actions and arguments.get("action") in read_actions:
                 requires_confirmation = False
 
+        if requires_confirmation and self._is_guarded_dry_run(name, arguments):
+            # A preview writes nothing: run_with_dry_run_guard stops the first
+            # write for any tool whose params carry dry_run. Asking for approval
+            # to look made callers skip the preview and guess from a query.
+            requires_confirmation = False
+
         if requires_confirmation:
             confirmation = str(arguments.get(CONFIRM_FIELD, "")).lower().strip()
             if confirmation != CONFIRM_VALUE:
@@ -2152,6 +2158,21 @@ class ServiceNowMCP:
                 return run_with_dry_run_guard(impl_func, call_config, call_auth_manager, params)
 
         return await anyio.to_thread.run_sync(_worker)
+
+    def _is_guarded_dry_run(self, name: str, arguments: Dict[str, Any]) -> bool:
+        """True when this call is a preview the dry-run guard will hold to no write.
+
+        Only for a tool whose params model HAS dry_run: on any other tool the
+        argument is dropped by validation, the guard never engages, and the call
+        writes for real — so it keeps its confirm.
+        """
+        value = arguments.get("dry_run")
+        if not (value is True or str(value).strip().lower() == "true"):
+            return False
+        definition = self.tool_definitions.get(name)
+        params_model = definition[1] if definition else None
+        fields = getattr(params_model, "model_fields", {}) or {}
+        return "dry_run" in fields
 
     @contextlib.contextmanager
     def _scoped_active_instance(self, ctx: Optional[Dict[str, Any]]):

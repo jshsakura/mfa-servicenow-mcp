@@ -1110,3 +1110,45 @@ def test_a_push_is_never_auto_routed(monkeypatch, tmp_path):
     server = _build_multi_server(monkeypatch, tmp_path)
     path = _tree_from(tmp_path, "https://test.service-now.com")
     assert server._auto_route_diff_to_origin("update_remote_from_local", {"path": str(path)}) == ""
+
+
+class _DryRunParams(BaseModel):
+    action: str = "update"
+    dry_run: bool = False
+
+
+def _register_writer(server, name, params_model):
+    sent = []
+
+    def _impl(_config, auth_manager, _params):
+        auth_manager.make_request(
+            "PATCH", "https://dev.service-now.com/api/now/table/x/1", json={"a": 1}
+        )
+        sent.append("PATCH")
+        return {"success": True}
+
+    server.tool_definitions[name] = (_impl, params_model, dict, "desc", "raw_dict")
+    if name not in server.enabled_tool_names:
+        server.enabled_tool_names.append(name)
+    return sent
+
+
+def test_a_dry_run_preview_needs_no_confirm_and_writes_nothing(monkeypatch, tmp_path):
+    server = _build_server(monkeypatch, tmp_path)
+    sent = _register_writer(server, "manage_incident", _DryRunParams)
+
+    blocks = asyncio.run(server._call_tool_impl("manage_incident", {"dry_run": True}))
+
+    out = json.loads(blocks[0].text)
+    assert out["dry_run"] is True and out["would_send"]["method"] == "PATCH"
+    assert sent == []
+
+
+def test_dry_run_on_a_tool_without_the_field_still_needs_confirm(monkeypatch, tmp_path):
+    # The argument would be dropped by validation and the write would go out.
+    server = _build_server(monkeypatch, tmp_path)
+    sent = _register_writer(server, "manage_incident", EmptyParams)
+
+    with pytest.raises(ValueError, match="confirm='approve'"):
+        asyncio.run(server._call_tool_impl("manage_incident", {"dry_run": True}))
+    assert sent == []
