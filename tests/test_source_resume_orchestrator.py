@@ -265,10 +265,14 @@ def test_finished_job_expires_and_the_next_call_downloads_again(
     source_tools._BG_JOBS.clear()
     monkeypatch.setattr(source_tools, "_BG_POLL_MAX_BLOCK_SECONDS", 0.05)
     monkeypatch.setattr(source_tools, "_BG_POLL_TICK_SECONDS", 0.02)
-    monkeypatch.setattr(source_tools, "_BG_JOB_RESULT_TTL_SECONDS", 0.0)
-
     first = _finish_one_job(config, auth, tmp_path)
     assert first["success"] is True
+    assert first.get("status") != "started", "the drain started a second job"
+
+    # Expire only now. With the TTL at 0 during the drain, the poll that sees the
+    # job finish can find its result already expired and start a SECOND job,
+    # which then answers "running" below — a race on timing, not a defect.
+    monkeypatch.setattr(source_tools, "_BG_JOB_RESULT_TTL_SECONDS", 0.0)
 
     # TTL elapsed: the stored answer is gone, so an identical call must do work
     # rather than hand back the old dict.
