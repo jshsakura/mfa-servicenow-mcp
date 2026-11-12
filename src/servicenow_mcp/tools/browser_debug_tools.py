@@ -231,8 +231,11 @@ class DebugAction(BaseModel):
         description="fill/type text, select option, goto path, eval JS, or who to impersonate.",
     )
     key: Optional[str] = Field(default=None, description="Key for press, e.g. Enter.")
-    ms: Optional[int] = Field(default=None, description="Pause length for action='wait'.")
-    timeout_ms: Optional[int] = Field(default=None, description="Per-step timeout. Default 10000.")
+    ms: Optional[int] = Field(
+        default=None,
+        description="Fixed pause for action='wait'. Avoid: steps wait for their element; use wait_for.",
+    )
+    timeout_ms: Optional[int] = Field(default=None, description="Per-step timeout. Default 5000.")
     state: Optional[str] = Field(
         default=None, description="For wait_for: visible (default), hidden, attached, detached."
     )

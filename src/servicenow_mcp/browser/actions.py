@@ -59,6 +59,7 @@ one option that helps nobody.
 """
 
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urljoin, urlparse
@@ -92,7 +93,10 @@ logger = logging.getLogger(__name__)
 MAX_ACTIONS = 25
 
 # Per-step budget: how long to wait for the element, and for the action itself.
-DEFAULT_STEP_TIMEOUT_MS = 10_000
+# 5s, not 10: in one live Workflow Studio session ten misses each burned the full
+# 10s (100s of 375s). An element that is coming shows up well inside 5s; one
+# that is not gets the near matches below sooner. timeout_ms raises it per step.
+DEFAULT_STEP_TIMEOUT_MS = 5_000
 MAX_STEP_TIMEOUT_MS = 60_000
 
 # An explicit pause between steps ("give the form a second to react"). Capped
@@ -166,9 +170,12 @@ class _OnlyHidden(LookupError):
 class ActionError(RuntimeError):
     """A step could not be carried out. Carries the step index for the report."""
 
-    def __init__(self, message: str, *, index: int) -> None:
+    def __init__(
+        self, message: str, *, index: int, near: Optional[List[Dict[str, Any]]] = None
+    ) -> None:
         super().__init__(message)
         self.index = index
+        self.near = near or []
 
 
 def _targets(page: Any) -> Sequence[Any]:
@@ -257,6 +264,100 @@ def _resolve_locator(page: Any, selector: str, timeout_ms: int, *, need_visible:
             if hidden:
                 raise _OnlyHidden(hidden)
             raise LookupError(selector)
+        time.sleep(_RESOLVE_POLL_S)
+
+
+# Actions that need the element to accept input; a disabled one never will.
+_NEEDS_ENABLED = frozenset({"click", "double_click", "fill", "select", "check", "uncheck"})
+# How long a found-but-disabled element gets to enable itself (a button that
+# enables a beat after the last field is filled) before the step says why.
+_ENABLE_GRACE_S = 1.5
+_TEXT_IN_SELECTOR = re.compile(
+    r"""(?:text(?:-is)?\s*=\s*|has-text\(\s*|text-is\(\s*)['"]?/?\^?\\?s?\*?([^'")/$>]+)"""
+)
+# Playwright's own reason, from the call log a failed action raises with.
+_ACTION_REASONS = (
+    ("not enabled", "it is disabled"),
+    ("intercepts pointer events", "another element covers it"),
+    ("not stable", "it is still moving (animating)"),
+    ("outside of the viewport", "it is outside the viewport"),
+    ("not visible", "it is not visible"),
+)
+
+
+def _reason_of(message: str) -> str:
+    low = message.lower()
+    for needle, said in _ACTION_REASONS:
+        if needle in low:
+            return said
+    return ""
+
+
+def _text_of_selector(selector: str) -> str:
+    found = _TEXT_IN_SELECTOR.search(selector or "")
+    if not found:
+        return ""
+    # A regex selector (/^\s*\[sc_request\]\s*$/) keeps only its literal text.
+    text = re.sub(r"\\[sSdDwWb][*+?]?", " ", found.group(1)).replace("\\", "")
+    return " ".join(text.split())
+
+
+def near_matches(page: Any, selector: str, limit: int = 6) -> List[Dict[str, Any]]:
+    """Visible elements whose text resembles the selector's — what to click instead.
+
+    A miss used to come back as "no element matched", and the next call was a
+    DOM-walking evaluate to find out what WAS there. The page already knows.
+    Never raises; [] when the selector carries no text or nothing resembles it.
+    """
+    text = _text_of_selector(selector)
+    if not text:
+        return []
+    words = [w for w in re.split(r"\s+", text) if len(w) >= 2]
+    probes = [text] + sorted(set(words) - {text}, key=len, reverse=True)[:2]
+    seen: set = set()
+    out: List[Dict[str, Any]] = []
+    for probe in probes:
+        for target in _targets(page):
+            try:
+                found = target.get_by_text(probe)
+                count = min(found.count(), 20)
+            except Exception:  # noqa: BLE001 - a detached frame is simply skipped
+                continue
+            for i in range(count):
+                try:
+                    el = found.nth(i)
+                    if not el.is_visible():
+                        continue
+                    label = " ".join(el.inner_text(timeout=300).split())[:60]
+                    if not label or label in seen:
+                        continue
+                    seen.add(label)
+                    out.append(
+                        {
+                            "text": label,
+                            "tag": str(el.evaluate("e => e.tagName.toLowerCase()")),
+                            "enabled": bool(el.is_enabled()),
+                        }
+                    )
+                except Exception:  # noqa: BLE001
+                    continue
+                if len(out) >= limit:
+                    return out
+        if out:
+            return out
+    return out
+
+
+def _wait_enabled(locator: Any) -> bool:
+    deadline = time.time() + _ENABLE_GRACE_S
+    while True:
+        try:
+            if locator.is_enabled():
+                return True
+        except Exception:  # noqa: BLE001 - unreadable is not "disabled"; let the action try
+            return True
+        if time.time() >= deadline:
+            return False
         time.sleep(_RESOLVE_POLL_S)
 
 
@@ -526,7 +627,17 @@ def _run_step(
             f"No element matched '{selector}' within {timeout_ms}ms "
             "(searched the page and every frame).",
             index=index,
+            near=near_matches(page, selector),
         ) from exc
+
+    if name in _NEEDS_ENABLED and not _wait_enabled(locator):
+        # Found and visible but disabled: waiting out the timeout cannot help,
+        # and the bare Playwright log hid the reason (cut at "enabled and st...").
+        raise ActionError(
+            f"'{selector}' is on the page but disabled — it enables when the page is "
+            "ready for it (e.g. required fields filled). Nothing was clicked.",
+            index=index,
+        )
 
     try:
         if name == "click":
@@ -550,7 +661,14 @@ def _run_step(
         elif name == "scroll_to":
             locator.scroll_into_view_if_needed(timeout=timeout_ms)
     except Exception as exc:  # noqa: BLE001 - Playwright raises a wide family here
-        raise ActionError(f"{name} on '{selector}' failed: {str(exc)[:300]}", index=index) from exc
+        reason = _reason_of(str(exc))
+        raise ActionError(
+            f"{name} on '{selector}' failed"
+            + (f": {reason}" if reason else "")
+            + f". {str(exc)[:200]}",
+            index=index,
+            near=near_matches(page, selector) if reason else None,
+        ) from exc
 
     return {}
 
@@ -651,6 +769,8 @@ def act(
                     except ActionError as exc:
                         entry["ok"] = False
                         entry["error"] = str(exc)
+                        if exc.near:
+                            entry["near_matches"] = exc.near
                         failure = entry
                     entry["ms"] = int((time.time() - started) * 1000)
                     results.append(entry)

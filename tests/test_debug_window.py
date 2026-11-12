@@ -1660,18 +1660,62 @@ class FakeLocator:
     def scroll_into_view_if_needed(self, timeout=None):
         self._record("scroll_to")
 
+    def is_enabled(self):
+        return self.selector not in self.target.disabled
+
+
+class FakeTextHit:
+    def __init__(self, text, tag, enabled):
+        self.text, self.tag, self.enabled = text, tag, enabled
+
+    def is_visible(self):
+        return True
+
+    def inner_text(self, timeout=None):
+        return self.text
+
+    def evaluate(self, _js):
+        return self.tag
+
+    def is_enabled(self):
+        return self.enabled
+
+
+class FakeTextHits:
+    def __init__(self, hits):
+        self.hits = hits
+
+    def count(self):
+        return len(self.hits)
+
+    def nth(self, i):
+        return FakeTextHit(*self.hits[i])
+
 
 class FakeTarget:
     """A page or a frame. `known` is what exists in this document."""
 
-    def __init__(self, known=(), url="https://dev.example.com/login.do", unactionable=()):
+    def __init__(
+        self,
+        known=(),
+        url="https://dev.example.com/login.do",
+        unactionable=(),
+        disabled=(),
+        texts=(),
+    ):
         self.known = set(known)
         self.url = url
         self.calls = []
         self.unactionable = set(unactionable)
+        self.disabled = set(disabled)
+        # (visible text, tag, enabled) — what get_by_text can find
+        self.texts = list(texts)
 
     def locator(self, selector):
         return FakeLocator(self, selector)
+
+    def get_by_text(self, probe):
+        return FakeTextHits([t for t in self.texts if probe.lower() in t[0].lower()])
 
     # Page-level convenience methods, which auth/_browser_dom.py uses directly.
     def fill(self, selector, value):
@@ -2236,6 +2280,68 @@ def test_an_element_that_refuses_the_click_reports_why():
         actions._run_step(page, _step(selector="#save"), 1)
 
     assert "not actionable" in str(excinfo.value)
+
+
+def test_a_disabled_element_fails_fast_with_the_reason(monkeypatch):
+    monkeypatch.setattr(actions, "_ENABLE_GRACE_S", 0.05)
+    page = FakePage(known=["#save"], disabled=["#save"])
+
+    started = time.time()
+    with pytest.raises(actions.ActionError) as excinfo:
+        actions._run_step(page, _step(selector="#save", timeout_ms=5000), 1)
+
+    assert time.time() - started < 1  # not the 5s step timeout
+    assert "disabled" in str(excinfo.value) and "Nothing was clicked" in str(excinfo.value)
+    assert page.calls == []
+
+
+def test_a_disabled_element_does_not_block_a_hover():
+    page = FakePage(known=["#save"], disabled=["#save"])
+
+    actions._run_step(page, _step(action="hover", selector="#save"), 1)
+
+    assert ("hover", "#save") in page.calls
+
+
+def test_a_miss_names_what_resembles_it():
+    page = FakePage(
+        known=["#header"],
+        texts=[("Is empty", "button", True), ("Is empty or null", "button", False)],
+    )
+
+    with pytest.raises(actions.ActionError) as excinfo:
+        actions._run_step(page, _step(selector="text=is empty", timeout_ms=100), 2)
+
+    assert excinfo.value.near[0] == {"text": "Is empty", "tag": "button", "enabled": True}
+    assert {"text": "Is empty or null", "tag": "button", "enabled": False} in excinfo.value.near
+
+
+def test_a_css_miss_has_no_near_matches():
+    page = FakePage(known=["#header"], texts=[("Save", "button", True)])
+
+    with pytest.raises(actions.ActionError) as excinfo:
+        actions._run_step(page, _step(selector="#missing", timeout_ms=100), 1)
+
+    assert excinfo.value.near == []
+
+
+@pytest.mark.parametrize(
+    "selector, text",
+    [
+        ("text=Add a trigger", "Add a trigger"),
+        ("button:has-text('Save')", "Save"),
+        ("text=/^\\s*\\[sc_request\\]\\s*$/", "[sc_request]"),
+        ("#save", ""),
+    ],
+)
+def test_text_of_selector(selector, text):
+    assert actions._text_of_selector(selector) == text
+
+
+def test_reason_of_reads_playwrights_call_log():
+    assert actions._reason_of("element is not enabled - waiting") == "it is disabled"
+    assert actions._reason_of("<div> intercepts pointer events") == "another element covers it"
+    assert actions._reason_of("timeout") == ""
 
 
 def test_fill_passes_the_value_through():
