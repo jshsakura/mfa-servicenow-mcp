@@ -100,10 +100,46 @@ PAGE_STATE_SCRIPT = r"""
   if (roles.dialog.length) out.dialogs = roles.dialog;
   if (roles.alert.length) out.alerts = roles.alert;
   if (roles.tab.length) out.selected_tabs = roles.tab;
+  // Workflow Studio's step list, as text: number, nesting and label. This is
+  // the structure a screenshot was being read for after every edit. Only this
+  // document's own rows; the frame loop on the Python side covers the editor.
+  const rows = document.querySelectorAll('.section-item[data-position-order]');
+  if (rows.length) {
+    const outline = [];
+    for (const r of rows) {
+      if (outline.length >= 80) { out.outline_truncated = true; break; }
+      const box = r.closest('.actionContainer');
+      // componentInstance_<index>_<depth>, depth 1 = top level (measured)
+      const depth = (parseInt(((box && box.getAttribute('data-position-depth')) || '').split('_').pop(), 10) || 1) - 1;
+      const text = (r.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+      outline.push('  '.repeat(Math.max(0, depth)) + text);
+    }
+    out.outline = outline;
+  }
   if (truncated) out.truncated = true;
   return out;
 }
 """
+
+
+# page url -> hash of the outline last returned. An 80-row outline costs about
+# what a screenshot does, so it is sent when it changed and named otherwise.
+_LAST_OUTLINE: Dict[str, int] = {}
+
+
+def _only_if_changed(page: Any, state: Dict[str, Any]) -> None:
+    outline = state.get("outline")
+    if not outline:
+        return
+    try:
+        key = str(page.url).split("#", 1)[0]
+    except Exception:  # noqa: BLE001
+        return
+    digest = hash(tuple(outline))
+    if _LAST_OUTLINE.get(key) == digest:
+        state.pop("outline")
+        state["outline_unchanged"] = len(outline)
+    _LAST_OUTLINE[key] = digest
 
 
 def read_page_state(page: Any) -> Dict[str, Any]:
@@ -139,6 +175,7 @@ def read_page_state(page: Any) -> Dict[str, Any]:
                 merged[key] += [v for v in value if v not in merged[key]]
             else:
                 merged[key] = value
+    _only_if_changed(page, merged)
     if not read_any:
         logger.debug("Could not read the page state: %s", last_error)
         return {"unread": last_error or "no readable frame"}
