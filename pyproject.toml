@@ -90,7 +90,12 @@ browser = [
     # + an unretrieved TargetClosedError at every startup (10/10 runs). 1.44,
     # 1.50, 1.55, 1.60, 1.61, 1.63 and 1.64 measured 0/5; mcp 1.x on 1.62 was
     # clean. Cause not traced, so exclude the one version, not raise the floor.
-    "playwright>=1.44.0,!=1.62.0",
+    # Floor 1.64.1: the first driver whose bundled Node has the October 2026
+    # security release (Brotli decoder RCE, TLS hostname bypass; fixed in
+    # 22.23.4 / 24.22.1 / 26.12.1). Measured: 1.64.0 ships Node 24.21.0,
+    # 1.64.1 ships 24.22.1, 1.65.1 ships 26.13.1. The driver's Node does reach
+    # the network: the Chromium self-heal download is an HTTPS fetch it makes.
+    "playwright>=1.64.1",
 ]
 dev = [
     "pytest>=7.0.0",
