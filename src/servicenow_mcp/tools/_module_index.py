@@ -58,6 +58,7 @@ TOOL_MODULE_INDEX = {
     "manage_portal_component": "portal_crud_tools",
     "manage_portal_layout": "portal_crud_tools",
     "manage_problem": "problem_tools",
+    "manage_procurement": "procurement_tools",
     "manage_project": "project_tools",
     "manage_request_item": "request_item_tools",
     "manage_rest_message": "rest_message_tools",

@@ -12,10 +12,12 @@ tools:
   - sn_query
   - sn_aggregate
   - manage_asset
+  - manage_procurement
 triggers:
   - "자재 재고 확인"
   - "자산 현황"
   - "입고 출고 이관"
+  - "PO 입고"
   - "CMDB 관계"
   - "디스커버리 실패"
   - "stock level"
@@ -112,8 +114,28 @@ can be codes or labels.
 3. `PARTIAL_TRANSFER` means the order exists with some lines. Name the order number
    and leave the decision to the user.
 
-Not covered: receiving against a purchase order, inventory audits and disposal. They
-are Hardware Asset Management plugin flows. CI records are not written either. Say the
+### Receiving against a purchase order
+
+`manage_procurement(action="receive", po_line=<POL number or sys_id>, quantity=N)`.
+It calls the Receive page's own server path, so the platform creates the assets (and
+their CIs) and moves the line's quantities. It needs browser auth. Do NOT insert
+`proc_rec_slip` / `proc_rec_slip_item` yourself: field ACLs drop `purchase_line` and
+`quantity` from a Table API insert, which still answers 200 with an empty line.
+
+1. CALL it with `dry_run=true`. `plan.required_by_page` is the instance's own rule:
+   `serial_number` there means pass `serial_numbers`, one per unit, in order.
+2. Show the plan (cost is in the line's own currency, the stockroom defaults to the
+   order's ship-to), then run it without `dry_run`.
+3. Report from the answer, not the request: `receiving_lines`, `assets` (tag, serial,
+   status, stockroom) and `po_line_after`. `success: false` with `warnings` means
+   something did not land; say which.
+
+Hardware lines only. Software, consumable and bundle lines, MAC-required models and
+tagged units on lines with pre-created assets are refused: say they go through the
+Receive page.
+
+Not covered: inventory audits and disposal. They are Hardware Asset Management plugin
+flows. CI records are not written either. Say the
 gap plainly. Do not reach for `sn_write` or hand over a background script.
 Configuration writes (script includes, business rules, jobs) are in the `scripting`
 add-on.

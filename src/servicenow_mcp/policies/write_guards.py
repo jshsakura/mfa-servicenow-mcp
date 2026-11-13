@@ -941,6 +941,7 @@ _UPDATE_SET_EXEMPT_TOOLS = frozenset(
         "manage_request_item",
         "manage_approval",
         "manage_asset",
+        "manage_procurement",
         # Refuses sys_* and every table extending sys_metadata, so what it writes
         # is data — never captured in an update set.
         "manage_data_update",

@@ -8,7 +8,7 @@
 #   portal_developer   — standard + portal/changeset/script/local-sync writes.
 #   platform_developer — standard + workflow/incident/change/script writes.
 #   itsm_developer     — Standalone ITSM: records, approvals, catalog/policy config, shipping.
-#   asset_manager      — Materials, asset and ITOM work: queries plus manage_asset.
+#   asset_manager      — Materials, asset and ITOM work: queries, manage_asset, PO receiving.
 #   scripting          — Add-on: server-side logic, update sets, XML deployment.
 #   office_files       — Add-on: Excel and attachments.
 #   debug_window       — Add-on: the shared browser.
@@ -264,9 +264,9 @@ itsm_developer:
 
 # --- HAM + ITOM: materials and asset management, CMDB, discovery, events ---
 # Deliberately almost nothing. Assets, stockrooms, transfer orders, CIs and discovery
-# runs are all plain tables, so reading them is sn_query and sn_aggregate; the one
-# write tool is manage_asset, which checks every value against the instance before
-# writing. The domain knowledge is config/asset_manager.rules.md (sent once per
+# runs are all plain tables, so reading them is sn_query and sn_aggregate; the
+# write tools are manage_asset and manage_procurement (PO receiving), which check
+# every value against the instance before writing. The domain knowledge is config/asset_manager.rules.md (sent once per
 # session) and the asset-itom-map skill (costs nothing until loaded). Everything
 # else is a general-purpose add-on, combined by comma: asset_manager,scripting.
 asset_manager:
@@ -277,6 +277,7 @@ asset_manager:
   - sn_discover
   - sn_resolve_url
   - manage_asset
+  - manage_procurement
 
 # --- Add-on (general): server-side logic, update sets, and shipping it. ---
 scripting:
@@ -346,6 +347,7 @@ full:
     - manage_incident
     - manage_change
     - manage_asset
+    - manage_procurement
     - manage_kb_article
     - manage_changeset
     - manage_script_include

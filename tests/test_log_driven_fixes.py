@@ -169,11 +169,11 @@ class TestReadsDoNotNeedConfirm:
 
 
 class TestHamItomPackage:
-    def test_is_the_query_surface_plus_one_checked_asset_writer(self):
+    def test_is_the_query_surface_plus_the_checked_asset_writers(self):
         names = set(_server("asset_manager").enabled_tool_names)
         assert names >= {"sn_query", "sn_aggregate", "sn_schema", "sn_discover"}
         writers = {n for n in names if n.startswith(("manage_", "download_", "get_"))}
-        assert writers == {"manage_asset"}
+        assert writers == {"manage_asset", "manage_procurement"}
         assert "sn_write" not in names
 
     def test_flow_designer_add_on_stays_read_only(self):

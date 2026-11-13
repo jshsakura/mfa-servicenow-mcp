@@ -2,8 +2,8 @@
 
 行単位の翻訳インベントリの維持コストを避け、現在の公開ツール面を素早く確認するための**要約版**です。数値は `scripts/regenerate_doc_counts.py` が自動更新します。
 
-ライブレジストリに登録されているツール: **86**
-`full` にパッケージ化されたツール数: **72**
+ライブレジストリに登録されているツール: **87**
+`full` にパッケージ化されたツール数: **73**
 登録済みだが現在パッケージ化されていないツール: **11**
 
 - ツールごとの完全な一覧: [英語版 TOOL_INVENTORY.md](./TOOL_INVENTORY.md)
@@ -19,11 +19,11 @@
 | `core` | 12 | 素早いヘルス/スキーマ/テーブル作業のための最小限の読み取り専用エッセンシャル。 |
 | `standard` | 31 | インシデント、変更、ポータル、ログ、ソース分析にわたるデフォルトの読み取り専用パッケージ。 |
 | `itsm_developer` | 37 | 単体で完結する ITSM：レコードの診断、テーブル自動化の把握、カタログ・ポリシー・通知の設定、承認とテスト発注、割り当て・承認ルールと選択肢リスト、ポータルテーマ、更新セットまたは XML で出荷。 |
-| `asset_manager` | 7 | 資材・資産・ITOM 業務向けの最小構成：クエリと、インスタンスで事前に検証する資産の書き込み（`manage_asset`）。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
+| `asset_manager` | 8 | 資材・資産・ITOM 業務向けの最小構成：クエリと、インスタンスで事前に検証する資産の書き込み（`manage_asset`）。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `service_desk` | 34 | standard に加え、運用サポート向けのインシデントと変更の書き込みワークフロー。 |
 | `portal_developer` | 53 | standard に加え、ポータル、チェンジセット、スクリプトインクルード、ローカル同期デリバリーワークフロー。 |
 | `platform_developer` | 48 | standard に加え、ワークフロー、Flow Designer、UI ポリシー、インシデント/変更、スクリプトの書き込み。 |
-| `full` | 72 | 最も広いパッケージ化サーフェス: すべての manage_* ワークフローに加えて高度な操作。 |
+| `full` | 73 | 最も広いパッケージ化サーフェス: すべての manage_* ワークフローに加えて高度な操作。 |
 
 ## 実行時に注入されるヘルパー
 

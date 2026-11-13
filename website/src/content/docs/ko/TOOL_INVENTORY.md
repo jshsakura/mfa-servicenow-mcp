@@ -6,9 +6,9 @@ slug: ko/TOOL_INVENTORY
 
 이 문서는 유지 비용이 큰 행 단위 번역 인벤토리 대신, 현재 공개 도구 표면을 빠르게 확인할 수 있는 한국어 요약본입니다.
 
-- 전체 등록 도구: **86**
+- 전체 등록 도구: **87**
 - 기본 패키지 `standard`: **31**개 읽기 전용 도구
-- 가장 넓은 개발 패키지 `full`: **72**개 패키지 정의 도구
+- 가장 넓은 개발 패키지 `full`: **73**개 패키지 정의 도구
 - 현재 어떤 패키지에도 묶이지 않은 등록 도구: **11**개
 - 정확한 행 단위 전체 인벤토리: [영문 기준 문서](../../TOOL_INVENTORY/)
 
@@ -20,11 +20,11 @@ slug: ko/TOOL_INVENTORY
 | `core` | 12 | 최소 읽기 전용 핵심 도구 |
 | `standard` | 31 | 읽기 전용 safe mode **(기본값)** |
 | `itsm_developer` | 37 | 단독 ITSM 구성: 레코드 진단, 테이블 자동화 파악, 카탈로그·정책·알림 설정, 승인과 테스트 주문, 배정·승인 규칙과 선택지 목록, 포털 테마, 업데이트 세트나 XML로 배포. |
-| `asset_manager` | 7 | 자재·자산·ITOM 업무용 최소 구성: 조회와, 인스턴스에서 먼저 검증하는 자산 쓰기(`manage_asset`). 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
+| `asset_manager` | 8 | 자재·자산·ITOM 업무용 최소 구성: 조회와, 인스턴스에서 먼저 검증하는 자산 쓰기(`manage_asset`). 필요하면 `scripting`, `office_files`, `debug_window`, `source_sync`를 쉼표로 추가 (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 34 | standard + 인시던트/변경 운영 쓰기 |
 | `portal_developer` | 53 | standard + 포털/체인지셋/Script Include/로컬 동기화 개발 |
 | `platform_developer` | 48 | standard + 워크플로우/플로우/스크립트/ITSM 쓰기 |
-| `full` | 72 | 가장 넓은 패키지 표면 (번들 `manage_*` + 고급 운영 도구) |
+| `full` | 73 | 가장 넓은 패키지 표면 (번들 `manage_*` + 고급 운영 도구) |
 
 ## 런타임 주입 헬퍼
 
