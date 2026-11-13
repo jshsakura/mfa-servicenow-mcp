@@ -1413,6 +1413,86 @@ def test_element_screenshot_requires_a_selector():
     assert "selector" in result["error"]
 
 
+@pytest.fixture(autouse=True)
+def _window_answers_by_default(monkeypatch):
+    """Reused windows answer unless a test says otherwise — no real CDP probe."""
+    monkeypatch.setattr(tools, "window_answers", lambda state: True)
+
+
+def _reused_state():
+    return window.WindowState(
+        pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0
+    )
+
+
+def _open_with(monkeypatch, *, answers, busy=(), ack=False):
+    state = _reused_state()
+    fresh = window.WindowState(
+        pid=9, port=3, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=1.0
+    )
+    calls = {"ensure": 0, "stopped": []}
+
+    def _ensure(auth_manager, **kw):
+        calls["ensure"] += 1
+        return (state, False) if calls["ensure"] == 1 else (fresh, True)
+
+    monkeypatch.setattr(tools, "ensure_window", _ensure)
+    monkeypatch.setattr(tools, "window_answers", lambda s: answers)
+    monkeypatch.setattr(tools, "stop_window", lambda a, state: calls["stopped"].append(state.pid))
+    monkeypatch.setattr(tools.tab_owner, "busy_others_anywhere", lambda path: list(busy))
+    monkeypatch.setattr(tools, "budget_status", lambda path: (1, 6))
+    monkeypatch.setattr(tools, "window_history_path", lambda auth_manager: "/tmp/h.json")
+    monkeypatch.setattr(tools, "arm", lambda state, **kw: {"armed": True})
+    result = tools.open_debug_window(
+        SimpleNamespace(instance_url="https://dev.example.com"),
+        MagicMock(),
+        tools.OpenDebugWindowParams(shared_window_ack=ack),
+    )
+    return result, calls
+
+
+def test_a_frozen_window_is_restarted_in_place_not_joined_by_another(monkeypatch):
+    result, calls = _open_with(monkeypatch, answers=False)
+
+    assert calls["stopped"] == [1] and calls["ensure"] == 2
+    assert result["success"] is True and result["restarted"]["old_pid"] == 1
+    assert "same profile" in result["restarted"]["reason"]
+
+
+def test_a_frozen_window_someone_else_is_using_is_not_killed_without_asking(monkeypatch):
+    result, calls = _open_with(monkeypatch, answers=False, busy=[{"pid": 7, "host": "x"}])
+
+    assert result["success"] is False and result["window_frozen"] is True
+    assert calls["stopped"] == [] and "shared_window_ack=true" in result["error"]
+
+
+def test_the_user_can_approve_restarting_a_shared_frozen_window(monkeypatch):
+    result, calls = _open_with(monkeypatch, answers=False, busy=[{"pid": 7}], ack=True)
+
+    assert calls["stopped"] == [1] and result["restarted"]
+
+
+@pytest.mark.parametrize("answers", [True, None])
+def test_an_answering_or_unasked_window_is_never_restarted(monkeypatch, answers):
+    """None is "could not ask" — never read as frozen."""
+    result, calls = _open_with(monkeypatch, answers=answers)
+
+    assert calls["stopped"] == [] and calls["ensure"] == 1 and "restarted" not in result
+
+
+@pytest.mark.parametrize(
+    "probes, expected",
+    [([False, False], False), ([False, True], True), ([None], None), ([True], True)],
+)
+def test_frozen_takes_two_misses_in_a_row(monkeypatch, probes, expected):
+    from servicenow_mcp.browser import health
+
+    answers = iter(probes)
+    monkeypatch.setattr(health, "_probe_once", lambda state: next(answers))
+
+    assert health.window_answers(_reused_state()) is expected
+
+
 def test_open_reports_reuse_rather_than_opening_a_second_window(monkeypatch):
     state = window.WindowState(
         pid=1, port=2, profile_dir="/tmp/p", instance_url="https://dev.example.com", started_at=0.0
@@ -5805,3 +5885,60 @@ def test_a_failed_shot_reports_one_line_not_playwrights_call_log():
     raw, why = capture_module._element_shot(page, "#grid")
 
     assert raw is None and "Timeout 5000ms" in why and "Call log" not in why
+
+
+def test_a_probe_timeout_is_a_miss_and_any_other_failure_is_unasked(monkeypatch):
+    from servicenow_mcp.browser import health
+
+    def _timeout(fn, timeout_s):
+        raise TimeoutError("no reply")
+
+    def _broken(fn, timeout_s):
+        raise RuntimeError("cdp refused")
+
+    monkeypatch.setattr(health, "run_off_loop", _timeout)
+    assert health._probe_once(_reused_state()) is False
+    monkeypatch.setattr(health, "run_off_loop", _broken)
+    assert health._probe_once(_reused_state()) is None
+
+
+def test_the_probe_asks_only_this_instances_tabs(monkeypatch):
+    from contextlib import contextmanager
+
+    from servicenow_mcp.browser import health
+
+    ours = MagicMock(url="https://dev.example.com/now")
+    other = MagicMock(url="https://other.example.com/")
+    browser = SimpleNamespace(contexts=[SimpleNamespace(pages=[ours, other])])
+
+    @contextmanager
+    def _cdp(endpoint):
+        yield browser
+
+    monkeypatch.setattr(health, "cdp_browser", _cdp)
+    monkeypatch.setattr(health, "run_off_loop", lambda fn, timeout_s: fn())
+
+    assert health._probe_once(_reused_state()) is True
+    ours.evaluate.assert_called_once_with("1")
+    other.evaluate.assert_not_called()
+
+
+def test_busy_others_anywhere_sees_every_instance_but_not_this_session(tmp_path):
+    import json as _json
+    import os as _os
+    import time as _time
+
+    path = str(tmp_path / "owners.json")
+    now = _time.time()
+    pins = {
+        f"{tab_owner.OWNER_ID}|dev.example.com": {"pid": _os.getpid(), "used_at": now},
+        "other-1|dev.example.com": {"pid": _os.getpid(), "used_at": now - 10},
+        "other-2|test.example.com": {"pid": _os.getpid(), "used_at": now - 20},
+        "other-3|test.example.com": {"pid": _os.getpid(), "used_at": now - 3600},
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        _json.dump({"pins": pins}, handle)
+
+    busy = tab_owner.busy_others_anywhere(path)
+
+    assert sorted(b["host"] for b in busy) == ["dev.example.com", "test.example.com"]

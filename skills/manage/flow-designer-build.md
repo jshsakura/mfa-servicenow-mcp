@@ -138,6 +138,9 @@ only for a layout question; one per step is what made a session slow.
 - Element not found → use the step's `near_matches` (text and label-attribute
   candidates) and retry once; then say which step failed
 - `WINDOW_NOT_AVAILABLE` → another terminal holds that window; pick another or ask
+- A step times out or the window stops reacting → `open_debug_window` with the same `window`:
+  it checks the window and restarts it in place if it no longer answers. Never open another window
+  for it; `window_frozen` + `other_sessions` means ask the user before `shared_window_ack=true`
 - The window shows a login or MFA page → the user signs in; wait, do not retry
   a login yourself
 - get_detail does not show a step the window showed as saved → the save did not

@@ -203,6 +203,25 @@ def others_on(path: str, instance_host: str) -> List[Dict[str, Any]]:
     return found
 
 
+def busy_others_anywhere(path: str) -> List[Dict[str, Any]]:
+    """Other running sessions that used this window on ANY instance within
+    ``BUSY_WITHIN_S``. For whole-window actions (a restart closes every tab of
+    every instance), where the per-instance view of ``others_on`` is too narrow."""
+    now = time.time()
+    found: List[Dict[str, Any]] = []
+    for key, entry in _read(path).items():
+        if not isinstance(entry, dict) or key.startswith(f"{OWNER_ID}|"):
+            continue
+        if not _owner_alive(entry):
+            continue
+        last_used_s = _last_used_s(entry, now)
+        if _busy(last_used_s):
+            found.append(
+                {"pid": entry.get("pid"), "host": key.split("|", 1)[-1], "last_used_s": last_used_s}
+            )
+    return found
+
+
 def idle_others(path: str, instance_host: str) -> List[Dict[str, Any]]:
     """Running sessions on ``instance_host`` that have not called in
     ``BUSY_WITHIN_S`` — the ones a session-wide change goes ahead over, and
@@ -316,6 +335,7 @@ __all__ = [
     "BUSY_WITHIN_S",
     "MAX_TRACKED_PINS",
     "OWNER_ID",
+    "busy_others_anywhere",
     "claimed_by_others",
     "drop_pin",
     "idle_others",

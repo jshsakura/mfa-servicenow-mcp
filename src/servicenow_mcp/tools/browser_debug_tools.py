@@ -79,6 +79,7 @@ from ..browser.artifacts import prune as prune_artifacts
 from ..browser.badge import profile_label
 from ..browser.capture import MAX_WATCH_SECONDS, NoPageFound, arm, capture, navigate, pin_tab
 from ..browser.cursor import resolve_marks, write_mark
+from ..browser.health import PROBE_ATTEMPTS, PROBE_TIMEOUT_S, window_answers
 from ..browser.impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, clear_marker
 from ..browser.impersonate import describe_detected as describe_impersonation
 from ..browser.impersonate import read_marker
@@ -98,6 +99,7 @@ from ..browser.window import (
     clear_window_state,
     ensure_window,
     find_window,
+    stop_window,
     window_artifacts_dir,
     window_cursor_path,
     window_history_path,
@@ -495,6 +497,46 @@ def open_debug_window(
         logger.warning("Could not open the debug window: %s", exc)
         return {"success": False, "error": str(exc), **housekeeping}
 
+    # Alive by process/port/tabs is not the same as answering. A frozen tab used
+    # to be reused forever, each call waiting out a long timeout. See health.py.
+    restarted: Optional[Dict[str, Any]] = None
+    if not opened and window_answers(state) is False:
+        busy = [] if params.shared_window_ack else tab_owner.busy_others_anywhere(state.owners_path)
+        if busy:
+            return {
+                "success": False,
+                "window_frozen": True,
+                "other_sessions": busy,
+                "error": (
+                    f"The debug window does not answer ({PROBE_ATTEMPTS} checks, "
+                    f"{PROBE_TIMEOUT_S:.0f}s each, no reply). Restarting it closes every tab, "
+                    "and another MCP session used it in the last few minutes. Ask the user, "
+                    "then retry with shared_window_ack=true to restart it."
+                ),
+                **housekeeping,
+            }
+        old_pid = state.pid
+        stop_window(auth_manager, state=state)
+        try:
+            state, opened = ensure_window(
+                auth_manager,
+                url=target_url,
+                viewport=(max(320, params.width), max(240, params.height)),
+            )
+        except (LaunchBudgetExceeded, LaunchBusy, PlaywrightUnavailable) as exc:
+            return {"success": False, "window_frozen": True, "error": str(exc), **housekeeping}
+        except (RuntimeError, TimeoutError, OSError) as exc:
+            logger.warning("Could not restart the frozen debug window: %s", exc)
+            return {"success": False, "window_frozen": True, "error": str(exc), **housekeeping}
+        restarted = {
+            "reason": (
+                f"the window did not answer {PROBE_ATTEMPTS} checks of "
+                f"{PROBE_TIMEOUT_S:.0f}s; it was closed and reopened on the same profile "
+                "(sign-in kept unless the session itself expired)"
+            ),
+            "old_pid": old_pid,
+        }
+
     tab_owner.touch(state.owners_path, state.instance_host)
     result: Dict[str, Any] = {
         "success": True,
@@ -503,6 +545,8 @@ def open_debug_window(
         **_window_identity(state, config, auth_manager),
         **housekeeping,
     }
+    if restarted:
+        result["restarted"] = restarted
 
     # The badge shows the PROFILE and the account, not the address — the
     # address bar is directly above it. See browser/badge.py.
@@ -1112,7 +1156,15 @@ def act_in_debug_window(
         if not isinstance(exc, (RuntimeError, TimeoutError, ValueError, OSError)):
             raise
         logger.warning("Driving the debug window failed: %s", exc)
-        return {"success": False, "window_open": True, "error": str(exc)}
+        failed: Dict[str, Any] = {"success": False, "window_open": True, "error": str(exc)}
+        if isinstance(exc, TimeoutError):
+            # Not "open another window": the next open checks this one and
+            # restarts it in place if it really stopped answering.
+            failed["next"] = (
+                "Call open_debug_window (same window number). It checks whether this "
+                "window still answers and restarts it in place if not."
+            )
+        return failed
 
     report = compact(raw, artifacts_dir=artifacts_dir)
     # After the write, so this call's own artifact is the newest and can never
