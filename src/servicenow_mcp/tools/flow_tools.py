@@ -10,7 +10,10 @@ Backed by existing implementations in:
 - flow_action_read.py    (reading a custom Action type)
 """
 
+import hashlib
+import json
 import logging
+import time
 from typing import Any, ClassVar, Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field, model_validator
@@ -128,6 +131,10 @@ class ManageFlowDesignerParams(BaseModel):
         default=False, description="Include recursive subflow call tree"
     )
     summary_format: bool = Field(default=True, description="Compact format; False = raw JSON")
+    repeat_full: bool = Field(
+        default=False,
+        description="get_detail: return the full answer even if identical to your last call",
+    )
 
     # ---- get_executions ----
     context_id: Optional[str] = Field(
@@ -195,6 +202,7 @@ class ManageFlowDesignerParams(BaseModel):
                 "trace_pill",
                 "include_subflow_tree",
                 "summary_format",
+                "repeat_full",
             }
         ),
         "get_executions": frozenset(
@@ -360,7 +368,7 @@ def _do_get_detail(
     )
     cached = read_cache_get(_FLOW_DETAIL_NS, key)
     if cached is not None:
-        return cached
+        return _unless_repeat(key, cached, p.repeat_full, source="a cache under 60s old")
     result = get_flow_details(
         config,
         auth_manager,
@@ -378,7 +386,42 @@ def _do_get_detail(
     # Never cache a failure — a transient error must not outlive its cause.
     if isinstance(result, dict) and result.get("success") is not False:
         read_cache_put(_FLOW_DETAIL_NS, key, result)
-    return result
+    return _unless_repeat(key, result, p.repeat_full, source="a live re-read")
+
+
+# key -> (digest, wall-clock time) of the last get_detail answer HANDED OVER.
+# Measured: the same flow's 5-11KB tree was returned twice in a row, unchanged.
+_LAST_DETAIL: Dict[tuple, Tuple[str, float]] = {}
+
+
+def _unless_repeat(key: tuple, result: Any, repeat_full: bool, *, source: str) -> Any:
+    """Replace an answer identical to the previous one for the same call with a pointer.
+
+    Compares the whole answer, never a timestamp or counter: a flow edit lands
+    in child tables that a header field need not reflect. Only an answer that
+    was actually produced and is byte-identical is withheld; a failure, or a
+    caller that asks for it, always gets the whole thing.
+    """
+    if not isinstance(result, dict) or result.get("success") is False:
+        return result
+    digest = hashlib.sha256(
+        json.dumps(result, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    before = _LAST_DETAIL.get(key)
+    _LAST_DETAIL[key] = (digest, time.time())
+    if repeat_full or not before or before[0] != digest:
+        return result
+    at = time.strftime("%H:%M:%S", time.localtime(before[1]))
+    return {
+        "success": True,
+        "flow_id": key[1],
+        "unchanged": True,
+        "note": (
+            f"Identical to the get_detail this session returned at {at} with the same "
+            f"options (compared in full, from {source}). Use that answer; pass "
+            "repeat_full=true if it is no longer in your context."
+        ),
+    }
 
 
 def _do_get_executions(

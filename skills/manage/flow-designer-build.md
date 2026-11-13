@@ -69,6 +69,38 @@ assumed from either picker.
 7. REPORT: what was built, the get_detail summary, the update set it is in,
    active or draft.
 
+## Cost rules (from real sessions — follow them literally)
+
+A measured evening session spent ~125k tokens on tool replies plus ~70k on
+screenshot reads, mostly on the habits below.
+
+1. **No `screenshot` on act by default.** It was passed on 114 of 126 clicks.
+   Leave it out; `page_state` already says what changed. Add it only for a
+   layout question ("does this look right").
+2. **Never `Read` a screenshot file to get a value, label or state.** Use
+   `inspect_debug_window(evaluate="<JS expression>")` — a few dozen tokens
+   instead of ~750 per image.
+3. **Do not call `get_detail` twice for the same flow without a save in
+   between.** If you do, the reply is `unchanged: true` with no tree — the
+   answer you already have is still correct. Only if it is no longer in your
+   context, call again with `repeat_full=true`.
+4. **`get_table_automation`: name the operation and `categories`.**
+   `operation="any"` with no categories returned 18KB for one table.
+5. **Several steps per act call**, and `wait_for` the next element instead of
+   a fixed `wait`.
+
+How to read a short act reply:
+
+- No `console` / `network` blocks → nothing failed; the `verdict` line says so.
+  They come back whenever there is an error, a failed call, or unread events.
+- A successful step shows only `{step, action, ok, ms}` (plus any output such
+  as an eval `result`). A failed step keeps its `selector`, `error` and
+  `near_matches` — that is the one to read.
+- `update_set_context: {update_set, unchanged: true}` → same update set as your
+  last write, checked live just now. A ⚠ `note` or `changed_from` always comes
+  in full: stop and handle it (see "Update set moves under you" below).
+- `screenshot_cost` is explained in full once per window, then as one line.
+
 ## Workflow Studio recipes (measured on a live instance)
 
 Read the outcome of every batch from `page_state` in the act reply — focused

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
+import servicenow_mcp.tools.flow_tools as flow_tools
 import servicenow_mcp.tools.sn_api as sn_api
 from servicenow_mcp.tools.flow_tools import (
     ManageFlowDesignerParams,
@@ -22,8 +23,10 @@ from servicenow_mcp.tools.flow_tools import (
 @pytest.fixture(autouse=True)
 def _clear_cache():
     sn_api.invalidate_read_cache()  # isolate every test from module-global state
+    flow_tools._LAST_DETAIL.clear()
     yield
     sn_api.invalidate_read_cache()
+    flow_tools._LAST_DETAIL.clear()
 
 
 def _cfg():
@@ -74,9 +77,34 @@ def test_get_detail_caches_successful_read():
     ok = {"success": True, "name": "Flow", "structure": {"nodes": 9}}
     with patch("servicenow_mcp.tools.flow_tools.get_flow_details", return_value=ok) as gfd:
         r1 = _do_get_detail(_cfg(), MagicMock(), params)
-        r2 = _do_get_detail(_cfg(), MagicMock(), params)
+        r2 = _do_get_detail(_cfg(), MagicMock(), params.model_copy(update={"repeat_full": True}))
     assert r1 == r2 == ok
     assert gfd.call_count == 1  # second read served from cache
+
+
+def test_an_identical_repeat_is_a_pointer_not_the_tree_again():
+    """Measured: the same 5-11KB tree handed over twice in a row, unchanged."""
+    params = ManageFlowDesignerParams(action="get_detail", flow_id="F1")
+    ok = {"success": True, "name": "Flow", "structure": {"nodes": 9}}
+    with patch("servicenow_mcp.tools.flow_tools.get_flow_details", return_value=ok):
+        _do_get_detail(_cfg(), MagicMock(), params)
+        again = _do_get_detail(_cfg(), MagicMock(), params)
+
+    assert again["unchanged"] is True and "structure" not in again
+    assert "repeat_full=true" in again["note"] and "cache" in again["note"]
+
+
+def test_a_changed_answer_is_always_handed_over_in_full():
+    """Compared on the whole body — a step edit need not move any header field."""
+    params = ManageFlowDesignerParams(action="get_detail", flow_id="F1")
+    v1 = {"success": True, "structure": {"nodes": 9}}
+    v2 = {"success": True, "structure": {"nodes": 10}}
+    with patch("servicenow_mcp.tools.flow_tools.get_flow_details", side_effect=[v1, v2]):
+        _do_get_detail(_cfg(), MagicMock(), params)
+        sn_api.invalidate_read_cache()  # a write happened in between
+        second = _do_get_detail(_cfg(), MagicMock(), params)
+
+    assert second == v2
 
 
 def test_get_detail_does_not_cache_failure():
@@ -181,7 +209,9 @@ def test_get_detail_by_name_resolves_then_fetches_and_caches_by_sys_id():
             _cfg(), MagicMock(), ManageFlowDesignerParams(action="get_detail", flow_name="My Flow")
         )
         by_id = _do_get_detail(
-            _cfg(), MagicMock(), ManageFlowDesignerParams(action="get_detail", flow_id="F9")
+            _cfg(),
+            MagicMock(),
+            ManageFlowDesignerParams(action="get_detail", flow_id="F9", repeat_full=True),
         )
     assert by_name == by_id == ok
     assert gfd.call_count == 1  # name + sys_id share one cache entry
@@ -203,3 +233,47 @@ def test_get_detail_by_name_ambiguous_short_circuits_before_fetch():
         )
     assert out["success"] is False and out["candidates"]
     gfd.assert_not_called()  # never fetch on an ambiguous name
+
+
+# --- server: a write clears the read cache --------------------------------
+
+
+def _server_with(tool_defs):
+    from servicenow_mcp.server import ServiceNowMCP
+    from servicenow_mcp.utils.config import AuthConfig, AuthType, BasicAuthConfig, ServerConfig
+
+    config = ServerConfig(
+        instance_url="https://test.service-now.com",
+        auth=AuthConfig(type=AuthType.BASIC, basic=BasicAuthConfig(username="u", password="p")),
+    )
+    with (
+        patch("servicenow_mcp.server.AuthManager"),
+        patch("servicenow_mcp.server.get_tool_definitions", return_value=tool_defs),
+        patch("servicenow_mcp.server.load_skills", return_value=[]),
+        patch("servicenow_mcp.server.build_tool_to_skills_map", return_value={}),
+    ):
+        server = ServiceNowMCP(config)
+    server.tool_definitions = tool_defs
+    server.enabled_tool_names = list(tool_defs)
+    server.current_package_name = "standard"
+    return server
+
+
+@pytest.mark.parametrize("tool, cleared", [("act_in_debug_window", True), ("sn_query", False)])
+def test_a_write_clears_cached_reads_and_a_read_does_not(tool, cleared):
+    """A Workflow Studio click edits the flow; get_detail must not answer from before it."""
+    import asyncio
+
+    from pydantic import BaseModel
+
+    class Params(BaseModel):
+        pass
+
+    server = _server_with(
+        {tool: (lambda c, a, p: {"success": True}, Params, dict, "t", "raw_dict")}
+    )
+    sn_api.read_cache_put("flow_detail", ("k",), {"tree": "before the edit"})
+
+    asyncio.run(server._call_tool_impl(tool, {"confirm": "approve"} if cleared else {}))
+
+    assert (sn_api.read_cache_get("flow_detail", ("k",)) is None) is cleared

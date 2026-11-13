@@ -1416,6 +1416,13 @@ def update_set_context(
 
         if notes:
             ctx["note"] = " ".join(notes)
+            return ctx
+        # Benign and the same set as the previous write: the full stamp only
+        # restates what the caller was told one write ago. It was still READ
+        # live above — only the repetition is dropped. Measured: a Workflow
+        # Studio session stamped every one of 126 clicks with the same block.
+        if before and before[0] == us["sys_id"]:
+            return {"update_set": us_name, "unchanged": True}
         return ctx
     except Exception:
         logger.debug("update_set_context computation failed", exc_info=True)

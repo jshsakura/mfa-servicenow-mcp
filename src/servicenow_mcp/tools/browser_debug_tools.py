@@ -925,6 +925,22 @@ def _identity_change_refusal(
     )
 
 
+# Fields a successful step only echoes back from the request: the selector and
+# key the caller sent, and a wait's own duration (already in "ms"). A failed step
+# keeps all of them — that is where "which selector missed" is the answer.
+_STEP_ECHO_FIELDS = ("selector", "key", "waited_ms")
+
+
+def _lean_steps(steps: Any) -> List[Any]:
+    """Drop request echoes from steps that succeeded; keep every output field."""
+    lean: List[Any] = []
+    for step in steps or []:
+        if isinstance(step, dict) and step.get("ok"):
+            step = {k: v for k, v in step.items() if k not in _STEP_ECHO_FIELDS}
+        lean.append(step)
+    return lean
+
+
 @register_tool(
     name="act_in_debug_window",
     params=ActInDebugWindowParams,
@@ -1112,7 +1128,7 @@ def act_in_debug_window(
         "success": failed_step is None,
         "window_open": True,
         **_window_identity(state, config, auth_manager),
-        "steps": raw.get("steps", []),
+        "steps": _lean_steps(raw.get("steps", [])),
         # Focused field, open list/menu, dialogs, alerts — as text. This is what
         # a screenshot was being taken for after nearly every step.
         "page_state": raw.get("page_state") or {},

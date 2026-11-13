@@ -2038,6 +2038,15 @@ class ServiceNowMCP:
         # landed in, so a write captured into the wrong set — e.g. one another
         # terminal switched the session to — is fully visible rather than silent.
         # Writes only; new dict (never mutate the tool result); fail-open.
+        if not self._is_read_only_call(name, arguments):
+            # Any write can change what a cached expensive read (flow get_detail)
+            # returns — including a click in the debug window, which is how a flow
+            # is edited at all. The cache had no caller of this: "verify with
+            # get_detail" right after a Workflow Studio edit could get the tree
+            # from before it, for up to the TTL. A re-read is cheap; that is not.
+            from servicenow_mcp.tools.sn_api import invalidate_read_cache
+
+            invalidate_read_cache()
         if isinstance(result, dict) and not self._is_read_only_call(name, arguments):
             with self._scoped_active_instance(cross_instance_ctx):
                 us_ctx = update_set_context(self, name, arguments, result)

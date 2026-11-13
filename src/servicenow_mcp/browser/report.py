@@ -53,6 +53,16 @@ SCREENSHOT_COST_NOTE = (
 )
 MAX_ANOMALIES = 5
 
+# The note is told once per window (artifacts_dir) per process, not on every
+# reply. Measured: it rode on 115 of 126 replies in one Workflow Studio session
+# (~50k chars) and 93 of those screenshots were read anyway — repetition did
+# not steer, it only cost. Once is the lesson; the rest is noise.
+# After the first, a one-line reminder rather than nothing: a weaker model does
+# not carry a lesson from twenty replies ago, and the short form says the one
+# thing it needs at the moment the path is in front of it.
+SCREENSHOT_COST_SHORT = "Visual questions only; values/labels/existence: use evaluate or styles."
+_COST_NOTE_TOLD: set = set()
+
 # Two identical calls further apart than this are a user clicking twice on
 # purpose, not a double-submit bug.
 DUPLICATE_WINDOW_MS = 5_000
@@ -274,8 +284,6 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         "url": raw.get("url"),
         "title": raw.get("title"),
         "verdict": build_verdict(console, network, watched=watched),
-        "console": console,
-        "network": network,
         "next_seq": _whole(raw.get("seq")),
         # Which tab those numbers belong to. The caller keys its high-water mark
         # by this: seq counts from 1 in every tab, so a mark without a tab is a
@@ -283,6 +291,19 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         "tab_id": str(raw.get("tab_id") or ""),
         "new_events": len(events),
     }
+
+    # A clean pass is fully said by the verdict line (which carries the XHR
+    # count); the all-zero blocks only restated it. Anything non-zero — or an
+    # unread buffer, where zero would be a claim nobody checked — keeps both.
+    clean = (
+        not console.get("errors")
+        and not console.get("warnings")
+        and not network.get("failed")
+        and not network.get("duplicates")
+    )
+    if not clean or raw.get("events_unread"):
+        report["console"] = console
+        report["network"] = network
 
     if raw.get("events_unread"):
         # An unread buffer has no errors in it for the same reason it has no
@@ -303,7 +324,11 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         # image itself stays on disk and never enters the response.
         if raw.get("screenshot_note"):
             report["screenshot_note"] = raw["screenshot_note"]
-        report["screenshot_cost"] = SCREENSHOT_COST_NOTE
+        if artifacts_dir not in _COST_NOTE_TOLD:
+            _COST_NOTE_TOLD.add(artifacts_dir)
+            report["screenshot_cost"] = SCREENSHOT_COST_NOTE
+        else:
+            report["screenshot_cost"] = SCREENSHOT_COST_SHORT
     if raw.get("styles"):
         report["styles"] = raw["styles"]
 
@@ -318,6 +343,7 @@ __all__ = [
     "MAX_ANOMALIES",
     "MAX_CONSOLE_GROUPS",
     "SCREENSHOT_COST_NOTE",
+    "SCREENSHOT_COST_SHORT",
     "build_verdict",
     "compact",
     "summarize_console",

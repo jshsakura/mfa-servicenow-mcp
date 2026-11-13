@@ -5008,6 +5008,14 @@ def test_a_failed_adoption_is_never_fatal(tmp_path, monkeypatch):
     assert legacy.exists()
 
 
+@pytest.fixture
+def _cost_note_untold():
+    report._COST_NOTE_TOLD.clear()
+    yield
+    report._COST_NOTE_TOLD.clear()
+
+
+@pytest.mark.usefixtures("_cost_note_untold")
 def test_a_screenshot_reply_states_what_reading_it_costs():
     """Free to take, ~2k tokens to look at — and nothing said so.
 
@@ -5028,6 +5036,65 @@ def test_a_screenshot_reply_states_what_reading_it_costs():
     assert "750 pixels" in note and "screenshot_note.pixels" in note
     # The path is handed over regardless — this steers, it does not withhold.
     assert "screenshot" in out
+
+
+@pytest.mark.usefixtures("_cost_note_untold")
+def test_the_cost_note_is_told_once_per_window():
+    """Measured: on 115 of 126 replies it cost ~50k chars and steered nothing."""
+    first = report.compact({"screenshot": "/tmp/a.png", "events": []}, artifacts_dir="/w1")
+    again = report.compact({"screenshot": "/tmp/b.png", "events": []}, artifacts_dir="/w1")
+    other = report.compact({"screenshot": "/tmp/c.png", "events": []}, artifacts_dir="/w2")
+
+    assert first["screenshot_cost"] == report.SCREENSHOT_COST_NOTE
+    # Not silence: a weak model needs the gist at the moment it holds the path.
+    assert again["screenshot_cost"] == report.SCREENSHOT_COST_SHORT
+    assert "evaluate" in again["screenshot_cost"] and again["screenshot"] == "/tmp/b.png"
+    assert other["screenshot_cost"] == report.SCREENSHOT_COST_NOTE
+
+
+def test_a_clean_pass_is_said_by_the_verdict_alone():
+    out = report.compact({"tab_id": "t", "events": []}, artifacts_dir="")
+
+    assert "console" not in out and "network" not in out
+    assert out["verdict"].startswith("No errors")
+
+
+def test_any_error_keeps_the_evidence_blocks(tmp_path):
+    out = report.compact(
+        {"tab_id": "t", "events": [_console(1, 0.0, msg="boom")]}, artifacts_dir=str(tmp_path)
+    )
+
+    assert out["console"]["errors"] == 1 and "network" in out
+
+
+def test_an_unread_buffer_keeps_its_zero_blocks():
+    """Zero there is not a finding — it is nothing read."""
+    out = report.compact({"tab_id": "t", "events": [], "events_unread": True}, artifacts_dir="")
+
+    assert "console" in out and "UNREAD" in out["verdict"]
+
+
+def test_successful_steps_drop_request_echoes_but_keep_outputs():
+    steps = [
+        {"step": 1, "action": "click", "selector": "#a", "ok": True, "ms": 5},
+        {"step": 2, "action": "wait", "selector": None, "waited_ms": 800, "ok": True, "ms": 801},
+        {
+            "step": 3,
+            "action": "eval",
+            "selector": None,
+            "result": {"value": 3},
+            "ok": True,
+            "ms": 2,
+        },
+        {"step": 4, "action": "click", "selector": "#b", "ok": False, "error": "x", "ms": 9},
+    ]
+
+    lean = tools._lean_steps(steps)
+
+    assert lean[0] == {"step": 1, "action": "click", "ok": True, "ms": 5}
+    assert "waited_ms" not in lean[1]
+    assert lean[2]["result"] == {"value": 3}
+    assert lean[3]["selector"] == "#b"  # a miss keeps what missed
 
 
 def test_no_screenshot_means_no_cost_note():

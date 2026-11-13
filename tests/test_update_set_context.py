@@ -52,6 +52,22 @@ def test_the_same_set_again_says_nothing():
     ctx = _stamp(server, {"sys_id": "us-1", "name": "Sprint 12 fixes"})
 
     assert "changed_from" not in ctx and "note" not in ctx
+    # Read live again, but not restated: one line instead of the whole stamp.
+    assert ctx == {"update_set": "Sprint 12 fixes", "unchanged": True}
+
+
+def test_a_repeated_warning_is_never_shortened():
+    """Only the benign repeat is compacted — a ⚠ rides on every write."""
+    server = _browser_server()
+    default = {"sys_id": "us-d", "name": "Default"}
+    with patch(
+        "servicenow_mcp.tools.session_context_tools.is_default_update_set", return_value=True
+    ):
+        _stamp(server, default)
+        ctx = _stamp(server, default)
+
+    assert "unchanged" not in ctx
+    assert "Default" in ctx["note"] and ctx["update_set_id"] == "us-d"
 
 
 def test_a_deliberate_pick_is_not_news():
