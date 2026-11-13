@@ -331,6 +331,8 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
             report["screenshot_cost"] = SCREENSHOT_COST_SHORT
     if raw.get("styles"):
         report["styles"] = raw["styles"]
+    if raw.get("snapshot"):
+        report["snapshot"] = raw["snapshot"]
 
     artifacts = write_artifacts(artifacts_dir, events)
     if artifacts:

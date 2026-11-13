@@ -227,7 +227,8 @@ class DebugAction(BaseModel):
         "end_impersonation",
     ]
     selector: Optional[str] = Field(
-        default=None, description="CSS, text=..., or xpath=... Frames are searched too."
+        default=None,
+        description="A snapshot ref (e5), CSS, text=..., or xpath=... Frames are searched too.",
     )
     value: Optional[str] = Field(
         default=None,
@@ -267,6 +268,10 @@ class ActInDebugWindowParams(BaseModel):
     )
     selector: Optional[str] = Field(
         default=None, description="CSS selector for screenshot='element'."
+    )
+    snapshot: Optional[str] = Field(
+        default=None,
+        description="'page' or a ref/selector: the element outline after the steps, refs fresh.",
     )
     since_last: bool = Field(default=True, description="Only events newer than the last read.")
     confirm_eval: Optional[str] = Field(
@@ -322,6 +327,10 @@ class InspectDebugWindowParams(BaseModel):
     since_last: bool = Field(default=True, description="Only events newer than the last inspect.")
     after_seq: Optional[int] = Field(
         default=None, description="Read from this event sequence instead of the cursor."
+    )
+    snapshot: Optional[str] = Field(
+        default=None,
+        description="'page' or a ref/selector: elements with refs (e5) to act on. Cheaper than a screenshot.",
     )
     evaluate: Optional[str] = Field(
         default=None,
@@ -794,7 +803,7 @@ def open_debug_window(
 @register_tool(
     name="inspect_debug_window",
     params=InspectDebugWindowParams,
-    description="Read the shared debug window: console errors, XHR, duplicates, screenshot, CSS, JS expression. Never opens one.",
+    description="Read the shared debug window: element outline with refs, console errors, XHR, screenshot, CSS, JS. Never opens one.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -870,6 +879,7 @@ def inspect_debug_window(
             style_selectors=params.styles[:MAX_STYLE_SELECTORS],
             screenshot_path=shot_path,
             evaluate_expression=params.evaluate,
+            snapshot=(params.snapshot or "").strip() or None,
         )
     except (NoPageFound, PlaywrightUnavailable) as exc:
         return {"success": False, "window_open": True, "error": str(exc)}
@@ -1108,6 +1118,7 @@ def act_in_debug_window(
             screenshot=params.screenshot,
             selector=params.selector,
             screenshot_path=shot_path,
+            snapshot=(params.snapshot or "").strip() or None,
             session={
                 # Everything the impersonation steps need, resolved here where
                 # the config and the auth manager are — actions.py stays a page

@@ -85,6 +85,8 @@ from .page_state import read_page_state
 from .server_scripts import ACTIVATING_ACTIONS, ServerScriptBlocked
 from .server_scripts import rejection as script_rejection
 from .server_scripts import surface_for_url
+from .snapshot import REF_PREFIX, as_selector
+from .snapshot import take as take_snapshot
 from .window import WindowState
 
 logger = logging.getLogger(__name__)
@@ -170,6 +172,26 @@ class _OnlyHidden(LookupError):
         self.matched = matched
 
 
+class _StaleRef(LookupError):
+    """An ``aria-ref=`` the page no longer has: the snapshot it came from is older than the page."""
+
+
+def _resolve_ref(page: Any, selector: str) -> Any:
+    """The one element a ref names, looked up once.
+
+    A ref is a pointer into a snapshot, not a description that a later page could
+    come to match, so waiting for it only delays the answer. Asked of the page,
+    never per frame: the `f1` in `f1e2` already says which frame.
+    """
+    try:
+        matches = page.locator(selector)
+        if matches.count():
+            return matches.first
+    except Exception as exc:  # noqa: BLE001 - "Invalid frame in aria-ref" and kin
+        raise _StaleRef(selector) from exc
+    raise _StaleRef(selector)
+
+
 class ActionError(RuntimeError):
     """A step could not be carried out. Carries the step index for the report."""
 
@@ -245,6 +267,8 @@ def _resolve_locator(page: Any, selector: str, timeout_ms: int, *, need_visible:
     Raises ``LookupError`` when nothing matches and :class:`_OnlyHidden` when
     everything that matches is hidden, because those need different fixes.
     """
+    if selector.startswith(REF_PREFIX):
+        return _resolve_ref(page, selector)
     deadline = time.time() + max(0.0, timeout_ms / 1000.0)
     hidden = 0
     while True:
@@ -290,6 +314,14 @@ _ACTION_REASONS = (
     ("outside of the viewport", "it is outside the viewport"),
     ("not visible", "it is not visible"),
 )
+
+
+def _stale_ref_message(selector: str) -> str:
+    return (
+        f"'{selector}' is not on the page any more: refs belong to the last snapshot, "
+        "and the page has changed (or another session snapshotted) since. Nothing was done. "
+        "Take inspect_debug_window(snapshot=...) again and use the new ref."
+    )
 
 
 def _reason_of(message: str) -> str:
@@ -484,13 +516,13 @@ def normalize(raw_actions: Sequence[Any]) -> List[Dict[str, Any]]:
         normalized.append(
             {
                 "action": name,
-                "selector": (str(selector) if selector else None),
+                "selector": (as_selector(str(selector)) if selector else None),
                 "value": (None if raw.get("value") is None else str(raw.get("value"))),
                 "key": (str(raw["key"]) if raw.get("key") else None),
                 "ms": max(0, min(int(raw.get("ms") or 0), MAX_WAIT_MS)),
                 "timeout_ms": max(100, min(timeout_ms, MAX_STEP_TIMEOUT_MS)),
                 "state": str(raw.get("state") or "visible"),
-                "to": (str(raw["to"]) if raw.get("to") else None),
+                "to": (as_selector(str(raw["to"])) if raw.get("to") else None),
             }
         )
     return normalized
@@ -680,6 +712,8 @@ def _run_step(
     try:
         # A key can go to a focused element nobody can see; the rest need one in view.
         locator = _resolve_locator(page, selector, timeout_ms, need_visible=name != "press")
+    except _StaleRef as exc:
+        raise ActionError(_stale_ref_message(selector), index=index) from exc
     except _OnlyHidden as exc:
         raise ActionError(
             f"'{selector}' matched {exc.matched} element(s) but none became visible within "
@@ -690,7 +724,8 @@ def _run_step(
     except LookupError as exc:
         raise ActionError(
             f"No element matched '{selector}' within {timeout_ms}ms "
-            "(searched the page and every frame).",
+            "(searched the page and every frame). snapshot='page' lists what is there, "
+            "with refs to act on.",
             index=index,
             near=near_matches(page, selector),
         ) from exc
@@ -707,6 +742,8 @@ def _run_step(
     if name == "drag":
         try:
             target = _resolve_locator(page, step["to"], timeout_ms, need_visible=True)
+        except _StaleRef as exc:
+            raise ActionError(_stale_ref_message(step["to"]), index=index) from exc
         except LookupError as exc:
             raise ActionError(
                 f"drag: no drop target matched '{step['to']}' within {timeout_ms}ms. "
@@ -768,6 +805,7 @@ def act(
     screenshot_path: str = "",
     session: Optional[Dict[str, Any]] = None,
     allow_server_script: bool = False,
+    snapshot: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run the batch, then drain what it caused. Same raw shape as capture().
 
@@ -871,6 +909,9 @@ def act(
 
                 drained = _drain(page, marks)
                 page_state = read_page_state(page)
+                # The page as the steps left it, so the next batch can point at
+                # what is there now without another round trip.
+                outline = take_snapshot(page, snapshot) if snapshot else None
                 shot, shot_note = _screenshot(
                     page, mode=screenshot, selector=selector, destination=screenshot_path
                 )
@@ -897,6 +938,7 @@ def act(
                     "events_note": drained.get("events_note"),
                     "steps": results,
                     "page_state": page_state,
+                    "snapshot": outline,
                     "dialogs": dialogs,
                     "failed_step": (failure["step"] if failure else None),
                     "skipped": max(0, len(steps) - len(results)),

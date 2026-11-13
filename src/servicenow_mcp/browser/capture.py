@@ -29,6 +29,7 @@ from .badge import (
 from .evaluate import run_in_page
 from .probe import PROBE_SCRIPT, dirty_script, drain_script, presence_script
 from .session import read_effective_user
+from .snapshot import take as take_snapshot
 from .tab_owner import claimed_by_others, drop_pin, write_pin
 from .window import WindowState
 from .window_slot import number_of
@@ -716,6 +717,7 @@ def capture(
     style_selectors: Sequence[str] = (),
     screenshot_path: str = "",
     evaluate_expression: Optional[str] = None,
+    snapshot: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Attach, collect, detach. Returns raw material for report.py to compact."""
     require_playwright()
@@ -755,6 +757,9 @@ def capture(
                     if evaluate_expression
                     else None
                 )
+                # Before the screenshot for the same reason as evaluate: the
+                # outline and the picture describe one moment.
+                outline = take_snapshot(page, snapshot) if snapshot else None
                 shot, shot_note = _screenshot(
                     page,
                     mode=screenshot,
@@ -763,6 +768,7 @@ def capture(
                 )
                 return {
                     "evaluation": evaluation,
+                    "snapshot": outline,
                     "url": str(page.url),
                     "title": str(drained.get("title") or _page_title(page)),
                     "seq": int(drained.get("seq") or 0),
