@@ -361,11 +361,11 @@ TTL を変更するには、`--browser-session-ttl` オプション（分単位�
 | `core` | 12 | ヘルス、スキーマ、検出、キー検索のための最小限の読み取り専用エッセンシャル |
 | `standard` | 31 | **（デフォルト）** インシデント、変更、ポータル、ログ、ソース分析にわたる読み取り専用パッケージ |
 | `itsm_developer` | 37 | ⚠️ 単体で完結する ITSM：レコードの診断、テーブル自動化の把握、カタログ・ポリシー・通知の設定、承認とテスト発注、割り当て・承認ルールと選択肢リスト、ポータルテーマ、更新セットまたは XML で出荷。 |
-| `asset_manager` | 8 | ⚠️ 資材・資産・ITOM 業務向けの最小構成：クエリと、インスタンスで事前に検証する資産の書き込み（`manage_asset`）。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
+| `asset_manager` | 9 | ⚠️ 資材・資産・ITOM 業務向けの最小構成：クエリと、インスタンスで事前に検証する資産の書き込み（`manage_asset`）。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `service_desk` | 34 | standard + インシデントと変更の運用書き込み |
 | `portal_developer` | 53 | standard + ポータル、チェンジセット、スクリプトインクルード、ローカル同期デリバリーワークフロー |
 | `platform_developer` | 48 | standard + ワークフロー、Flow Designer、UI ポリシー、インシデント/変更、スクリプト書き込み |
-| `full` | 73 | 最も広いパッケージ化サーフェス: すべての `manage_*` ワークフローに加えて高度な操作 |
+| `full` | 74 | 最も広いパッケージ化サーフェス: すべての `manage_*` ワークフローに加えて高度な操作 |
 
 変更するには、`MCP_TOOL_PACKAGE` の値を更新します:
 

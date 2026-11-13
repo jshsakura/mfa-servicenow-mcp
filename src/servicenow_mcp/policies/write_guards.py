@@ -320,6 +320,7 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_incident": frozenset({"get"}),
     "manage_change": frozenset({"get", "list_templates"}),
     "manage_asset": frozenset({"get"}),
+    "manage_hardware_disposal": frozenset({"get"}),
     "manage_data_update": frozenset({"preview", "list_snapshots", "preview_revert"}),
     "manage_changeset": frozenset({"get"}),
     "manage_user": frozenset({"get", "list"}),
@@ -942,6 +943,7 @@ _UPDATE_SET_EXEMPT_TOOLS = frozenset(
         "manage_approval",
         "manage_asset",
         "manage_procurement",
+        "manage_hardware_disposal",
         # Refuses sys_* and every table extending sys_metadata, so what it writes
         # is data — never captured in an update set.
         "manage_data_update",

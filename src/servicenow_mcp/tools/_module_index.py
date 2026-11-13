@@ -51,6 +51,7 @@ TOOL_MODULE_INDEX = {
     "manage_flow_designer": "flow_tools",
     "manage_form_layout": "form_layout_tools",
     "manage_group": "user_tools",
+    "manage_hardware_disposal": "hardware_disposal_tools",
     "manage_incident": "incident_tools",
     "manage_kb_article": "knowledge_base",
     "manage_list_layout": "list_layout_tools",

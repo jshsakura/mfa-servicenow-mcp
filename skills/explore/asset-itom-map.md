@@ -13,11 +13,13 @@ tools:
   - sn_aggregate
   - manage_asset
   - manage_procurement
+  - manage_hardware_disposal
 triggers:
   - "자재 재고 확인"
   - "자산 현황"
   - "입고 출고 이관"
   - "PO 입고"
+  - "자산 폐기"
   - "CMDB 관계"
   - "디스커버리 실패"
   - "stock level"
@@ -151,7 +153,32 @@ and client scripts.
    an RMA). The form's later stages are buttons in HAM's own UI: report the record as
    created and Open, not as processed.
 
-Not covered: inventory audits and disposal. They are Hardware Asset Management plugin
+### Hardware disposal (HAM Pro)
+
+`manage_hardware_disposal`. The order runs through five tasks, one open at a time:
+verify → schedule → depart → confirm → documentation. Always start with
+`action="get"`: `open_task` names the task, `to_close.missing` lists exactly what
+closing it still needs, each with the action that provides it. Do that, then
+`complete_task`. Repeat until `get` says the order is finished.
+
+| Open task | Do, then `complete_task` |
+|---|---|
+| verify | `verify` (all draft assets, or `asset_ids`) |
+| schedule | `update` with `scheduled_date`, `vendor` |
+| depart | `update` with `vendor_order_id`, `pickup_contact`; then `depart` |
+| confirm | nothing: just `complete_task` |
+| documentation | `dispose`; `attach_certificate` with a local `file_path` |
+
+- Start one with `action="create"`, `stockroom`, `asset_ids`. `location` and
+  `assigned_to` default to the stockroom's location and you.
+- `verify`, `depart` and `dispose` run the Workspace's own action (it also moves the
+  asset to Retired / In transit / Disposed): they need browser auth. Never set a row's
+  `stage` with another tool; that skips the asset.
+- `TASK_NOT_CLOSED` means the platform refused the close. Call `get` and do what
+  `to_close.missing` says. A `note` that the next task is "not visible yet" means
+  wait and `get` again, not that the flow stopped.
+
+Not covered: inventory audits. They are Hardware Asset Management plugin
 flows. CI records are not written either. Say the
 gap plainly. Do not reach for `sn_write` or hand over a background script.
 Configuration writes (script includes, business rules, jobs) are in the `scripting`
