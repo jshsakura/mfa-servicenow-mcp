@@ -76,7 +76,14 @@ class TestTake:
     def test_whole_page_in_ai_mode(self) -> None:
         page = _Page()
         out = snapshot.take(page, "page")
-        assert out == {"text": PAGE, "complete": True}
+        assert out == {
+            "text": (
+                '- textbox "Short description" [ref=e3]\n'
+                "- iframe [ref=e6]:\n"
+                '  - button "Save" [ref=f1e2]'
+            ),
+            "complete": True,
+        }
         assert page.calls == [("page", "ai")]
 
     def test_region_by_bare_ref(self) -> None:
@@ -149,4 +156,56 @@ class TestLean:
             '- button "Save" [ref=e8] [cursor=pointer]'
         )
         out = snapshot.take(_Page(text=text), "page")
-        assert out["text"] == '- link "INC0010001" [ref=e7]:\n- button "Save" [ref=e8]'
+        assert out["text"] == '- link "INC0010001" [ref=e7]\n- button "Save" [ref=e8]'
+
+    def test_wrappers_lift_their_children_and_nothing_named_is_lost(self) -> None:
+        text = (
+            "- generic [ref=e1]:\n"
+            "  - region:\n"
+            "    - generic [ref=e2]:\n"
+            '      - button "Look up value for field: Caller" [ref=e3] [cursor=pointer]:\n'
+            "        - text: \ue6a1\n"
+            "  - list:\n"
+            "    - listitem"
+        )
+        assert snapshot._lean(text) == '- button "Look up value for field: Caller" [ref=e3]'
+
+    def test_aria_hidden_subtree_and_glyph_text_are_dropped(self) -> None:
+        text = (
+            '- button "Next page" [ref=e1]:\n'
+            "  - generic [aria-hidden] [ref=e2]:\n"
+            '    - link "hidden" [ref=e3]\n'
+            "- text: \ue001 \u200b\n"
+            '- button "Last" [ref=e4]'
+        )
+        assert snapshot._lean(text) == '- button "Next page" [ref=e1]\n- button "Last" [ref=e4]'
+
+    def test_text_its_ancestor_already_names_is_dropped(self) -> None:
+        text = (
+            '- link "Open record: INC0010001" [ref=e1]:\n'
+            "  - text: INC0010001\n"
+            '- button "Help" [ref=e2]:\n'
+            "  - generic [ref=e3]: More detail"
+        )
+        assert snapshot._lean(text) == (
+            '- link "Open record: INC0010001" [ref=e1]\n'
+            '- button "Help" [ref=e2]:\n'
+            "  - generic [ref=e3]: More detail"
+        )
+
+    def test_form_label_before_its_control_is_dropped(self) -> None:
+        text = (
+            "- text: Category\n"
+            '- combobox "Category" [ref=e1]:\n'
+            '  - option "Software" [selected]\n'
+            "- text: Unrelated note"
+        )
+        assert snapshot._lean(text) == (
+            '- combobox "Category" [ref=e1]:\n'
+            '  - option "Software" [selected]\n'
+            "- text: Unrelated note"
+        )
+
+    def test_quoted_lines_print_unquoted_with_value(self) -> None:
+        text = '- \'textbox "Skip: to row" [ref=e1]\': "1"'
+        assert snapshot._lean(text) == '- textbox "Skip: to row" [ref=e1]: 1'

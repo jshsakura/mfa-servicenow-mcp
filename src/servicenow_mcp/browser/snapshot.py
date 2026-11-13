@@ -12,26 +12,108 @@ instead of waiting (actions._resolve_ref).
 """
 
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 REF_PREFIX = "aria-ref="
 # Snapshot refs as printed: e5, f1e2. No HTML tag has such a name, so a bare
 # one is unambiguous as a selector.
 _BARE_REF = re.compile(r"^(?:f\d+)?e\d+$")
 
-# ~2k tokens. A classic form with its gsft_main frame runs well past this; the
-# answer to that is a narrower snapshot (a region's ref), not a longer reply.
-MAX_SNAPSHOT_CHARS = 8000
+# ~3k tokens. Measured after _lean on lab: classic form 4.5k chars, workspace
+# records 8.5-10.4k, a 20-row list 24.5k. A list is data the API reads; the
+# answer to an outline over this is a region by its ref, not a longer reply.
+MAX_SNAPSHOT_CHARS = 12000
 _INDENT = re.compile(r"^( *)")
-# Pointing at an element needs its role, name and ref. A link's href (a whole
-# `- /url: ...` line, long on ServiceNow) and the pointer-cursor flag do not
-# change which element it is; on a list page they were most of the outline.
-_URL_LINE = re.compile(r"^ *- /url: .*$\n?", re.MULTILINE)
-_NOISE = re.compile(r" \[cursor=pointer\]")
+# Pointing at an element needs its role, name and ref. Measured on four lab
+# pages (list, classic form, two workspaces), a third or more of Playwright's
+# outline was none of those:
+# - a link's href (`- /url: ...`, long on ServiceNow) and `[cursor=pointer]`;
+# - aria-hidden decoration, and icon-font glyphs (private-use code points)
+#   printed as text;
+# - nameless wrappers (`generic`, `region`, `list`...): their children are
+#   lifted one level, so nothing under them is lost;
+# - a leaf that repeats text its ancestor already names (the screen-reader
+#   copy of a button's label).
+_URL_LINE = re.compile(r"^ *- /url: .*$")
+_LINE = re.compile(r"^( *)- (.*)$")
+_REF = re.compile(r" \[ref=[\w]+\]")
+_GLYPHS = re.compile(r"[\s\ue000-\uf8ff\u200b]*")
+# role [ref=eN] [states] : text   — with Playwright's optional YAML quoting.
+_NODE = re.compile(
+    r"^'?(?P<role>[a-z/]+)(?P<name> \"[^\"]*\")?(?P<attrs>(?: \[[^\]]*\])*)'?(?::(?P<text>.*))?$"
+)
+_WRAPPERS = frozenset(
+    {"generic", "group", "region", "list", "listitem", "note", "paragraph", "text"}
+)
 
 
 def _lean(text: str) -> str:
-    return _NOISE.sub("", _URL_LINE.sub("", text))
+    out: List[str] = []
+    # (source indent, depth its children print at, the line they sit under)
+    stack: List[Tuple[int, int, str]] = []
+    skip_below: Optional[int] = None
+    for line in text.splitlines():
+        match = _LINE.match(line)
+        if not match:
+            continue
+        indent, body = len(match.group(1)), match.group(2).replace(" [cursor=pointer]", "")
+        if skip_below is not None:
+            if indent > skip_below:
+                continue
+            skip_below = None
+        if _URL_LINE.match(line):
+            continue
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        depth, above = (stack[-1][1], stack[-1][2]) if stack else (0, "")
+        node = _NODE.match(body)
+        if node is None:  # a shape we do not parse is kept as it came
+            out.append("  " * depth + "- " + body)
+            stack.append((indent, depth + 1, body))
+            continue
+        if "[aria-hidden]" in (node.group("attrs") or ""):
+            skip_below = indent
+            continue
+        text_part = (node.group("text") or "").strip().strip("\"'")
+        if _GLYPHS.fullmatch(text_part):
+            text_part = ""
+        has_children = body.rstrip().endswith(":") and not text_part
+        name = node.group("name")
+        if node.group("role") in _WRAPPERS and not name and not text_part:
+            stack.append((indent, depth, above))  # lifted: children print here
+            continue
+        if not has_children and not name and text_part and text_part in above:
+            continue
+        head = node.group("role") + (name or "") + (node.group("attrs") or "")
+        printed = head + (": " + text_part if text_part else "") + (":" if has_children else "")
+        out.append("  " * depth + "- " + printed)
+        stack.append((indent, depth + 1, printed))
+    return "\n".join(_drop_labels(out))
+
+
+def _depth(line: str) -> int:
+    return len(line) - len(line.lstrip(" ")) if line else -1
+
+
+def _drop_labels(lines: List[str]) -> List[str]:
+    """A form label (`- text: Caller`) whose next sibling's name already says it.
+
+    Also closes a line whose children were all dropped: ``link "Open":`` with
+    nothing under it reads as if something were missing.
+    """
+    kept = []
+    for i, line in enumerate(lines):
+        nxt_line = lines[i + 1] if i + 1 < len(lines) else ""
+        if line.endswith(":") and _depth(nxt_line) <= _depth(line):
+            line = line[:-1]
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        label = re.match(r"^( *)- text: (.+)$", line)
+        if label and nxt.startswith(label.group(1) + "- ") and '"' in nxt:
+            named = nxt.split('"')[1]
+            if label.group(2).strip() in named:
+                continue
+        kept.append(line)
+    return kept
 
 
 def as_selector(selector: str) -> str:
