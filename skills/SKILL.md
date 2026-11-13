@@ -86,6 +86,7 @@ target — or a normal Update Set promotion.
 |-------|------|-------------|-----------------|
 | [local-source-audit](analyze/local-source-audit.md) | low | yes | "로컬 검수", "dead code", "cross reference" |
 | [data-question](analyze/data-question.md) | low | yes | "몇 건이야", "일괄 수정", "BG로 돌려", "how many" |
+| [condition-check](analyze/condition-check.md) | low | yes | "빈 값도 걸려", "조건 맞아", "does this match empty" |
 
 ### manage/ — CRUD and operations
 
@@ -100,7 +101,7 @@ target — or a normal Update Set promotion.
 
 | Skill | Cost | Delegatable | Trigger Examples |
 |-------|------|-------------|-----------------|
-| [flow-trigger-tracing](explore/flow-trigger-tracing.md) | medium | yes | "트리거 추적", "what runs on this table" |
+| [flow-trigger-tracing](explore/flow-trigger-tracing.md) | medium | yes | "트리거 추적", "상태 바꿔주는 놈", "영향도", "what sets this field" |
 | [asset-itom-map](explore/asset-itom-map.md) | low | yes | "자재 재고", "자산 현황", "discovery failed" |
 | [record-forensics](explore/record-forensics.md) | medium | yes | "누가 바꿨어", "메일 나갔어", "what happened to this record" |
 

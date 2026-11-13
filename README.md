@@ -852,7 +852,7 @@ All downloads write full source to disk with zero truncation. Only a summary is 
 
 Tools are raw API calls. Skills are what make your LLM actually useful — verified pipelines with safety gates, rollback, and context-aware sub-agent delegation. **MCP server + skills is the complete setup** for LLM-driven ServiceNow automation.
 
-9 skills today, more coming with every release.
+10 skills today, more coming with every release.
 
 | | Tools Only | Tools + Skills |
 |---|---|---|
