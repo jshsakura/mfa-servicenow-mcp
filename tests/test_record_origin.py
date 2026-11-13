@@ -108,3 +108,96 @@ def test_clone_follows_the_record_class_not_the_folder():
 def test_a_clone_id_built_from_a_display_name_is_a_slug():
     call = ro.clone_call("sp_widget", "aaaa1111bbbb2222cccc3333dddd4444", "KB Categories - KBv3")
     assert "new_id='kb-categories-kbv3-custom'" in call
+
+
+# --- created inside a ServiceNow store app's scope (_born_here) -------------
+
+_STORE_ROW = {
+    "sys_id": "aaaa1111bbbb2222cccc3333dddd0301",
+    "sys_package": "bbbb2222",
+    "sys_package.sys_class_name": "sys_store_app",
+    "sys_scope.vendor": "ServiceNow",
+    "sys_update_name": "sp_widget_aaaa1111bbbb2222cccc3333dddd0301",
+    "sys_created_on": "2026-11-12 01:04:10",
+    "sys_created_by": "alice",
+}
+
+
+def _origin_with(versions, row=None):
+    """record_origin over a record read and a version read, in that order."""
+    reads = [([dict(row or _STORE_ROW)], 1)]
+    reads.append(versions if isinstance(versions, Exception) else (versions, len(versions)))
+    with patch("servicenow_mcp.tools.sn_api.sn_query_page", side_effect=reads) as q:
+        out = ro.record_origin(MagicMock(), MagicMock(), "sp_widget", _STORE_ROW["sys_id"])
+    return out, q
+
+
+def _version(at, by="alice", source="sys_update_set"):
+    return {"sys_created_on": at, "sys_created_by": by, "source_table": source}
+
+
+def test_a_record_created_here_in_a_store_scope_is_the_customers():
+    out, q = _origin_with([_version("2026-11-12 01:04:12"), _version("2026-11-12 03:00:00")])
+    assert out["verdict"] == ro.CUSTOMER
+    assert "created on this instance by alice" in out["created_in_vendor_scope"]
+    version_read = q.call_args_list[1].kwargs
+    assert version_read["table"] == "sys_update_version"
+    assert version_read["query"].startswith("name=sp_widget_aaaa1111bbbb2222cccc3333dddd0301")
+
+
+@pytest.mark.parametrize(
+    "versions,why",
+    [
+        # An untouched baseline record: no history. NOT the customer signal.
+        ([], "no version history"),
+        # Customer edited a delivered record long after it was created.
+        ([_version("2026-11-13 09:00:00")], "no local version at creation"),
+        # Moved in by an update set committed later: the source's creation date.
+        ([_version("2026-11-12 05:00:00", source="sys_remote_update_set")], "no local version"),
+        # A version at creation, but by someone else (an install, then an edit).
+        ([_version("2026-11-12 01:04:20", by="bob")], "no local version at creation"),
+        # Written at creation but not through a local update set.
+        ([_version("2026-11-12 01:04:11", source="sys_upgrade_history")], "no local version"),
+        # A version BEFORE the record existed proves nothing about its birth.
+        ([_version("2026-11-12 01:03:00")], "no local version at creation"),
+    ],
+)
+def test_without_proof_of_birth_here_a_store_app_record_stays_servicenows(versions, why):
+    out, _ = _origin_with(versions)
+    assert out["verdict"] == ro.SERVICENOW
+    assert why in out["delivery_basis"]
+
+
+def test_an_unreadable_history_keeps_the_gate_and_says_why():
+    out, _ = _origin_with(RuntimeError("acl"))
+    assert out["verdict"] == ro.SERVICENOW
+    assert "version history not readable: acl" in out["delivery_basis"]
+
+
+def test_a_capped_history_says_it_was_capped():
+    out, _ = _origin_with([_version("2026-11-13 09:00:00")] * ro._VERSION_PAGE)
+    assert out["verdict"] == ro.SERVICENOW
+    assert "history is longer" in out["delivery_basis"]
+
+
+def test_a_missing_creation_stamp_is_not_proof():
+    row = dict(_STORE_ROW, sys_created_on="")
+    with patch("servicenow_mcp.tools.sn_api.sn_query_page", return_value=([row], 1)) as q:
+        out = ro.record_origin(MagicMock(), MagicMock(), "sp_widget", row["sys_id"])
+    assert out["verdict"] == ro.SERVICENOW
+    assert q.call_count == 1  # nothing to compare against, so no history read
+
+
+def test_a_plugin_record_is_never_asked():
+    row = {"sys_package": "aaaa1111", "sys_package.sys_class_name": "sys_plugins"}
+    with patch("servicenow_mcp.tools.sn_api.sn_query_page", return_value=([row], 1)) as q:
+        out = ro.record_origin(
+            MagicMock(), MagicMock(), "sp_widget", "aaaa1111bbbb2222cccc3333dddd4444"
+        )
+    assert out["verdict"] == ro.SERVICENOW
+    assert q.call_count == 1
+
+
+def test_a_login_failure_on_the_history_read_is_raised():
+    with pytest.raises(ValueError, match="LOGIN_CANCELLED_BY_USER"):
+        _origin_with(ValueError("LOGIN_CANCELLED_BY_USER (x): timed out"))

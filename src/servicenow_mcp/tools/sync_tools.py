@@ -3970,6 +3970,13 @@ def update_remote_from_local(
             f"Edited a ServiceNow-delivered record ({record_owner.get('package')}) in place: "
             "the next upgrade will skip it."
         )
+    elif record_owner.get("created_in_vendor_scope"):
+        # Said, so a push into a ServiceNow app's scope never passes silently:
+        # the reader sees which proof let it through.
+        ack["origin_note"] = (
+            f"In a ServiceNow app's scope ({record_owner.get('package')}) but not delivered: "
+            f"{record_owner['created_in_vendor_scope']}. No upgrade carries it, so no approval."
+        )
     elif record_owner.get("verdict") == _ORIGIN_UNKNOWN:
         ack["origin_undetermined"] = (
             "Could not tell whether ServiceNow delivered this record "

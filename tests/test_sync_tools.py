@@ -5316,6 +5316,35 @@ def test_an_approved_edit_of_a_servicenow_widget_pushes_and_says_so(
 
 @patch(
     "servicenow_mcp.utils.record_origin.record_origin",
+    return_value={
+        "verdict": "customer",
+        "package": "Employee Center",
+        "package_class": "sys_store_app",
+        "created_in_vendor_scope": "created on this instance by alice at 2026-11-12 01:04:10",
+    },
+)
+@patch("servicenow_mcp.tools.sync_tools._write_sync_meta")
+@patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+@patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+def test_a_widget_created_here_in_a_servicenow_scope_pushes_and_says_why(
+    mock_fetch, mock_update, _meta, _origin, mock_config, mock_auth, download_root
+):
+    _push_mocks(mock_fetch, mock_update)
+    path = download_root / "global" / "sp_widget" / "my-widget" / "script.js"
+
+    result = update_remote_from_local(
+        mock_config, mock_auth, PushLocalComponentParams(path=str(path))
+    )
+
+    assert result["success"] is True
+    mock_update.assert_called_once()
+    assert "servicenow_owned_edited" not in result
+    assert "created on this instance by alice" in result["origin_note"]
+    assert "Employee Center" in result["origin_note"]
+
+
+@patch(
+    "servicenow_mcp.utils.record_origin.record_origin",
     return_value={"verdict": "undetermined", "reason": "package not readable"},
 )
 @patch("servicenow_mcp.tools.sync_tools._write_sync_meta")

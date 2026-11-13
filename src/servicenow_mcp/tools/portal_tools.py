@@ -3518,7 +3518,8 @@ def _attach_origin_summary(result: Dict[str, Any], exported_widgets: List[Dict[s
         result["servicenow_owned_note"] = (
             f"{len(owned)} widget(s) are delivered by ServiceNow. Editing one in place "
             "makes it a customization the next upgrade skips; pushing it asks for "
-            "confirm_servicenow_edit='approve'. To keep it upgradeable, clone it and "
+            "confirm_servicenow_edit='approve' (unless the push finds it was created on "
+            "this instance — judged by package only here). To keep it upgradeable, clone it and "
             "swap the page instance: manage_portal_layout(action='replace_widget', "
             "instance_id=<instance>, sp_widget=<clone id>)."
         )
