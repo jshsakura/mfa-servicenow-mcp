@@ -134,6 +134,23 @@ Hardware lines only. Software, consumable and bundle lines, MAC-required models 
 tagged units on lines with pre-created assets are refused: say they go through the
 Receive page.
 
+### Asset request forms (RMA, loaner, refresh)
+
+HAM's request forms are catalog record producers. Find one with
+`sn_query(table="sc_cat_item_producer", query="active=true^table_nameSTARTSWITHsn_hamp", fields="sys_id,name,table_name")`,
+then `manage_catalog(action="get_item", item_id=..., detail="full")` for its variables
+and client scripts.
+
+1. CALL `manage_request_item(action="order", item_id=..., variables={...}, dry_run=true)`.
+   A multi-row set (an RMA's `rma_assets`) is ONE variable: pass a list of row objects,
+   e.g. `{"rma_assets": [{"asset": "<alm_asset sys_id>", "quantity": "1"}]}`.
+2. Client scripts do not run on an API order. Do their checks yourself from what
+   the get_item call lists: for an RMA, at least one row, no asset twice, quantity 1 unless
+   the asset is a consumable.
+3. Order, then read the created record and its lines (`sn_query(table="sn_hamp_rma_request_line")` for
+   an RMA). The form's later stages are buttons in HAM's own UI: report the record as
+   created and Open, not as processed.
+
 Not covered: inventory audits and disposal. They are Hardware Asset Management plugin
 flows. CI records are not written either. Say the
 gap plainly. Do not reach for `sn_write` or hand over a background script.

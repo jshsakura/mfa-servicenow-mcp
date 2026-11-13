@@ -9,6 +9,7 @@ shows it.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
@@ -204,55 +205,181 @@ def _write(
     return response.json().get("result", {}) or {}
 
 
-def _item_variables(
-    config: ServerConfig, auth_manager: AuthManager, item_id: str
-) -> List[Dict[str, Any]]:
-    """Active variables of an item: its own plus those of attached variable sets."""
+class _Variables:
+    """An item's variables as the order API sees them.
+
+    ``single``: names sent as plain values — the item's own variables plus those
+    of single-row sets. ``multi``: multi-row variable sets by internal name, each
+    with its column variables; the API takes such a set as ONE variable whose
+    value is a JSON array of row objects, so its columns are never top-level.
+    """
+
+    def __init__(self) -> None:
+        self.single: List[Dict[str, Any]] = []
+        self.multi: Dict[str, List[Dict[str, Any]]] = {}
+
+    def __len__(self) -> int:
+        return len(self.single) + sum(len(cols) for cols in self.multi.values())
+
+
+def _item_variables(config: ServerConfig, auth_manager: AuthManager, item_id: str) -> _Variables:
+    """Active variables of an item: its own plus those of attached variable sets.
+
+    A set's type is read, never assumed: treating a multi-row set's columns as
+    plain variables demands them at the top level and refuses the set's own
+    name, so an item built on one could not be ordered at all. A linked set
+    whose record cannot be read raises — its shape is unknown.
+    """
     cols = "name,mandatory,active,type,default_value"
-    rows = _read(config, auth_manager, "item_option_new", f"cat_item={item_id}^active=true", cols)
+    out = _Variables()
+    out.single = [
+        r
+        for r in _read(
+            config, auth_manager, "item_option_new", f"cat_item={item_id}^active=true", cols
+        )
+        if _val(r, "name")
+    ]
     links = _read(config, auth_manager, "io_set_item", f"sc_cat_item={item_id}", "variable_set")
     sets = sorted({_val(r, "variable_set") for r in links if _val(r, "variable_set")})
-    if sets:
-        rows += _read(
-            config,
-            auth_manager,
-            "item_option_new",
-            f"variable_setIN{','.join(sets)}^active=true",
-            cols,
-        )
-    return [r for r in rows if _val(r, "name")]
+    if not sets:
+        return out
+    set_rows = _read(
+        config,
+        auth_manager,
+        "item_option_new_set",
+        f"sys_idIN{','.join(sets)}",
+        "sys_id,internal_name,type",
+        limit=len(sets) + 1,
+    )
+    by_id = {_val(r, "sys_id"): r for r in set_rows}
+    unread = [s for s in sets if s not in by_id]
+    if unread:
+        raise RuntimeError(f"variable set(s) {', '.join(unread)} could not be read")
+    rows = _read(
+        config,
+        auth_manager,
+        "item_option_new",
+        f"variable_setIN{','.join(sets)}^active=true",
+        cols + ",variable_set",
+    )
+    for row in rows:
+        if not _val(row, "name"):
+            continue
+        owner = by_id.get(_val(row, "variable_set"))
+        if owner is not None and _val(owner, "type") == "one_to_many":
+            out.multi.setdefault(_val(owner, "internal_name"), []).append(row)
+        else:
+            out.single.append(row)
+    for set_id in sets:
+        owner = by_id[set_id]
+        if _val(owner, "type") == "one_to_many":
+            out.multi.setdefault(_val(owner, "internal_name"), [])
+    return out
+
+
+def _missing_mandatory(rows: List[Dict[str, Any]], given: Dict[str, Any]) -> List[str]:
+    return sorted(
+        _val(r, "name")
+        for r in rows
+        if _truthy(_val(r, "mandatory"))
+        and not _val(r, "default_value")
+        and given.get(_val(r, "name")) in (None, "")
+    )
+
+
+def _multi_rows(name: str, value: Any) -> Tuple[Optional[List[Any]], Optional[str]]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value) if value.strip() else []
+        except ValueError:
+            return None, f"{name} is a multi-row set: pass a list of row objects"
+    if not isinstance(value, list) or not all(isinstance(r, dict) for r in value):
+        return None, f"{name} is a multi-row set: pass a list of row objects"
+    return value, None
 
 
 def _validate_variables(
-    declared: List[Dict[str, Any]], given: Dict[str, Any]
-) -> Optional[Dict[str, Any]]:
-    by_name = {_val(r, "name"): r for r in declared}
-    unknown = sorted(n for n in given if n not in by_name)
+    declared: _Variables, given: Dict[str, Any]
+) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    """(refusal, payload variables). Multi-row sets go out as a JSON array string."""
+    by_name = {_val(r, "name"): r for r in declared.single}
+    known = set(by_name) | set(declared.multi)
+    unknown = sorted(n for n in given if n not in known)
     if unknown:
-        return _fail(
-            "UNKNOWN_VARIABLES",
-            "Not variables of this item (the server would drop them silently): "
-            + ", ".join(unknown)
-            + ". Nothing was ordered.",
-            unknown=unknown,
-            known=sorted(by_name),
+        hint = {
+            col: set_name
+            for set_name, cols in declared.multi.items()
+            for col in (_val(c, "name") for c in cols)
+            if col in unknown
+        }
+        return (
+            _fail(
+                "UNKNOWN_VARIABLES",
+                "Not variables of this item (the server would drop them silently): "
+                + ", ".join(unknown)
+                + ". Nothing was ordered."
+                + (
+                    " Columns of a multi-row set go inside it: "
+                    + ", ".join(f"{c} -> {s}" for c, s in sorted(hint.items()))
+                    + "."
+                    if hint
+                    else ""
+                ),
+                unknown=unknown,
+                known=sorted(known),
+            ),
+            {},
         )
-    missing = sorted(
-        n
-        for n, r in by_name.items()
-        if _truthy(_val(r, "mandatory"))
-        and not _val(r, "default_value")
-        and (n not in given or given[n] in (None, ""))
-    )
+    missing = _missing_mandatory(declared.single, given)
     if missing:
-        return _fail(
-            "MISSING_MANDATORY",
-            "Mandatory variables with no value or default: "
-            + ", ".join(missing)
-            + ". Nothing was ordered.",
-            missing=missing,
+        return (
+            _fail(
+                "MISSING_MANDATORY",
+                "Mandatory variables with no value or default: "
+                + ", ".join(missing)
+                + ". Nothing was ordered.",
+                missing=missing,
+            ),
+            {},
         )
-    return None
+    payload = dict(given)
+    for set_name, cols in declared.multi.items():
+        if set_name not in given:
+            continue
+        rows, error = _multi_rows(set_name, given[set_name])
+        if error is not None:
+            return _fail("BAD_MULTI_ROW_SET", error + ". Nothing was ordered."), {}
+        assert rows is not None
+        columns = {_val(c, "name") for c in cols}
+        for index, row in enumerate(rows, 1):
+            stray = sorted(k for k in row if k not in columns)
+            if stray:
+                return (
+                    _fail(
+                        "UNKNOWN_VARIABLES",
+                        f"{set_name} row {index} has columns the set does not: "
+                        f"{', '.join(stray)} (known: {', '.join(sorted(columns))}). "
+                        "Nothing was ordered.",
+                        unknown=stray,
+                        known=sorted(columns),
+                    ),
+                    {},
+                )
+            lacking = _missing_mandatory(cols, row)
+            if lacking:
+                return (
+                    _fail(
+                        "MISSING_MANDATORY",
+                        f"{set_name} row {index} lacks mandatory {', '.join(lacking)}. "
+                        "Nothing was ordered.",
+                        missing=lacking,
+                    ),
+                    {},
+                )
+        payload[set_name] = json.dumps(
+            [{k: "" if v is None else str(v) for k, v in row.items()} for row in rows]
+        )
+    return None, payload
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +461,7 @@ def _order(
             f"Could not read the item's variables, so the order cannot be checked: {exc}. "
             "Nothing was ordered.",
         )
-    refusal = _validate_variables(declared, given)
+    refusal, given = _validate_variables(declared, given)
     if refusal is not None:
         return refusal
 
