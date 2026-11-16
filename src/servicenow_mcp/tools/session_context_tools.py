@@ -147,6 +147,21 @@ def split_picker_label(label: str) -> Tuple[str, str]:
     return match.group("name").strip(), match.group("app").strip()
 
 
+def names_update_set(answer: Optional[str], update_set: Optional[Dict[str, Any]]) -> bool:
+    """True when ``answer`` names this update set — its name or sys_id.
+
+    The ONE answer form for every "which update set?" question (G11 before the
+    first write, the per-record drift gate in manage_portal_component). Both read
+    the same ``confirm_update_set`` field, so one answer must clear both; two
+    forms on one field left a caller who obeyed one gate refused by the other.
+    """
+    said = (answer or "").strip().lower()
+    if not said or not update_set:
+        return False
+    name, _ = split_picker_label(str(update_set.get("name") or ""))
+    return said in {name.strip().lower(), str(update_set.get("sys_id") or "").lower()} - {""}
+
+
 def _normalize_update_set_selection(selection: Dict[str, str]) -> Dict[str, str]:
     """Split a picker label into the name and the application it was tagged with.
 

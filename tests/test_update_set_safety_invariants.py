@@ -309,33 +309,11 @@ class TestUpdateCodeDriftGate:
         assert result["error"] == "update_set_mismatch"
         mock_update.assert_not_called()
 
-    def test_drift_proceeds_only_with_explicit_confirm(self):
-        cfg, auth = self._cfg_auth()
-        with (
-            patch(
-                "servicenow_mcp.tools.portal_crud_tools.get_last_update_set_for_record"
-            ) as mock_last,
-            patch(
-                "servicenow_mcp.tools.portal_crud_tools.update_portal_component",
-                return_value={"success": True},
-            ) as mock_update,
-        ):
-            params = ManagePortalComponentParams(
-                action="update_code",
-                table="sp_widget",
-                sys_id="w1",
-                update_data={"script": "x"},
-                confirm_update_set="approve",
-            )
-            result = manage_portal_component(cfg, auth, params)
-        assert result["success"] is True
-        mock_update.assert_called_once()
-        # When confirmed, the drift lookup is skipped entirely — no second-guessing.
-        mock_last.assert_not_called()
-
-    def test_naming_the_current_set_also_confirms(self):
-        """G11 is answered with the current set's NAME on the same field, so that
-        answer must clear this gate too, or a caller following G11 is refused here."""
+    def test_drift_proceeds_only_when_the_current_set_is_named(self):
+        """One answer form for every update-set question: the current set's name
+        (or sys_id) — the same answer G11 takes on this field, so one answer
+        clears both. A bare 'approve' or another set's name is refused, and the
+        refusal hands back the exact value to send."""
         cfg, auth = self._cfg_auth()
         with (
             patch(
@@ -351,31 +329,27 @@ class TestUpdateCodeDriftGate:
                 return_value={"success": True},
             ) as mock_update,
         ):
-            ok = manage_portal_component(
-                cfg,
-                auth,
-                ManagePortalComponentParams(
-                    action="update_code",
-                    table="sp_widget",
-                    sys_id="w1",
-                    update_data={"script": "x"},
-                    confirm_update_set="new",
-                ),
-            )
-            other = manage_portal_component(
-                cfg,
-                auth,
-                ManagePortalComponentParams(
-                    action="update_code",
-                    table="sp_widget",
-                    sys_id="w1",
-                    update_data={"script": "x"},
-                    confirm_update_set="Old",
-                ),
-            )
-        assert ok["success"] is True
-        assert other["error"] == "update_set_mismatch"
-        mock_update.assert_called_once()
+
+            def run(answer):
+                return manage_portal_component(
+                    cfg,
+                    auth,
+                    ManagePortalComponentParams(
+                        action="update_code",
+                        table="sp_widget",
+                        sys_id="w1",
+                        update_data={"script": "x"},
+                        confirm_update_set=answer,
+                    ),
+                )
+
+            refused = [run("approve"), run("Old")]
+            ok_name, ok_id = run("new"), run("US-NEW")
+        for r in refused:
+            assert r["error"] == "update_set_mismatch"
+            assert "confirm_update_set='New'" in r["message"]
+        assert ok_name["success"] is True and ok_id["success"] is True
+        assert mock_update.call_count == 2
 
 
 # ---------------------------------------------------------------------------

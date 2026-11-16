@@ -1063,6 +1063,7 @@ def _g11_update_set_confirmation(ctx: WriteGuardContext) -> None:
     from servicenow_mcp.tools.session_context_tools import (
         get_current_update_set,
         is_default_update_set,
+        names_update_set,
         split_picker_label,
     )
 
@@ -1086,7 +1087,7 @@ def _g11_update_set_confirmation(ctx: WriteGuardContext) -> None:
     name, _ = split_picker_label(str(us.get("name") or ""))
     name = name.strip() or sys_id
     approval = str(ctx.arguments.get(CONFIRM_UPDATE_SET_FIELD) or "").strip().lower()
-    if approval and approval in {name.lower(), sys_id.lower()}:
+    if names_update_set(approval, us):
         if not is_default_update_set(us):
             _CONFIRMED_UPDATE_SETS.add(key)
         return

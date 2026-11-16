@@ -26,6 +26,7 @@ from servicenow_mcp.tools.session_context_tools import (
     get_current_update_set,
     get_last_update_set_for_record,
     is_default_update_set,
+    names_update_set,
 )
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
@@ -621,7 +622,7 @@ class ManagePortalComponentParams(BaseModel):
     force: bool = Field(default=False, description="Override conflict check.")
     confirm_update_set: Optional[str] = Field(
         default=None,
-        description="Set 'approve' if record was last edited in another update set.",
+        description="Name of your current update set, when the record was last edited in another.",
     )
 
     dry_run: bool = Field(default=False)
@@ -892,44 +893,35 @@ def manage_portal_component(
 
     # Intent guard: if this record was last captured in a DIFFERENT update set
     # than the session's current one, editing it now would silently split the
-    # record's history across sets. Block until the caller confirms — never auto
-    # switch, never proceed unconfirmed. Best-effort: if either side is unknown
-    # (basic auth, no prior capture, lookup failure), don't block.
-    # The same field carries G11's answer (the current set's NAME), so naming the
-    # current set approves capturing into it here too.
-    approval = (params.confirm_update_set or "").strip().lower()
-    if approval != "approve":
-        last = get_last_update_set_for_record(config, auth_manager, params.table, params.sys_id)
-        current = get_current_update_set(config, auth_manager)
-        if (
-            last
-            and current
-            and last.get("sys_id")
-            and current.get("sys_id")
-            and last.get("sys_id") != current.get("sys_id")
-            and not (
-                approval
-                and approval
-                in {
-                    str(current.get("name") or "").strip().lower(),
-                    str(current.get("sys_id")).lower(),
-                }
-            )
-        ):
-            return {
-                "success": False,
-                "error": "update_set_mismatch",
-                "message": (
-                    f"This record was last edited in update set "
-                    f"'{last.get('name') or last.get('sys_id')}', but your current set is "
-                    f"'{current.get('name') or current.get('sys_id')}'. Proceeding would "
-                    "split its history across sets. To capture into your current set, "
-                    "re-run with confirm_update_set='approve'. To use the original set, "
-                    "switch first via manage_session_context."
-                ),
-                "last_update_set": last,
-                "current_update_set": current,
-            }
+    # record's history across sets. Block until the caller names the current set
+    # (the same answer G11 takes on this field) — never auto switch, never proceed
+    # unconfirmed. Best-effort: if either side is unknown (basic auth, no prior
+    # capture, lookup failure), don't block.
+    last = get_last_update_set_for_record(config, auth_manager, params.table, params.sys_id)
+    current = get_current_update_set(config, auth_manager)
+    if (
+        last
+        and current
+        and last.get("sys_id")
+        and current.get("sys_id")
+        and last.get("sys_id") != current.get("sys_id")
+        and not names_update_set(params.confirm_update_set, current)
+    ):
+        current_name = current.get("name") or current.get("sys_id")
+        return {
+            "success": False,
+            "error": "update_set_mismatch",
+            "message": (
+                f"This record was last edited in update set "
+                f"'{last.get('name') or last.get('sys_id')}', but your current set is "
+                f"'{current_name}'. Proceeding would split its history across sets. To "
+                f"capture into your current set, re-run with "
+                f"confirm_update_set='{current_name}'. To use the original set, switch "
+                "first via manage_session_context."
+            ),
+            "last_update_set": last,
+            "current_update_set": current,
+        }
 
     return update_portal_component(
         config,
