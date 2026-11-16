@@ -333,6 +333,50 @@ class TestUpdateCodeDriftGate:
         # When confirmed, the drift lookup is skipped entirely — no second-guessing.
         mock_last.assert_not_called()
 
+    def test_naming_the_current_set_also_confirms(self):
+        """G11 is answered with the current set's NAME on the same field, so that
+        answer must clear this gate too, or a caller following G11 is refused here."""
+        cfg, auth = self._cfg_auth()
+        with (
+            patch(
+                "servicenow_mcp.tools.portal_crud_tools.get_last_update_set_for_record",
+                return_value={"sys_id": "us-old", "name": "Old"},
+            ),
+            patch(
+                "servicenow_mcp.tools.portal_crud_tools.get_current_update_set",
+                return_value={"sys_id": "us-new", "name": "New"},
+            ),
+            patch(
+                "servicenow_mcp.tools.portal_crud_tools.update_portal_component",
+                return_value={"success": True},
+            ) as mock_update,
+        ):
+            ok = manage_portal_component(
+                cfg,
+                auth,
+                ManagePortalComponentParams(
+                    action="update_code",
+                    table="sp_widget",
+                    sys_id="w1",
+                    update_data={"script": "x"},
+                    confirm_update_set="new",
+                ),
+            )
+            other = manage_portal_component(
+                cfg,
+                auth,
+                ManagePortalComponentParams(
+                    action="update_code",
+                    table="sp_widget",
+                    sys_id="w1",
+                    update_data={"script": "x"},
+                    confirm_update_set="Old",
+                ),
+            )
+        assert ok["success"] is True
+        assert other["error"] == "update_set_mismatch"
+        mock_update.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # I8 — switching to a non-existent set by name never creates it

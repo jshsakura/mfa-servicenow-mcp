@@ -59,7 +59,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -1496,11 +1496,17 @@ def strip_guard_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in arguments.items() if k != CONFIRM_PUBLISH_FIELD}
 
 
-def strip_post_confirm_fields(arguments: Dict[str, Any]) -> Dict[str, Any]:
+def strip_post_confirm_fields(
+    arguments: Dict[str, Any], keep: Iterable[str] = ()
+) -> Dict[str, Any]:
     """Remove post-confirm guard fields (allow_duplicate, confirm_update_set)
-    before the tool runs."""
+    before the tool runs — except those the tool's own params model declares
+    (``keep``). A tool that runs its own check on the same field (the portal
+    per-record update-set gate) must still receive it, or that check can never
+    pass."""
+    kept = set(keep)
     return {
         k: v
         for k, v in arguments.items()
-        if k not in (ALLOW_DUPLICATE_FIELD, CONFIRM_UPDATE_SET_FIELD)
+        if k in kept or k not in (ALLOW_DUPLICATE_FIELD, CONFIRM_UPDATE_SET_FIELD)
     }

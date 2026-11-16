@@ -1928,7 +1928,9 @@ class ServiceNowMCP:
         # to block a blind overwrite of a concurrent edit or a silent duplicate.
         with self._scoped_active_instance(cross_instance_ctx):
             run_post_confirm_guards(self, name, arguments)
-        arguments = strip_post_confirm_fields(arguments)
+        arguments = strip_post_confirm_fields(
+            arguments, keep=self.tool_definitions[name][1].model_fields
+        )
 
         # Strip the confirmation fields before passing to the tool
         arguments = {

@@ -1152,3 +1152,51 @@ def test_dry_run_on_a_tool_without_the_field_still_needs_confirm(monkeypatch, tm
     with pytest.raises(ValueError, match="confirm='approve'"):
         asyncio.run(server._call_tool_impl("manage_incident", {"dry_run": True}))
     assert sent == []
+
+
+class _ConfirmSetParams(BaseModel):
+    confirm_update_set: str | None = None
+
+
+def test_confirm_update_set_reaches_a_tool_that_declares_it(monkeypatch, tmp_path):
+    """The per-record gate in manage_portal_component reads confirm_update_set
+    itself. The server used to strip it as a G11-only field before dispatch, so
+    the tool always saw None and refused every confirmed retry."""
+    import servicenow_mcp.policies as policies
+
+    monkeypatch.setattr(policies, "run_write_guards", lambda *a, **k: None)
+    monkeypatch.setattr(policies, "run_post_confirm_guards", lambda *a, **k: None)
+    server = _build_server(monkeypatch, tmp_path)
+    seen = {}
+
+    def _impl(_config, _auth, params):
+        seen["value"] = params.confirm_update_set
+        return {"ok": True}
+
+    for tool, model in (("manage_incident", _ConfirmSetParams), ("manage_change", EmptyParams)):
+        server.tool_definitions[tool] = (_impl, model, dict, "desc", "raw_dict")
+        if tool not in server.enabled_tool_names:
+            server.enabled_tool_names.append(tool)
+
+    asyncio.run(
+        server._call_tool_impl(
+            "manage_incident", {"confirm": "approve", "confirm_update_set": "approve"}
+        )
+    )
+    assert seen["value"] == "approve"
+
+    # A tool that does not declare it still never sees it (no extra-field error).
+    seen.clear()
+    server.tool_definitions["manage_change"] = (
+        lambda *_a: seen.setdefault("ran", True) and {"ok": True},
+        EmptyParams,
+        dict,
+        "desc",
+        "raw_dict",
+    )
+    asyncio.run(
+        server._call_tool_impl(
+            "manage_change", {"confirm": "approve", "confirm_update_set": "approve"}
+        )
+    )
+    assert seen == {"ran": True}

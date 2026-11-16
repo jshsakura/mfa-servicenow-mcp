@@ -895,7 +895,10 @@ def manage_portal_component(
     # record's history across sets. Block until the caller confirms — never auto
     # switch, never proceed unconfirmed. Best-effort: if either side is unknown
     # (basic auth, no prior capture, lookup failure), don't block.
-    if params.confirm_update_set != "approve":
+    # The same field carries G11's answer (the current set's NAME), so naming the
+    # current set approves capturing into it here too.
+    approval = (params.confirm_update_set or "").strip().lower()
+    if approval != "approve":
         last = get_last_update_set_for_record(config, auth_manager, params.table, params.sys_id)
         current = get_current_update_set(config, auth_manager)
         if (
@@ -904,6 +907,14 @@ def manage_portal_component(
             and last.get("sys_id")
             and current.get("sys_id")
             and last.get("sys_id") != current.get("sys_id")
+            and not (
+                approval
+                and approval
+                in {
+                    str(current.get("name") or "").strip().lower(),
+                    str(current.get("sys_id")).lower(),
+                }
+            )
         ):
             return {
                 "success": False,
