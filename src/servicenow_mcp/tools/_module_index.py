@@ -56,6 +56,7 @@ TOOL_MODULE_INDEX = {
     "manage_kb_article": "knowledge_base",
     "manage_list_layout": "list_layout_tools",
     "manage_notification": "notification_tools",
+    "manage_portal_action": "portal_action_tools",
     "manage_portal_component": "portal_crud_tools",
     "manage_portal_layout": "portal_crud_tools",
     "manage_problem": "problem_tools",

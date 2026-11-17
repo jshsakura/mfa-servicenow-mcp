@@ -6,8 +6,8 @@ slug: es/TOOL_INVENTORY
 
 Para evitar el coste de mantener un inventario traducido fila por fila, este archivo es un **resumen** de la superficie de herramientas actual. Las cifras las actualiza `scripts/regenerate_doc_counts.py`.
 
-Herramientas registradas en el registro activo: **88**
-Recuento de herramientas empaquetadas en `full`: **74**
+Herramientas registradas en el registro activo: **89**
+Recuento de herramientas empaquetadas en `full`: **75**
 Herramientas registradas pero actualmente sin empaquetar: **11**
 
 - Listado completo herramienta por herramienta: [TOOL_INVENTORY.md en inglés](../../TOOL_INVENTORY/)
@@ -25,9 +25,9 @@ Está documentado más abajo, pero los recuentos de paquetes en este archivo ref
 | `itsm_developer` | 37 | ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
 | `asset_manager` | 9 | Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 34 | standard más flujos de escritura de incidentes y cambios para soporte operativo. |
-| `portal_developer` | 53 | standard más flujos de portal, changeset, script include y entrega de sincronización local. |
+| `portal_developer` | 54 | standard más flujos de portal, changeset, script include y entrega de sincronización local. |
 | `platform_developer` | 48 | standard más flujos de workflow, Flow Designer, UI policy, incidentes/cambios y escrituras de scripts. |
-| `full` | 74 | La superficie empaquetada más amplia: todos los flujos manage_* más operaciones avanzadas. |
+| `full` | 75 | La superficie empaquetada más amplia: todos los flujos manage_* más operaciones avanzadas. |
 
 ## Auxiliares Inyectados en Tiempo de Ejecución
 

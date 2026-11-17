@@ -2,8 +2,8 @@
 
 为避免逐行翻译清单的维护成本，本文件是快速了解当前公开工具面的**摘要版**。其中的数字由 `scripts/regenerate_doc_counts.py` 自动更新。
 
-实时注册表中已注册的工具数：**88**
-`full` 中打包的工具数：**74**
+实时注册表中已注册的工具数：**89**
+`full` 中打包的工具数：**75**
 已注册但当前未打包的工具数：**11**
 
 - 逐个工具的完整清单：[英文版 TOOL_INVENTORY.md](./TOOL_INVENTORY.md)
@@ -21,9 +21,9 @@
 | `itsm_developer` | 37 | 独立的 ITSM 组合：诊断记录、梳理表自动化、配置目录/策略/通知、审批与测试下单、分配/审批规则与选项列表、门户主题，通过更新集或 XML 交付。 |
 | `asset_manager` | 9 | 面向物料、资产和 ITOM 工作的最简组合：查询，以及先在实例上校验的资产写入（`manage_asset`）。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `service_desk` | 34 | standard 加上用于运营支持的事件与变更写入工作流。 |
-| `portal_developer` | 53 | standard 加上门户、变更集、script include 和本地同步交付工作流。 |
+| `portal_developer` | 54 | standard 加上门户、变更集、script include 和本地同步交付工作流。 |
 | `platform_developer` | 48 | standard 加上工作流、Flow Designer、UI policy、incident/change 和脚本写入。 |
-| `full` | 74 | 最广泛的打包功能面：所有 manage_* 工作流加上高级操作。 |
+| `full` | 75 | 最广泛的打包功能面：所有 manage_* 工作流加上高级操作。 |
 
 ## 运行时注入的辅助工具
 

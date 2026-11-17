@@ -120,6 +120,7 @@ portal_developer:
     - manage_script_include
     - manage_business_rule
     - manage_portal_layout
+    - manage_portal_action
     - manage_portal_component
     - manage_widget_dependency
     # Legacy Workflow engine: reads only here (writes in platform_developer/full)
@@ -334,6 +335,7 @@ portal_design:
   - get_widget_bundle
   - download_portal_sources
   - manage_portal_layout
+  - manage_portal_action
   - manage_portal_component
   - manage_ux_list
   - diff_local_component
@@ -361,6 +363,7 @@ full:
     - manage_catalog
     - manage_session_context
     - manage_portal_layout
+    - manage_portal_action
     - manage_portal_component
     - manage_widget_dependency
     - manage_ui_policy

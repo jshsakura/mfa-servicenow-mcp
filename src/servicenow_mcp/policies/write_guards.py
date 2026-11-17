@@ -113,6 +113,18 @@ _CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
         "kb_knowledge", "article_id", frozenset({"update", "publish"}), ("sys_id", "number")
     ),
     "manage_portal_layout": _EditTarget("sp_page", "sys_id", frozenset({"update_page"})),
+    "manage_portal_action": _EditTarget(
+        None,
+        "record_id",
+        frozenset({"update"}),
+        table_fn=lambda args: {
+            "type": "sn_ex_sp_action_type",
+            "action": "sn_ex_sp_action",
+            "parameter": "sn_ex_sp_action_parameter",
+            "group": "sn_ex_sp_action_group",
+            "link": "sn_ex_sp_m2m_action_group",
+        }.get(str(args.get("kind") or "").strip().lower()),
+    ),
     # target=provider|dependency selects the record table; link/unlink touch m2m
     # junctions (ambiguous) and stay fail-open, so they're not listed here.
     "manage_widget_dependency": _EditTarget(
@@ -138,6 +150,11 @@ _CONCURRENT_EDIT_REGISTRY_SECONDARY: Dict[str, Tuple[_EditTarget, ...]] = {
             "activity_id",
             frozenset({"update_activity", "delete_activity"}),
         ),
+    ),
+    # A page route redirects every visit to its from-page, so a blind overwrite
+    # of someone else's route change silently re-points their portal traffic.
+    "manage_portal_layout": (
+        _EditTarget("sp_page_route_map", "route_id", frozenset({"update_route"})),
     ),
 }
 

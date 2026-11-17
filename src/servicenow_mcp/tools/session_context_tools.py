@@ -455,6 +455,21 @@ def _set_and_verify(
         return {"success": False, "error": "set_failed", "message": f"Set {label} failed: {exc}"}
 
     if put_dbg["status"] >= 400:
+        # The picker refuses to select what is ALREADY current (400 "Cannot set
+        # update set as current" — measured right after set_app had moved the
+        # session onto that very set). Only a read-back may turn the refusal
+        # into a success; an unreadable or different current stays a failure.
+        try:
+            current, _ = _get_current_raw(config, auth_manager, endpoint)
+        except Exception:
+            current = {}
+        if current.get("sys_id") == expected_id:
+            return {
+                "success": True,
+                "already_current": True,
+                "message": f"Current {label} is already {current.get('name') or expected_id}",
+                "current": current,
+            }
         detail = f" — {put_dbg['body'][:200]}" if put_dbg.get("body") else ""
         return {
             "success": False,

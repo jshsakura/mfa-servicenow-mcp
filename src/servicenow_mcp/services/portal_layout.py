@@ -494,3 +494,369 @@ def replace_widget(
         **summary,
         "missing": problems,
     }
+
+
+# ---------------------------------------------------------------------------
+# Page routes (sp_page_route_map) — "open page A on these portals, show page B"
+# ---------------------------------------------------------------------------
+
+ROUTE_TABLE = "sp_page_route_map"
+_ROUTE_FIELDS = (
+    "sys_id,route_from_page,route_to_page,portals,roles,order,active,short_description,sys_scope"
+)
+_ROUTE_CAP = 100
+
+
+def _split_csv(value: Optional[str]) -> List[str]:
+    return [p.strip() for p in str(value or "").split(",") if p.strip()]
+
+
+def _strict_read(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    query: str,
+    fields: str,
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """Read that raises on failure — an unread row must never look like no row."""
+    invalidate_query_cache(table=table)
+    rows, _ = sn_query_page(
+        config,
+        auth_manager,
+        table=table,
+        query=query,
+        fields=fields,
+        limit=limit,
+        offset=0,
+        fail_silently=False,
+    )
+    return rows or []
+
+
+def _resolve_one(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    table: str,
+    value: str,
+    alt_column: str,
+    fields: str,
+) -> Dict[str, Any]:
+    """Exactly one row by sys_id or *alt_column*; raises ValueError otherwise."""
+    column = "sys_id" if _SYS_ID_RE.match(value) else alt_column
+    rows = _strict_read(config, auth_manager, table, f"{column}={value}", fields, 5)
+    if len(rows) != 1:
+        raise ValueError(
+            f"No {table} with {column}='{value}'."
+            if not rows
+            else f"{len(rows)} {table} rows match {column}='{value}'; pass the sys_id."
+        )
+    return rows[0]
+
+
+def _resolve_page(config: ServerConfig, auth_manager: AuthManager, value: str) -> Dict[str, str]:
+    row = _resolve_one(config, auth_manager, "sp_page", value, "id", "sys_id,id,title")
+    return {"sys_id": _ref(row.get("sys_id")), "id": _ref(row.get("id"))}
+
+
+def _resolve_portals(
+    config: ServerConfig, auth_manager: AuthManager, value: Optional[str]
+) -> List[Dict[str, str]]:
+    out = []
+    for token in _split_csv(value):
+        row = _resolve_one(
+            config, auth_manager, "sp_portal", token, "url_suffix", "sys_id,url_suffix,title"
+        )
+        out.append({"sys_id": _ref(row.get("sys_id")), "url_suffix": _ref(row.get("url_suffix"))})
+    return out
+
+
+def _route_view(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "sys_id": _ref(row.get("sys_id")),
+        "route_from_page": _ref(row.get("route_from_page")),
+        "route_to_page": _ref(row.get("route_to_page")),
+        "portals": _split_csv(_ref(row.get("portals"))),
+        "roles": _split_csv(_ref(row.get("roles"))),
+        "order": _ref(row.get("order")),
+        "active": _ref(row.get("active")).lower() == "true",
+        "short_description": _ref(row.get("short_description")),
+        "sys_scope": _ref(row.get("sys_scope")),
+    }
+
+
+def _routes_overlap(a: Dict[str, Any], portals: List[str], roles: List[str]) -> bool:
+    """Some visitor gets both routes: portals intersect and roles intersect.
+
+    An empty portal list means every portal and an empty role list means every
+    user, so either side being empty overlaps everything on that axis.
+    """
+    for mine, theirs in ((a["portals"], portals), (a["roles"], roles)):
+        if mine and theirs and not set(mine) & set(theirs):
+            return False
+    return True
+
+
+def _order_of(route: Dict[str, Any]) -> int:
+    """A blank or unreadable order counts as 0 — assume it wins, never that it loses."""
+    try:
+        return int(str(route.get("order") or "0").strip())
+    except ValueError:
+        return 0
+
+
+def _verify_route(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    sys_id: str,
+    expected: Dict[str, Any],
+) -> List[str]:
+    """Read the route back and list every expected field that did not land."""
+    try:
+        rows = _strict_read(config, auth_manager, ROUTE_TABLE, f"sys_id={sys_id}", _ROUTE_FIELDS, 1)
+    except Exception as e:
+        return [f"could not read back ({e})"]
+    if not rows:
+        return ["route not found on read-back"]
+    got = _route_view(rows[0])
+    problems = []
+    for key, want in expected.items():
+        have = got.get(key)
+        if isinstance(want, list):
+            if sorted(have or []) != sorted(want):
+                problems.append(f"{key} is {have}, expected {want}")
+        elif have != want:
+            problems.append(f"{key} is {have!r}, expected {want!r}")
+    return problems
+
+
+def create_route(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    route_from_page: str,
+    route_to_page: str,
+    scope: str,
+    portals: Optional[str] = None,
+    roles: Optional[str] = None,
+    order: Optional[int] = None,
+    description: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Create one sp_page_route_map row, refusing when one already covers it.
+
+    Every read raises on failure, so an unreadable route list is a refusal —
+    "could not check for an existing route" is never scored as "there is none".
+    """
+    try:
+        src = _resolve_page(config, auth_manager, route_from_page)
+        dst = _resolve_page(config, auth_manager, route_to_page)
+        portal_rows = _resolve_portals(config, auth_manager, portals)
+        existing = _strict_read(
+            config,
+            auth_manager,
+            ROUTE_TABLE,
+            f"route_from_page={src['sys_id']}",
+            _ROUTE_FIELDS,
+            _ROUTE_CAP,
+        )
+    except Exception as e:
+        return {"success": False, "message": f"Could not resolve the route: {e}"}
+
+    if src["sys_id"] == dst["sys_id"]:
+        return {"success": False, "message": "route_from_page and route_to_page are the same page."}
+    if len(existing) >= _ROUTE_CAP:
+        return {
+            "success": False,
+            "message": (
+                f"Page '{src['id']}' has {_ROUTE_CAP}+ routes; the list is incomplete, so an "
+                "overlapping route cannot be ruled out. Inspect sp_page_route_map directly."
+            ),
+        }
+
+    portal_ids = [p["sys_id"] for p in portal_rows]
+    role_names = _split_csv(roles)
+    views = [_route_view(r) for r in existing]
+    overlapping = [v for v in views if _routes_overlap(v, portal_ids, role_names)]
+    same_target = [v for v in overlapping if v["route_to_page"] == dst["sys_id"]]
+    if same_target:
+        return {
+            "success": False,
+            "message": (
+                f"A route from '{src['id']}' to '{dst['id']}' already covers this audience. "
+                "Turn it on or change it with action='update_route' route_id=<sys_id>."
+            ),
+            "existing_routes": same_target,
+        }
+    # The platform applies the active route with the LOWEST order; on a tie the
+    # oldest record wins, so a new route has to be strictly lower to apply.
+    rivals = [v for v in overlapping if v["active"]]
+    to_beat = min((_order_of(v) for v in rivals), default=None)
+    order_chosen = False
+    if to_beat is not None:
+        if order is None:
+            if to_beat <= 0:
+                return {
+                    "success": False,
+                    "message": (
+                        f"An active route from '{src['id']}' has order {to_beat}; no lower "
+                        "order is left to win with. Pass order explicitly or change that route."
+                    ),
+                    "overrides": rivals,
+                }
+            order = to_beat - 1
+            order_chosen = True
+        elif order >= to_beat:
+            return {
+                "success": False,
+                "message": (
+                    f"order {order} would never apply: an active route from '{src['id']}' "
+                    f"for the same visitors has order {to_beat}, and the lowest order wins "
+                    f"(the older record on a tie). Pass order {to_beat - 1} or lower."
+                ),
+                "overrides": rivals,
+            }
+
+    body: Dict[str, Any] = {
+        "route_from_page": src["sys_id"],
+        "route_to_page": dst["sys_id"],
+        "portals": ",".join(portal_ids),
+        "roles": ",".join(role_names),
+        "active": "true",
+        "sys_scope": scope,
+    }
+    if order is not None:
+        body["order"] = str(order)
+    if description:
+        body["short_description"] = description
+
+    summary = {
+        "route_from_page": src,
+        "route_to_page": dst,
+        "portals": portal_rows or "all portals",
+        "roles": role_names or "everyone",
+        "order": order,
+        "order_chosen_to_win": order_chosen,
+        # Active routes this one takes precedence over for the same visitors.
+        "overrides": rivals,
+        "other_routes_from_page": [v for v in views if v not in rivals],
+    }
+    if dry_run:
+        return {"success": True, "dry_run": True, "operation": "create_route", **summary}
+
+    result = _create_record(config, auth_manager, ROUTE_TABLE, body)
+    if not result["success"]:
+        return result
+    sys_id = _ref(result["result"].get("sys_id"))
+    problems = _verify_route(
+        config,
+        auth_manager,
+        sys_id,
+        {
+            "route_from_page": src["sys_id"],
+            "route_to_page": dst["sys_id"],
+            "portals": portal_ids,
+            "roles": role_names,
+            "active": True,
+            **({"order": str(order)} if order is not None else {}),
+            # The scope comes from the session's current app, not the body —
+            # a create that landed elsewhere must not report as done.
+            "sys_scope": scope,
+        },
+    )
+    return {
+        "success": True,
+        "complete": not problems,
+        "message": (
+            f"Route created: /{src['id']} -> /{dst['id']}"
+            if not problems
+            else "Route created but NOT confirmed: " + "; ".join(problems)
+        ),
+        "route_id": sys_id,
+        **summary,
+        "missing": problems,
+        "undo": f"manage_portal_layout action='update_route' route_id='{sys_id}' active=false",
+    }
+
+
+def update_route(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    route_id: str,
+    route_to_page: Optional[str] = None,
+    portals: Optional[str] = None,
+    roles: Optional[str] = None,
+    order: Optional[int] = None,
+    active: Optional[bool] = None,
+    description: Optional[str] = None,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Change one route (active=false turns it off). Read-before + read-back."""
+    try:
+        rows = _strict_read(
+            config, auth_manager, ROUTE_TABLE, f"sys_id={route_id}", _ROUTE_FIELDS, 1
+        )
+        if not rows:
+            return {"success": False, "message": f"No {ROUTE_TABLE} {route_id}."}
+        before = _route_view(rows[0])
+        body: Dict[str, Any] = {}
+        expected: Dict[str, Any] = {}
+        if route_to_page is not None:
+            dst = _resolve_page(config, auth_manager, route_to_page)
+            body["route_to_page"] = expected["route_to_page"] = dst["sys_id"]
+        if portals is not None:
+            ids = [p["sys_id"] for p in _resolve_portals(config, auth_manager, portals)]
+            body["portals"] = ",".join(ids)
+            expected["portals"] = ids
+    except Exception as e:
+        return {"success": False, "message": f"Could not resolve the route: {e}"}
+
+    if roles is not None:
+        names = _split_csv(roles)
+        body["roles"] = ",".join(names)
+        expected["roles"] = names
+    if order is not None:
+        body["order"] = str(order)
+        expected["order"] = str(order)
+    if active is not None:
+        body["active"] = str(active).lower()
+        expected["active"] = active
+    if description is not None:
+        body["short_description"] = expected["short_description"] = description
+
+    if not body:
+        return {"success": False, "message": "No route fields to update."}
+    changes = {k: {"from": before.get(k), "to": v} for k, v in expected.items()}
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "operation": "update_route",
+            "route_id": route_id,
+            "changes": changes,
+        }
+
+    url = f"{config.instance_url}/api/now/table/{ROUTE_TABLE}/{route_id}"
+    try:
+        response = auth_manager.make_request(
+            "PATCH", url, json=body, headers=auth_manager.get_headers(), timeout=30
+        )
+        response.raise_for_status()
+    except Exception as e:
+        logger.error("Error updating route: %s", e)
+        return {"success": False, "message": f"Error updating route: {e}"}
+
+    problems = _verify_route(config, auth_manager, route_id, expected)
+    return {
+        "success": True,
+        "complete": not problems,
+        "message": (
+            "Route updated"
+            if not problems
+            else "Update sent but NOT confirmed: " + "; ".join(problems)
+        ),
+        "route_id": route_id,
+        "changes": changes,
+        "missing": problems,
+    }

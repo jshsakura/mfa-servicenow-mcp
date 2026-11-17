@@ -557,6 +557,21 @@ def test_g8_registry_blocks_portal_layout_update_page() -> None:
         assert fetch.call_args.args[1] == "sp_page"
 
 
+def test_g8_registry_blocks_portal_layout_update_route() -> None:
+    """update_route audits the ROUTE row, not sp_page (route_id, not sys_id)."""
+    with patch(
+        "servicenow_mcp.policies.write_guards._fetch_record_audit",
+        return_value=_other_user_recent(),
+    ) as fetch:
+        with pytest.raises(PolicyViolation, match=r"\[G8\]"):
+            run_post_confirm_guards(
+                _SERVER,
+                "manage_portal_layout",
+                {"action": "update_route", "route_id": "route-1", "active": False},
+            )
+        assert fetch.call_args.args[1] == "sp_page_route_map"
+
+
 def test_g8_registry_widget_dependency_resolves_table_by_target() -> None:
     """The audit must hit the table the target selects, not a fixed one."""
     for target, expected_table in (

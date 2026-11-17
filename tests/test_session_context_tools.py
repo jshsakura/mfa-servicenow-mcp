@@ -110,6 +110,46 @@ def test_set_app_reports_failure_when_not_applied():
     assert result["current"]["sys_id"] == "testapp-old"
 
 
+_PICKER_REFUSAL = {"error": {"detail": "Cannot set update set as current"}, "status": "failure"}
+
+
+def test_refused_set_of_the_already_current_set_is_success():
+    """set_app moves the session onto the set itself; the picker then answers the
+    explicit set with 400. The read-back — not the 400 — says what is current."""
+    auth = MagicMock()
+    auth.make_request.side_effect = [
+        _resp({}),  # app PUT
+        _resp({"result": {"current": {"sysId": "app-1", "name": "TestApp"}}}),  # app GET
+        _resp(_PICKER_REFUSAL, status=400),  # update set PUT refused
+        _resp({"result": {"current": {"sysId": "us-1", "name": "Default"}}}),  # GET
+    ]
+    result = manage_session_context(
+        _browser_config(),
+        auth,
+        ManageSessionContextParams(action="set_app", app_id="app-1", update_set_id="us-1"),
+    )
+    assert result["success"] is True
+    assert result["update_set"]["sys_id"] == "us-1"
+
+
+@pytest.mark.parametrize(
+    "readback",
+    [
+        _resp({"result": {"current": {"sysId": "us-other", "name": "Other"}}}),
+        RuntimeError("read failed"),
+    ],
+)
+def test_refused_set_stays_failure_unless_readback_proves_it(readback):
+    auth = MagicMock()
+    auth.make_request.side_effect = [_resp(_PICKER_REFUSAL, status=400), readback]
+    result = manage_session_context(
+        _browser_config(),
+        auth,
+        ManageSessionContextParams(action="set_update_set", update_set_id="us-1"),
+    )
+    assert result["success"] is False
+
+
 def test_set_app_with_update_set_sets_both_in_one_call():
     # scope + update set are managed together — set_app with an update_set sets both.
     auth = MagicMock()

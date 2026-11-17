@@ -342,6 +342,7 @@ def scaffold_page(
 # ---------------------------------------------------------------------------
 
 _PAGE_UPDATE_FIELDS = ("title", "description", "css", "internal", "public", "draft")
+_ROUTE_UPDATE_FIELDS = ("route_to_page", "portals", "roles", "order", "active", "description")
 
 
 class ManagePortalLayoutParams(BaseModel):
@@ -356,6 +357,8 @@ class ManagePortalLayoutParams(BaseModel):
       place_widget:   sp_widget, sp_column
       move_widget:    instance_id (and at least one of sp_column/order/widget_parameters/css)
       replace_widget: instance_id, sp_widget (id or sys_id); params/css kept
+      create_route:   route_from_page, route_to_page, scope (sp_page_route_map)
+      update_route:   route_id, at least one route field (active=false turns it off)
     """
 
     action: Literal[
@@ -367,6 +370,8 @@ class ManagePortalLayoutParams(BaseModel):
         "place_widget",
         "move_widget",
         "replace_widget",
+        "create_route",
+        "update_route",
     ] = Field(...)
 
     # Page identity
@@ -379,7 +384,9 @@ class ManagePortalLayoutParams(BaseModel):
     public: Optional[bool] = Field(default=None)
     draft: Optional[bool] = Field(default=None)
     category: Optional[str] = Field(default=None)
-    scope: Optional[str] = Field(default=None, description="sys_scope sys_id (create_page)")
+    scope: Optional[str] = Field(
+        default=None, description="sys_scope sys_id (create_page, create_route)"
+    )
 
     # Layout container/row/column
     sp_page: Optional[str] = Field(default=None)
@@ -399,6 +406,20 @@ class ManagePortalLayoutParams(BaseModel):
     instance_id: Optional[str] = Field(default=None)
     widget_parameters: Optional[str] = Field(default=None, description="JSON string")
     instance_css: Optional[str] = Field(default=None, description="Instance-level CSS")
+
+    # Page route (sp_page_route_map)
+    route_from_page: Optional[str] = Field(
+        default=None, description="create_route: page id or sys_id whose visits are redirected"
+    )
+    route_to_page: Optional[str] = Field(
+        default=None, description="Page id or sys_id shown instead"
+    )
+    portals: Optional[str] = Field(
+        default=None, description="Portal url_suffix or sys_id, comma list; empty = every portal"
+    )
+    roles: Optional[str] = Field(default=None, description="Role names, comma list; empty = all")
+    route_id: Optional[str] = Field(default=None, description="update_route: route sys_id")
+    active: Optional[bool] = Field(default=None, description="update_route: false turns it off")
 
     dry_run: bool = Field(default=False)
 
@@ -435,13 +456,25 @@ class ManagePortalLayoutParams(BaseModel):
             for f in ("instance_id", "sp_widget"):
                 if not getattr(self, f):
                     raise ValueError(f"{f} is required for action='replace_widget'")
+        elif a == "create_route":
+            for f in ("route_from_page", "route_to_page", "scope"):
+                if not getattr(self, f):
+                    raise ValueError(f"{f} is required for action='create_route'")
+        elif a == "update_route":
+            if not self.route_id:
+                raise ValueError("route_id is required for action='update_route'")
+            if all(getattr(self, f) is None for f in _ROUTE_UPDATE_FIELDS):
+                raise ValueError("at least one route field must be provided for update_route")
         return self
 
 
 @register_tool(
     name="manage_portal_layout",
     params=ManagePortalLayoutParams,
-    description="Portal layout: page CRUD + container/row/column + widget instance placement.",
+    description=(
+        "Portal layout: page CRUD, container/row/column, widget placement, page routes "
+        "(sp_page_route_map)."
+    ),
     serialization="raw_dict",
     return_type=Dict[str, Any],
 )
@@ -517,6 +550,28 @@ def manage_portal_layout(
             sp_widget=params.sp_widget,
             dry_run=params.dry_run,
         )
+    if a in ("create_route", "update_route"):
+        kw = {"dry_run": params.dry_run}
+        for f in ("route_to_page", "portals", "roles", "order", "description"):
+            v = getattr(params, f)
+            if v is not None:
+                kw[f] = v
+        if a == "create_route":
+            kw.update(route_from_page=params.route_from_page, scope=params.scope)
+            aligned: Dict[str, Any] = {}
+            if not params.dry_run:
+                aligned = align_session_for_create(config, auth_manager, scope=params.scope)
+                if aligned.get("error"):
+                    return aligned["error"]
+            result = _layout_svc.create_route(config, auth_manager, **kw)
+            for key in ("scope_switch", "update_set_warning"):
+                if aligned.get(key):
+                    result.setdefault(key, aligned[key])
+            return result
+        if params.active is not None:
+            kw["active"] = params.active
+        assert params.route_id  # validator guarantees it for update_route
+        return _layout_svc.update_route(config, auth_manager, route_id=params.route_id, **kw)
     # move_widget
     kw = {"instance_id": params.instance_id}
     for src, dst in (
@@ -722,6 +777,84 @@ def _local_sync_hint(
         return None
 
 
+def align_session_for_create(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    *,
+    scope: Optional[str],
+    update_set: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Point the session at *scope* (and *update_set*) before a create.
+
+    ServiceNow assigns a new record's scope from the session's current
+    application, not from the insert body, so a create into a scoped app must
+    switch first. Browser auth only. A switch that fails hard returns
+    ``{"error": <response>}`` — the caller aborts rather than writing into the
+    wrong scope or set. Otherwise returns what changed (``scope_switch``,
+    ``update_set_switch``, ``update_set_warning``), each only when present.
+    """
+    out: Dict[str, Any] = {}
+    if scope:
+        # If the caller didn't pin an update set, snapshot the current one before
+        # the scope switch. ServiceNow may silently move the session to the app's
+        # Default set as a side effect of changing the current app — we never
+        # create or change sets ourselves, but we warn when that side effect
+        # would capture the change somewhere unexpected.
+        before_us = None
+        if not update_set:
+            before_us = get_current_update_set(config, auth_manager)
+        ctx = ensure_current_app(config, auth_manager, scope)
+        out["scope_switch"] = ctx
+        if not ctx.get("switched") and not ctx.get("already_current") and ctx.get("error"):
+            return {
+                "error": {
+                    "success": False,
+                    "error": "scope_switch_failed",
+                    "message": (
+                        "Could not switch the current application to the target scope; "
+                        "aborting to avoid creating in the wrong scope. "
+                        f"{ctx.get('message', '')}"
+                    ),
+                    "scope_switch": ctx,
+                }
+            }
+        if before_us is not None and ctx.get("switched"):
+            after_us = get_current_update_set(config, auth_manager)
+            if after_us and after_us.get("sys_id") != before_us.get("sys_id"):
+                landed = after_us.get("name") or after_us.get("sys_id")
+                if is_default_update_set(after_us):
+                    out["update_set_warning"] = (
+                        f"Switching scope moved the session to the '{landed}' update set. "
+                        "This change will be captured there. Pass update_set=<name|sys_id> "
+                        "to capture into a specific set instead."
+                    )
+                else:
+                    out["update_set_warning"] = (
+                        f"Switching scope changed the current update set to '{landed}'. "
+                        "Pass update_set if that is not where you want this captured."
+                    )
+
+    # Same fail-hard rule: a requested-but-unswitchable set aborts rather than
+    # silently capturing into whatever set happens to be current.
+    if update_set:
+        us = ensure_current_update_set(config, auth_manager, update_set)
+        out["update_set_switch"] = us
+        if not us.get("switched") and not us.get("already_current") and us.get("error"):
+            return {
+                "error": {
+                    "success": False,
+                    "error": "update_set_switch_failed",
+                    "message": (
+                        "Could not switch to the requested update set; aborting to "
+                        "avoid capturing into the wrong set. "
+                        f"{us.get('message', '')}"
+                    ),
+                    "update_set_switch": us,
+                }
+            }
+    return out
+
+
 @register_tool(
     name="manage_portal_component",
     params=ManagePortalComponentParams,
@@ -736,71 +869,19 @@ def manage_portal_component(
 ) -> Dict[str, Any]:
     a = params.action
 
-    # Auto-align the session's current application to the target scope before a
-    # create, so the new record lands in the intended scope (ServiceNow assigns
-    # scope from the current app, not the insert body). Browser auth only; a hard
-    # switch failure aborts the create rather than writing to the wrong scope.
-    switch_info: Optional[Dict[str, Any]] = None
-    update_set_warning: Optional[str] = None
     # clone_* honours dry_run (no scope/update-set switch, nothing written);
     # create_* ignores it, so it must keep switching.
     is_write_create = a.startswith("create_") or (a.startswith("clone_") and not params.dry_run)
-    if is_write_create and params.scope:
-        # If the caller didn't pin an update set, snapshot the current one before
-        # the scope switch. ServiceNow may silently move the session to the app's
-        # Default set as a side effect of changing the current app — we never
-        # create or change sets ourselves, but we warn when that side effect
-        # would capture the change somewhere unexpected.
-        before_us = None
-        if not params.update_set:
-            before_us = get_current_update_set(config, auth_manager)
-        ctx = ensure_current_app(config, auth_manager, params.scope)
-        switch_info = ctx
-        if not ctx.get("switched") and not ctx.get("already_current") and ctx.get("error"):
-            return {
-                "success": False,
-                "error": "scope_switch_failed",
-                "message": (
-                    "Could not switch the current application to the target scope; "
-                    "aborting to avoid creating in the wrong scope. "
-                    f"{ctx.get('message', '')}"
-                ),
-                "scope_switch": ctx,
-            }
-        if before_us is not None and ctx.get("switched"):
-            after_us = get_current_update_set(config, auth_manager)
-            if after_us and after_us.get("sys_id") != before_us.get("sys_id"):
-                landed = after_us.get("name") or after_us.get("sys_id")
-                if is_default_update_set(after_us):
-                    update_set_warning = (
-                        f"Switching scope moved the session to the '{landed}' update set. "
-                        "This change will be captured there. Pass update_set=<name|sys_id> "
-                        "to capture into a specific set instead."
-                    )
-                else:
-                    update_set_warning = (
-                        f"Switching scope changed the current update set to '{landed}'. "
-                        "Pass update_set if that is not where you want this captured."
-                    )
-
-    # Auto-align the current update set so the create is captured into the
-    # intended set. Same fail-hard rule: a requested-but-unswitchable set aborts
-    # rather than silently capturing into whatever set happens to be current.
-    update_set_info: Optional[Dict[str, Any]] = None
-    if is_write_create and params.update_set:
-        us = ensure_current_update_set(config, auth_manager, params.update_set)
-        update_set_info = us
-        if not us.get("switched") and not us.get("already_current") and us.get("error"):
-            return {
-                "success": False,
-                "error": "update_set_switch_failed",
-                "message": (
-                    "Could not switch to the requested update set; aborting to "
-                    "avoid capturing into the wrong set. "
-                    f"{us.get('message', '')}"
-                ),
-                "update_set_switch": us,
-            }
+    aligned: Dict[str, Any] = {}
+    if is_write_create:
+        aligned = align_session_for_create(
+            config, auth_manager, scope=params.scope, update_set=params.update_set
+        )
+        if aligned.get("error"):
+            return aligned["error"]
+    switch_info = aligned.get("scope_switch")
+    update_set_info = aligned.get("update_set_switch")
+    update_set_warning = aligned.get("update_set_warning")
 
     def _attach(result: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(result, dict):
