@@ -571,6 +571,27 @@ def manage_portal_layout(
         if params.active is not None:
             kw["active"] = params.active
         assert params.route_id  # validator guarantees it for update_route
+        if not params.dry_run:
+            # A route in a scoped app answers a write from another current app
+            # with 403, so the session goes to the route's own scope first.
+            try:
+                rows, _ = sn_query_page(
+                    config,
+                    auth_manager,
+                    table=_layout_svc.ROUTE_TABLE,
+                    query=f"sys_id={params.route_id}",
+                    fields="sys_id,sys_scope",
+                    limit=1,
+                    offset=0,
+                    fail_silently=False,
+                )
+            except Exception as e:
+                return {"success": False, "message": f"Could not read the route's scope: {e}"}
+            route_scope = _layout_svc._ref(rows[0].get("sys_scope")) if rows else ""
+            if route_scope:
+                aligned = align_session_for_create(config, auth_manager, scope=route_scope)
+                if aligned.get("error"):
+                    return aligned["error"]
         return _layout_svc.update_route(config, auth_manager, route_id=params.route_id, **kw)
     # move_widget
     kw = {"instance_id": params.instance_id}

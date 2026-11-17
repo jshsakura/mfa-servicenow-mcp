@@ -116,7 +116,7 @@ _CONCURRENT_EDIT_REGISTRY: Dict[str, _EditTarget] = {
     "manage_portal_action": _EditTarget(
         None,
         "record_id",
-        frozenset({"update"}),
+        frozenset({"update", "delete"}),
         table_fn=lambda args: {
             "type": "sn_ex_sp_action_type",
             "action": "sn_ex_sp_action",

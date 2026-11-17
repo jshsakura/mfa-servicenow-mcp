@@ -21,11 +21,16 @@ class FakeServer:
     def __init__(self, rows=None, drop_on_write=(), scope_lands=SCOPE, fail_read=None):
         self.tables = {}
         for table, row in rows or []:
-            self.tables.setdefault(table, []).append(dict(row))
+            self.tables.setdefault(table, []).append({"sys_scope": SCOPE, **row})
+        # Mimics the Employee Center BR: inserting an action adds a blank
+        # string parameter per name in its type's server_parameters.
+        self.br_stub_names = []
         self.drop = set(drop_on_write)
         self.scope_lands = scope_lands
         self.fail_read = fail_read
         self.writes = []
+        self.fail_delete = set()
+        self.keep_on_delete = set()
         self._ids = itertools.cycle(_NEW_IDS)
 
     def query(self, config, auth, *, table, query, fields, **kw):
@@ -47,6 +52,24 @@ class FakeServer:
         if method == "POST":
             row = {"sys_id": next(self._ids), "sys_scope": self.scope_lands, **body}
             self.tables.setdefault(table, []).append(row)
+            if table == "sn_ex_sp_action":
+                for name in self.br_stub_names:
+                    self.tables.setdefault("sn_ex_sp_action_parameter", []).append(
+                        {
+                            "sys_id": next(self._ids),
+                            "name": name,
+                            "action": row["sys_id"],
+                            "parameter_type": "string",
+                            "is_client": "false",
+                            "sys_scope": self.scope_lands,
+                        }
+                    )
+        elif method == "DELETE":
+            if parts[1] in self.fail_delete:
+                raise RuntimeError("403 delete denied")
+            row = {}
+            if parts[1] not in self.keep_on_delete:
+                self.tables[table] = [r for r in self.tables[table] if r["sys_id"] != parts[1]]
         else:
             row = next(r for r in self.tables[table] if r["sys_id"] == parts[1])
             row.update(body)
@@ -95,7 +118,7 @@ class TestCreate:
         )
         assert r["complete"] is True, r["missing"]
         assert s.writes[0][2]["active"] == "true"
-        assert "active" in r["undo"]
+        assert "action='delete'" in r["undo"] and r["sys_id"] in r["undo"]
         assert r["_align"].call_args.kwargs["scope"] == SCOPE
 
     def test_action_with_parameters_resolves_type_by_name(self, cfg):
@@ -181,7 +204,7 @@ class TestCreate:
             },
         )
         assert r["complete"] is False and any("script" in p for p in r["missing"])
-        assert "delete" in r["undo"]  # links have no active flag
+        assert "action='delete'" in r["undo"]
 
     def test_align_failure_aborts_before_write(self, cfg):
         s = FakeServer()
@@ -272,3 +295,268 @@ class TestParams:
     def test_update_needs_record_id(self):
         with pytest.raises(ValueError, match="record_id"):
             ManagePortalActionParams(action="update", kind="group", fields={"active": False})
+
+
+ACT_ID = "dddd4444eeee5555ffff6666aaaa1111"
+PARAM_ID = "eeee5555ffff6666aaaa1111bbbb2222"
+LINK_ID = "ffff6666aaaa1111bbbb2222cccc3333"
+
+
+def _button_set():
+    """type <- action <- parameter, action <- link -> group."""
+    return [
+        ("sn_ex_sp_action_type", {"sys_id": TYPE_ID, "name": "T"}),
+        ("sn_ex_sp_action", {"sys_id": ACT_ID, "name": "A", "action_type": TYPE_ID}),
+        ("sn_ex_sp_action_parameter", {"sys_id": PARAM_ID, "name": "p", "action": ACT_ID}),
+        ("sn_ex_sp_action_group", {"sys_id": GROUP_ID, "name": "G"}),
+        (
+            "sn_ex_sp_m2m_action_group",
+            {"sys_id": LINK_ID, "group": GROUP_ID, "action": ACT_ID},
+        ),
+    ]
+
+
+_ALL = [
+    {"kind": "type", "record_id": TYPE_ID},
+    {"kind": "group", "record_id": GROUP_ID},
+    {"kind": "action", "record_id": ACT_ID},
+    {"kind": "link", "record_id": LINK_ID},
+    {"kind": "parameter", "record_id": PARAM_ID},
+]
+
+
+def _deleted_ids(server):
+    return [w[1].rsplit("/", 1)[1] for w in server.writes if w[0] == "DELETE"]
+
+
+class TestDelete:
+    def test_single_leaf_delete_is_verified(self, cfg):
+        s = FakeServer(rows=_button_set())
+        r = _call(s, cfg, action="delete", kind="parameter", record_id=PARAM_ID)
+        assert r["complete"] is True and _deleted_ids(s) == [PARAM_ID]
+
+    def test_record_still_pointed_at_is_refused(self, cfg):
+        s = FakeServer(rows=_button_set())
+        r = _call(s, cfg, action="delete", kind="type", record_id=TYPE_ID)
+        assert r["success"] is False and s.writes == []
+        assert r["dependents"][0]["record_id"] == ACT_ID
+
+    def test_whole_set_deletes_children_first(self, cfg):
+        s = FakeServer(rows=_button_set())
+        r = _call(s, cfg, action="delete", records=_ALL, confirm_count=5)
+        assert r["complete"] is True, r["missing"]
+        assert _deleted_ids(s) == [LINK_ID, PARAM_ID, ACT_ID, GROUP_ID, TYPE_ID]
+
+    def test_many_without_confirm_count_deletes_nothing(self, cfg):
+        s = FakeServer(rows=_button_set())
+        r = _call(s, cfg, action="delete", records=_ALL)
+        assert r["success"] is False and r["count"] == 5 and s.writes == []
+        assert "confirm_count=5" in r["message"]
+
+    def test_wrong_confirm_count_deletes_nothing(self, cfg):
+        s = FakeServer(rows=_button_set())
+        r = _call(s, cfg, action="delete", records=_ALL, confirm_count=4)
+        assert r["success"] is False and s.writes == []
+
+    def test_dry_run_shows_ordered_plan(self, cfg):
+        s = FakeServer(rows=_button_set())
+        r = _call(s, cfg, action="delete", records=_ALL, dry_run=True)
+        assert r["count"] == 5 and [p["kind"] for p in r["plan"]] == [
+            "link",
+            "parameter",
+            "action",
+            "group",
+            "type",
+        ]
+        assert s.writes == []
+
+    def test_dependent_outside_the_request_blocks_all(self, cfg):
+        s = FakeServer(rows=_button_set())
+        partial = [r for r in _ALL if r["kind"] != "link"]
+        r = _call(s, cfg, action="delete", records=partial, confirm_count=4)
+        assert r["success"] is False and s.writes == []
+        assert {d["record_id"] for d in r["dependents"]} == {LINK_ID}
+
+    def test_missing_record_deletes_nothing(self, cfg):
+        s = FakeServer(rows=_button_set())
+        recs = _ALL + [{"kind": "group", "record_id": "aaaa0000bbbb0000cccc0000dddd0000"}]
+        r = _call(s, cfg, action="delete", records=recs, confirm_count=6)
+        assert r["success"] is False and s.writes == []
+
+    def test_unreadable_dependents_refuse(self, cfg):
+        s = FakeServer(rows=_button_set(), fail_read="sn_ex_sp_m2m_action_group")
+        r = _call(s, cfg, action="delete", kind="group", record_id=GROUP_ID)
+        assert r["success"] is False and s.writes == []
+
+    def test_stops_at_first_failure_and_reports_remaining(self, cfg):
+        s = FakeServer(rows=_button_set())
+        s.fail_delete = {ACT_ID}
+        r = _call(s, cfg, action="delete", records=_ALL, confirm_count=5)
+        assert r["complete"] is False
+        assert [d["record_id"] for d in r["deleted"]] == [LINK_ID, PARAM_ID]
+        assert [d["record_id"] for d in r["not_deleted"]] == [ACT_ID, GROUP_ID, TYPE_ID]
+
+    def test_record_surviving_delete_is_not_confirmed(self, cfg):
+        s = FakeServer(rows=_button_set())
+        s.keep_on_delete = {PARAM_ID}
+        r = _call(s, cfg, action="delete", kind="parameter", record_id=PARAM_ID)
+        assert r["complete"] is False and "still exists" in r["missing"][0]
+
+
+class TestBulkUpdate:
+    def _groups(self):
+        return [
+            ("sn_ex_sp_action_group", {"sys_id": GROUP_ID, "name": "G", "active": "true"}),
+            ("sn_ex_sp_action_group", {"sys_id": TYPE_ID, "name": "H", "active": "true"}),
+        ]
+
+    def test_many_needs_confirm_count(self, cfg):
+        s = FakeServer(rows=self._groups())
+        kw = dict(action="update", kind="group", record_ids=[GROUP_ID, TYPE_ID])
+        r = _call(s, cfg, fields={"active": False}, **kw)
+        assert r["success"] is False and r["count"] == 2 and s.writes == []
+        r = _call(s, cfg, fields={"active": False}, confirm_count=2, **kw)
+        assert r["complete"] is True and r["updated"] == [GROUP_ID, TYPE_ID]
+
+    def test_count_is_what_actually_changes(self, cfg):
+        """A record already at the target value is not in the plan or the count."""
+        rows = self._groups()
+        rows[1][1]["active"] = "false"
+        s = FakeServer(rows=rows)
+        r = _call(
+            s,
+            cfg,
+            action="update",
+            kind="group",
+            record_ids=[GROUP_ID, TYPE_ID],
+            fields={"active": False},
+        )
+        assert r["complete"] is True and r["updated"] == [GROUP_ID]
+
+    def test_missing_record_changes_nothing(self, cfg):
+        s = FakeServer(rows=self._groups()[:1])
+        r = _call(
+            s,
+            cfg,
+            action="update",
+            kind="group",
+            record_ids=[GROUP_ID, TYPE_ID],
+            fields={"active": False},
+            confirm_count=2,
+        )
+        assert r["success"] is False and s.writes == []
+
+
+class TestBatchParams:
+    def test_records_takes_nothing_else(self):
+        with pytest.raises(ValueError, match="nothing else"):
+            ManagePortalActionParams(action="delete", kind="group", records=_ALL)
+
+    def test_record_ids_is_for_update_only(self):
+        with pytest.raises(ValueError, match="record_ids is for update"):
+            ManagePortalActionParams(action="delete", kind="group", record_ids=[GROUP_ID])
+
+    def test_duplicates_rejected(self):
+        with pytest.raises(ValueError, match="twice"):
+            ManagePortalActionParams(
+                action="update",
+                kind="group",
+                record_ids=[GROUP_ID, GROUP_ID],
+                fields={"active": False},
+            )
+
+
+class TestPlatformParameterStubs:
+    def _create_action(self, s, cfg, params):
+        return _call(
+            s,
+            cfg,
+            action="create",
+            kind="action",
+            scope=SCOPE,
+            fields={"name": "Do it", "table": "sc_req_item", "action_type": TYPE_ID},
+            parameters=params,
+        )
+
+    def test_requested_parameter_fills_the_stub_instead_of_duplicating(self, cfg):
+        s = FakeServer(rows=[_type_row()])
+        s.br_stub_names = ["sys_id"]
+        r = self._create_action(
+            s,
+            cfg,
+            [
+                {
+                    "name": "sys_id",
+                    "parameter_type": "table",
+                    "table": "sc_req_item",
+                    "field": "sys_id",
+                }
+            ],
+        )
+        assert r["complete"] is True, r["missing"]
+        params = s.tables["sn_ex_sp_action_parameter"]
+        assert len(params) == 1 and params[0]["parameter_type"] == "table"
+        assert params[0]["field"] == "sys_id"
+        assert "added_by_platform" not in r
+
+    def test_unrequested_stub_is_reported_and_in_undo(self, cfg):
+        s = FakeServer(rows=[_type_row()])
+        s.br_stub_names = ["sys_id", "targetStage"]
+        r = self._create_action(s, cfg, [{"name": "sys_id", "parameter_type": "string"}])
+        assert [p["name"] for p in r["added_by_platform"]] == ["targetStage"]
+        assert r["undo"].count("parameter") == 2
+
+
+class TestScopeForChanges:
+    def test_delete_reports_the_scope_switch(self, cfg):
+        s = FakeServer(rows=[("sn_ex_sp_action_group", {"sys_id": GROUP_ID, "name": "G"})])
+        switch = {"scope_switch": {"switched": True}}
+        auth = MagicMock()
+        auth.get_headers.return_value = {}
+        auth.make_request.side_effect = s.request
+        with (
+            patch.object(pa, "sn_query_page", side_effect=s.query),
+            patch.object(pa, "invalidate_query_cache"),
+            patch.object(pa, "align_session_for_create", return_value=switch),
+        ):
+            r = manage_portal_action(
+                cfg,
+                auth,
+                ManagePortalActionParams(action="delete", kind="group", record_id=GROUP_ID),
+            )
+        assert r["complete"] is True and r["scope_switch"] == {"switched": True}
+
+    def test_update_aligns_to_the_records_scope(self, cfg):
+        s = FakeServer(rows=[("sn_ex_sp_action_group", {"sys_id": GROUP_ID, "active": "true"})])
+        r = _call(
+            s, cfg, action="update", kind="group", record_id=GROUP_ID, fields={"active": False}
+        )
+        assert r["_align"].call_args.kwargs == {"scope": SCOPE}
+
+    def test_delete_across_scopes_is_refused(self, cfg):
+        s = FakeServer(
+            rows=[
+                ("sn_ex_sp_action_parameter", {"sys_id": PARAM_ID, "name": "p"}),
+                (
+                    "sn_ex_sp_action_parameter",
+                    {"sys_id": LINK_ID, "name": "q", "sys_scope": "global"},
+                ),
+            ]
+        )
+        r = _call(
+            s,
+            cfg,
+            action="delete",
+            records=[
+                {"kind": "parameter", "record_id": PARAM_ID},
+                {"kind": "parameter", "record_id": LINK_ID},
+            ],
+            confirm_count=2,
+        )
+        assert r["success"] is False and "more than one scope" in r["message"]
+        assert s.writes == []
+
+    def test_dry_run_does_not_switch_scope(self, cfg):
+        s = FakeServer(rows=[("sn_ex_sp_action_group", {"sys_id": GROUP_ID, "name": "G"})])
+        r = _call(s, cfg, action="delete", kind="group", record_id=GROUP_ID, dry_run=True)
+        r["_align"].assert_not_called()

@@ -240,16 +240,38 @@ class TestParams:
             ManagePortalLayoutParams(action="update_route", route_id=ROUTE)
         ManagePortalLayoutParams(action="update_route", route_id=ROUTE, active=False)
 
-    def test_tool_dispatches_update(self, cfg):
-        from servicenow_mcp.tools.portal_crud_tools import manage_portal_layout
+    def test_tool_dispatches_update_in_the_routes_scope(self, cfg):
+        from servicenow_mcp.tools import portal_crud_tools as pct
 
-        with patch.object(pl, "update_route", return_value={"success": True}) as up:
-            manage_portal_layout(
+        with (
+            patch.object(pl, "update_route", return_value={"success": True}) as up,
+            patch.object(
+                pct, "sn_query_page", return_value=([{"sys_id": ROUTE, "sys_scope": SCOPE}], 1)
+            ),
+            patch.object(pct, "align_session_for_create", return_value={}) as align,
+        ):
+            pct.manage_portal_layout(
                 cfg,
                 MagicMock(),
                 ManagePortalLayoutParams(action="update_route", route_id=ROUTE, active=False),
             )
         assert up.call_args.kwargs == {"route_id": ROUTE, "dry_run": False, "active": False}
+        assert align.call_args.kwargs == {"scope": SCOPE}
+
+    def test_unreadable_route_scope_changes_nothing(self, cfg):
+        from servicenow_mcp.tools import portal_crud_tools as pct
+
+        with (
+            patch.object(pl, "update_route") as up,
+            patch.object(pct, "sn_query_page", side_effect=RuntimeError("403")),
+        ):
+            r = pct.manage_portal_layout(
+                cfg,
+                MagicMock(),
+                ManagePortalLayoutParams(action="update_route", route_id=ROUTE, active=False),
+            )
+        assert r["success"] is False
+        up.assert_not_called()
 
 
 class TestCreateRouteScope:
