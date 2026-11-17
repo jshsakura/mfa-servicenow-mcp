@@ -12,6 +12,8 @@ record back: a field the server dropped or truncated is reported, never
 assumed to have landed.
 """
 
+import hashlib
+import json
 import logging
 import re
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple
@@ -105,8 +107,12 @@ KINDS: Dict[str, _Kind] = {
 class ManagePortalActionParams(BaseModel):
     """Employee Center actions."""
 
-    action: Literal["create", "update", "delete"] = Field(
-        ..., description="create one record; update or delete one or many"
+    action: Literal["create", "update", "preview_update", "preview_delete", "delete"] = Field(
+        ...,
+        description=(
+            "create one; update one; update many or delete: preview_* first (read-only), "
+            "then run with its token"
+        ),
     )
     kind: Optional[Literal["type", "action", "parameter", "group", "link"]] = Field(
         default=None, description="type | action | parameter | group | link (action in a group)"
@@ -119,9 +125,7 @@ class ManagePortalActionParams(BaseModel):
         default=None,
         description="create kind=action: parameter rows created with it (name, parameter_type, ...)",
     )
-    record_id: Optional[str] = Field(
-        default=None, description="update/delete: sys_id of one record"
-    )
+    record_id: Optional[str] = Field(default=None, description="sys_id of one record")
     record_ids: Optional[List[str]] = Field(
         default=None, description="update many: sys_ids of one kind, all get the same fields"
     )
@@ -129,8 +133,11 @@ class ManagePortalActionParams(BaseModel):
         default=None,
         description="delete many: [{kind, record_id}]; deleted dependents-first in one plan",
     )
+    preview_token: Optional[str] = Field(
+        default=None, description="delete / update many: token from the preview the user approved"
+    )
     confirm_count: Optional[int] = Field(
-        default=None, description="Required for more than one record: the exact count to change"
+        default=None, description="delete / update many: record count from that preview"
     )
     scope: Optional[str] = Field(
         default=None, description="create: sys_scope sys_id the record must land in"
@@ -138,29 +145,36 @@ class ManagePortalActionParams(BaseModel):
     update_set: Optional[str] = Field(
         default=None, description="create: update set name or sys_id to capture into"
     )
-    dry_run: bool = Field(default=False)
+    dry_run: bool = Field(default=False, description="create / update one: show, write nothing")
 
     _FIELDS_BY_ACTION: ClassVar[Dict[str, frozenset]] = {
         "create": frozenset({"kind", "fields", "parameters", "scope", "update_set", "dry_run"}),
         "update": frozenset(
-            {"kind", "fields", "record_id", "record_ids", "confirm_count", "dry_run"}
+            {
+                "kind",
+                "fields",
+                "record_id",
+                "record_ids",
+                "preview_token",
+                "confirm_count",
+                "dry_run",
+            }
         ),
-        "delete": frozenset({"kind", "record_id", "records", "confirm_count", "dry_run"}),
+        "preview_update": frozenset({"kind", "fields", "record_ids"}),
+        "preview_delete": frozenset({"kind", "record_id", "records"}),
+        "delete": frozenset({"kind", "record_id", "records", "preview_token", "confirm_count"}),
     }
 
     @model_validator(mode="after")
     def _validate(self) -> "ManagePortalActionParams":
         a = self.action
-        if a == "delete" and self.records:
-            if self.kind or self.record_id or self.record_ids or self.fields:
-                raise ValueError("delete with records takes nothing else but confirm_count")
-            for r in self.records:
-                if r.get("kind") not in KINDS or not r.get("record_id"):
-                    raise ValueError(
-                        f"every record needs kind (one of {sorted(KINDS)}) and record_id"
-                    )
-            if len({r["record_id"] for r in self.records}) != len(self.records):
-                raise ValueError("records lists the same record_id twice")
+        if a in ("preview_delete", "delete"):
+            self._validate_delete_targets()
+            if a == "delete" and (not self.preview_token or self.confirm_count is None):
+                raise ValueError(
+                    "delete needs preview_token and confirm_count from preview_delete — "
+                    "preview first, show the user the plan, delete only on their go-ahead"
+                )
             return self
         if not self.kind:
             raise ValueError("kind is required")
@@ -179,19 +193,26 @@ class ManagePortalActionParams(BaseModel):
             if not self.scope:
                 raise ValueError("scope is required for action='create'")
         else:
-            ids = [self.record_id] if self.record_id else list(self.record_ids or [])
             if self.record_id and self.record_ids:
                 raise ValueError("pass record_id or record_ids, not both")
-            if self.record_ids is not None and a != "update":
-                raise ValueError("record_ids is for update; delete many with records")
-            if not ids:
-                raise ValueError(f"record_id is required for action='{a}'")
+            if a == "preview_update" and not self.record_ids:
+                raise ValueError("preview_update takes record_ids (one record: update dry_run)")
+            if not self.record_id and not self.record_ids:
+                raise ValueError(f"record_id or record_ids is required for action='{a}'")
+            ids = list(self.record_ids or [])
             if len(set(ids)) != len(ids):
                 raise ValueError("record_ids lists the same sys_id twice")
-            if a == "update" and not self.fields:
-                raise ValueError("update needs at least one field")
-            if a == "delete" and self.fields:
-                raise ValueError("delete takes no fields")
+            if not self.fields:
+                raise ValueError(f"{a} needs at least one field")
+            if (
+                a == "update"
+                and self.record_ids
+                and (not self.preview_token or self.confirm_count is None)
+            ):
+                raise ValueError(
+                    "update with record_ids needs preview_token and confirm_count from "
+                    "preview_update — preview first, apply only on the user's go-ahead"
+                )
         if self.parameters is not None and not (a == "create" and self.kind == "action"):
             raise ValueError("parameters only go with action='create' kind='action'")
         for row in self.parameters or []:
@@ -201,6 +222,22 @@ class ManagePortalActionParams(BaseModel):
             if not row.get("name") or not row.get("parameter_type"):
                 raise ValueError("every parameter needs name and parameter_type")
         return self
+
+    def _validate_delete_targets(self) -> None:
+        if self.fields or self.record_ids:
+            raise ValueError("delete takes record_id+kind or records, nothing else")
+        if self.records:
+            if self.kind or self.record_id:
+                raise ValueError("pass records, or kind+record_id — not both")
+            for r in self.records:
+                if r.get("kind") not in KINDS or not r.get("record_id"):
+                    raise ValueError(
+                        f"every record needs kind (one of {sorted(KINDS)}) and record_id"
+                    )
+            if len({r["record_id"] for r in self.records}) != len(self.records):
+                raise ValueError("records lists the same record_id twice")
+        elif not (self.kind and self.record_id):
+            raise ValueError("delete needs kind and record_id, or records")
 
 
 # ---------------------------------------------------------------------------
@@ -423,21 +460,18 @@ def _create(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
                 added_by_platform.append({"sys_id": p_id, "name": name, "is_client": is_client})
                 created.append({"table": p_table, "sys_id": p_id, "name": name})
 
-    undo = f"manage_portal_action action='delete' kind='{params.kind}' record_id='{sys_id}'"
     if len(created) > 1:
-        undo = (
-            "manage_portal_action action='delete' records="
-            + str(
-                [
-                    {
-                        "kind": "parameter" if c["table"] != kind.table else params.kind,
-                        "record_id": c["sys_id"],
-                    }
-                    for c in created
-                ]
-            )
-            + f" confirm_count={len(created)}"
-        )
+        targets = [
+            {
+                "kind": "parameter" if c["table"] != kind.table else params.kind,
+                "record_id": c["sys_id"],
+            }
+            for c in created
+        ]
+        undo = f"manage_portal_action action='preview_delete' records={targets}"
+    else:
+        undo = f"manage_portal_action action='preview_delete' kind='{params.kind}' record_id='{sys_id}'"
+    undo += " — then delete with its token once the user approves"
     return {
         "success": True,
         "complete": not problems,
@@ -465,31 +499,39 @@ def _create(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
     }
 
 
-def _count_gate(n: int, params: ManagePortalActionParams, plan: Dict[str, Any]) -> Any:
-    """More than one record needs confirm_count == n. Returns a refusal or None."""
-    if n > 1 and params.confirm_count != n:
-        return {
-            "success": False,
-            "message": (
-                f"This {params.action} touches {n} records. Review the plan and retry with "
-                f"confirm_count={n}."
-                if params.confirm_count is None
-                else f"confirm_count={params.confirm_count} but the plan has {n} records; "
-                "nothing was changed. Re-read the plan."
-            ),
-            "count": n,
-            **plan,
-        }
-    return None
+def _token(instance: str, action: str, rows: List[Any]) -> str:
+    """Fingerprint of a reviewed plan, including each record's sys_mod_count —
+    any edit to a record after the preview changes it."""
+    canon = json.dumps(
+        {"instance": instance, "action": action, "rows": rows}, sort_keys=True, ensure_ascii=False
+    )
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()[:16]
 
 
-def _update(config, auth_manager, params: ManagePortalActionParams) -> Dict[str, Any]:
+def _stale(plan_token: str, count: int, params: ManagePortalActionParams, preview: str) -> Any:
+    """The plan recomputed now must be the plan that was approved. Refusal or None."""
+    if plan_token == params.preview_token and count == params.confirm_count:
+        return None
+    return {
+        "success": False,
+        "error": "PREVIEW_STALE",
+        "message": (
+            f"This is not the plan that was previewed (now {count} record(s), confirm_count "
+            f"was {params.confirm_count}; a record or the request changed since). Nothing was "
+            "changed. Preview again and show the user the new plan."
+        ),
+        "preview_again": preview,
+    }
+
+
+def _update_plan(config, auth_manager, params: ManagePortalActionParams) -> Dict[str, Any]:
+    """Read every target and work out the change. Never writes."""
     assert params.kind
     kind = KINDS[params.kind]
     ids = [params.record_id] if params.record_id else list(params.record_ids or [])
     try:
         values = _resolve_refs(config, auth_manager, kind, params.fields)
-        cols = ",".join(sorted(set(values) | {"sys_id", "sys_scope"}))
+        cols = ",".join(sorted(set(values) | {"sys_id", "sys_scope", "sys_mod_count", "name"}))
         before: Dict[str, Dict[str, Any]] = {}
         for rid in ids:
             rows = _read(config, auth_manager, kind.table, f"sys_id={rid}", cols, 1)
@@ -499,7 +541,7 @@ def _update(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
     except Exception as e:
         return {"success": False, "message": f"Could not read the records: {e}"}
     body = _body(values)
-    plan = {
+    changes = {
         rid: {
             k: {"from": _raw(row.get(k)), "to": v}
             for k, v in body.items()
@@ -507,30 +549,74 @@ def _update(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
         }
         for rid, row in before.items()
     }
-    plan = {rid: ch for rid, ch in plan.items() if ch}
-    if not plan:
+    changes = {rid: ch for rid, ch in changes.items() if ch}
+    token = _token(
+        config.instance_url,
+        "update",
+        [
+            [rid, _raw(before[rid].get("sys_mod_count")), sorted(body.items())]
+            for rid in sorted(changes)
+        ],
+    )
+    return {
+        "success": True,
+        "kind": kind,
+        "ids": ids,
+        "body": body,
+        "before": before,
+        "changes": changes,
+        "token": token,
+    }
+
+
+def _update(config, auth_manager, params: ManagePortalActionParams) -> Dict[str, Any]:
+    p = _update_plan(config, auth_manager, params)
+    if not p.get("success"):
+        return p
+    kind, ids, body, changes = p["kind"], p["ids"], p["body"], p["changes"]
+    if not changes:
         return {"success": True, "message": "Nothing to change", "record_ids": ids}
-    shown: Dict[str, Any] = {"table": kind.table, "changes": plan}
-    if params.dry_run:
+    shown = {
+        "table": kind.table,
+        "count": len(changes),
+        "changes": [
+            {"record_id": rid, "name": _raw(p["before"][rid].get("name")), "changes": ch}
+            for rid, ch in changes.items()
+        ],
+    }
+    if params.action == "preview_update":
         return {
             "success": True,
-            "dry_run": True,
+            "preview": True,
             "operation": "update",
-            "count": len(plan),
             **shown,
+            "preview_token": p["token"],
+            "next": (
+                "Nothing was changed. Show the user every record above. Only on their explicit "
+                "go-ahead: manage_portal_action(action='update', <same kind/record_ids/fields>, "
+                f"preview_token='{p['token']}', confirm_count={len(changes)}, confirm='approve')."
+            ),
         }
-    refused = _count_gate(len(plan), params, shown)
-    if refused:
-        return refused
+    if params.dry_run:
+        return {"success": True, "dry_run": True, "operation": "update", **shown}
+    if params.record_ids:
+        refused = _stale(
+            p["token"],
+            len(changes),
+            params,
+            "manage_portal_action(action='preview_update', <same kind/record_ids/fields>)",
+        )
+        if refused:
+            return refused
     aligned = _align_to_scope(
-        config, auth_manager, {rid: _raw(before[rid].get("sys_scope")) for rid in plan}
+        config, auth_manager, {rid: _raw(p["before"][rid].get("sys_scope")) for rid in changes}
     )
     if aligned.get("error"):
         return aligned["error"]
 
     done: List[str] = []
     problems: List[str] = []
-    for rid in plan:
+    for rid in changes:
         try:
             _patch(config, auth_manager, kind.table, rid, body)
         except Exception as e:
@@ -538,18 +624,17 @@ def _update(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
             problems.append(f"{rid}: update failed ({e}); stopped here")
             break
         done.append(rid)
-        problems += [f"{rid}: {p}" for p in _verify(config, auth_manager, kind.table, rid, body)]
-    not_done = [rid for rid in plan if rid not in done]
+        problems += [f"{rid}: {pr}" for pr in _verify(config, auth_manager, kind.table, rid, body)]
+    not_done = [rid for rid in changes if rid not in done]
     return {
         "success": bool(done),
         "complete": not problems and not not_done,
         "message": (
             f"Updated {len(done)} {kind.table} record(s)"
             if not problems and not not_done
-            else f"Updated {len(done)} of {len(plan)}; NOT confirmed: " + "; ".join(problems)
+            else f"Updated {len(done)} of {len(changes)}; NOT confirmed: " + "; ".join(problems)
         ),
-        "record_id" if len(ids) == 1 else "record_ids": ids[0] if len(ids) == 1 else ids,
-        "changes": plan if len(ids) > 1 else plan[ids[0]],
+        **shown,
         "updated": done,
         "not_updated": not_done,
         "missing": problems,
@@ -592,7 +677,8 @@ def _dependents(config, auth_manager, kind_name: str, sys_id: str) -> List[Dict[
     return found
 
 
-def _delete(config, auth_manager, params: ManagePortalActionParams) -> Dict[str, Any]:
+def _delete_plan(config, auth_manager, params: ManagePortalActionParams) -> Dict[str, Any]:
+    """Read every target and everything pointing at it. Never writes."""
     if params.records:
         targets = [(r["kind"], r["record_id"]) for r in params.records]
     else:
@@ -607,14 +693,32 @@ def _delete(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
     try:
         for kind_name, rid in targets:
             table = KINDS[kind_name].table
-            rows = _read(config, auth_manager, table, f"sys_id={rid}", "sys_id,name,sys_scope", 1)
+            rows = _read(
+                config,
+                auth_manager,
+                table,
+                f"sys_id={rid}",
+                "sys_id,name,sys_scope,sys_mod_count,sys_updated_on,sys_updated_by",
+                1,
+            )
             if not rows:
                 return {
                     "success": False,
                     "message": f"No {table} {rid} (kind='{kind_name}'); nothing was deleted.",
                 }
-            scopes[rid] = _raw(rows[0].get("sys_scope"))
-            plan.append({"kind": kind_name, "record_id": rid, "name": _raw(rows[0].get("name"))})
+            row = rows[0]
+            scopes[rid] = _raw(row.get("sys_scope"))
+            plan.append(
+                {
+                    "kind": kind_name,
+                    "table": table,
+                    "record_id": rid,
+                    "name": _raw(row.get("name")),
+                    "last_updated": f"{_raw(row.get('sys_updated_on'))} by "
+                    f"{_raw(row.get('sys_updated_by'))}",
+                    "_mod": _raw(row.get("sys_mod_count")),
+                }
+            )
             blocking += [
                 d
                 for d in _dependents(config, auth_manager, kind_name, rid)
@@ -622,56 +726,106 @@ def _delete(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
             ]
     except Exception as e:
         return {"success": False, "message": f"Could not check the records before delete: {e}"}
-    if blocking:
+    token = _token(
+        config.instance_url, "delete", [[i["record_id"], i["kind"], i["_mod"]] for i in plan]
+    )
+    for item in plan:
+        item.pop("_mod")
+    return {
+        "success": True,
+        "plan": plan,
+        "blocking": blocking,
+        "scopes": scopes,
+        "token": token,
+    }
+
+
+def _recovery(config, auth_manager, record_id: str) -> Dict[str, Any]:
+    """Whether the platform kept a restorable copy (Deleted Records, sys_audit_delete)."""
+    try:
+        rows = _read(
+            config, auth_manager, "sys_audit_delete", f"documentkey={record_id}", "sys_id", 1
+        )
+    except Exception as e:
+        return {"recoverable": None, "why": f"could not read sys_audit_delete ({e})"}
+    if not rows:
+        return {
+            "recoverable": False,
+            "why": "no Deleted Records entry — Undelete Record cannot bring it back",
+        }
+    return {"recoverable": True, "audit_delete_id": _raw(rows[0].get("sys_id"))}
+
+
+def _delete(config, auth_manager, params: ManagePortalActionParams) -> Dict[str, Any]:
+    p = _delete_plan(config, auth_manager, params)
+    if not p.get("success"):
+        return p
+    plan = p["plan"]
+    if p["blocking"]:
         return {
             "success": False,
             "message": (
-                f"{len(blocking)} row(s) outside this request still point at it; nothing was "
-                "deleted. Add them to records, or leave the record they point at."
+                f"{len(p['blocking'])} row(s) outside this request still point at it; nothing "
+                "was deleted. Add them to records, or leave the record they point at."
             ),
             "plan": plan,
-            "dependents": blocking,
+            "dependents": p["blocking"],
         }
-    shown = {"plan": plan}
-    if params.dry_run:
+    if params.action == "preview_delete":
         return {
             "success": True,
-            "dry_run": True,
+            "preview": True,
             "operation": "delete",
             "count": len(plan),
-            **shown,
+            "plan": plan,
+            "preview_token": p["token"],
+            "next": (
+                "Nothing was deleted. Show the user every record above (kind, name, last "
+                "updated). Only on their explicit go-ahead: manage_portal_action("
+                "action='delete', <same records or kind/record_id>, preview_token="
+                f"'{p['token']}', confirm_count={len(plan)}, confirm='approve')."
+            ),
         }
-    refused = _count_gate(len(plan), params, shown)
+    refused = _stale(
+        p["token"],
+        len(plan),
+        params,
+        "manage_portal_action(action='preview_delete', <same records or kind/record_id>)",
+    )
     if refused:
         return refused
-    aligned = _align_to_scope(config, auth_manager, scopes)
+    aligned = _align_to_scope(config, auth_manager, p["scopes"])
     if aligned.get("error"):
         return aligned["error"]
 
     deleted: List[Dict[str, Any]] = []
     problems: List[str] = []
     for item in plan:
-        table = KINDS[item["kind"]].table
-        url = f"{config.instance_url}/api/now/table/{table}/{item['record_id']}"
+        url = f"{config.instance_url}/api/now/table/{item['table']}/{item['record_id']}"
         try:
             response = auth_manager.make_request(
                 "DELETE", url, headers=auth_manager.get_headers(), timeout=30
             )
             response.raise_for_status()
         except Exception as e:
-            logger.error("Error deleting %s %s: %s", table, item["record_id"], e)
+            logger.error("Error deleting %s %s: %s", item["table"], item["record_id"], e)
             problems.append(f"{item['record_id']}: delete failed ({e}); stopped here")
             break
-        deleted.append(item)
+        invalidate_query_cache(table=item["table"])
+        deleted.append({**item, **_recovery(config, auth_manager, item["record_id"])})
         try:
-            still = _read(config, auth_manager, table, f"sys_id={item['record_id']}", "sys_id", 1)
+            still = _read(
+                config, auth_manager, item["table"], f"sys_id={item['record_id']}", "sys_id", 1
+            )
             if still:
                 problems.append(f"{item['record_id']}: still exists after delete; stopped here")
                 break
         except Exception as e:
             problems.append(f"{item['record_id']}: could not read back ({e}); stopped here")
             break
-    remaining = [i for i in plan if i not in deleted]
+    gone = {d["record_id"] for d in deleted}
+    remaining = [i for i in plan if i["record_id"] not in gone]
+    unrecoverable = [d["record_id"] for d in deleted if d.get("recoverable") is not True]
     return {
         "success": bool(deleted),
         "complete": not problems and not remaining,
@@ -683,6 +837,12 @@ def _delete(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
         "deleted": deleted,
         "not_deleted": remaining,
         "missing": problems,
+        "restore": (
+            "Each deleted record is in Deleted Records (sys_audit_delete); an admin restores "
+            "it there with Undelete Record."
+            if deleted and not unrecoverable
+            else f"NOT confirmed restorable: {unrecoverable}" if unrecoverable else ""
+        ),
         **{k: v for k, v in aligned.items() if v},
     }
 
@@ -692,7 +852,7 @@ def _delete(config, auth_manager, params: ManagePortalActionParams) -> Dict[str,
     params=ManagePortalActionParams,
     description=(
         "Employee Center action-widget buttons: create/update/delete action types, actions "
-        "(+parameters), groups, group links."
+        "(+parameters), groups, links. Delete and bulk update: preview first."
     ),
     serialization="raw_dict",
     return_type=Dict[str, Any],
@@ -704,6 +864,6 @@ def manage_portal_action(
 ) -> Dict[str, Any]:
     if params.action == "create":
         return _create(config, auth_manager, params)
-    if params.action == "delete":
+    if params.action in ("preview_delete", "delete"):
         return _delete(config, auth_manager, params)
     return _update(config, auth_manager, params)

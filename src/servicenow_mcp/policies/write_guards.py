@@ -339,6 +339,8 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_asset": frozenset({"get"}),
     "manage_hardware_disposal": frozenset({"get"}),
     "manage_data_update": frozenset({"preview", "list_snapshots", "preview_revert"}),
+    # Deletes and multi-record updates run only with a token from these.
+    "manage_portal_action": frozenset({"preview_update", "preview_delete"}),
     "manage_changeset": frozenset({"get"}),
     "manage_user": frozenset({"get", "list"}),
     "manage_group": frozenset({"list"}),

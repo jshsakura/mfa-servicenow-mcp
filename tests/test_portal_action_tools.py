@@ -118,7 +118,7 @@ class TestCreate:
         )
         assert r["complete"] is True, r["missing"]
         assert s.writes[0][2]["active"] == "true"
-        assert "action='delete'" in r["undo"] and r["sys_id"] in r["undo"]
+        assert "preview_delete" in r["undo"] and r["sys_id"] in r["undo"]
         assert r["_align"].call_args.kwargs["scope"] == SCOPE
 
     def test_action_with_parameters_resolves_type_by_name(self, cfg):
@@ -204,7 +204,7 @@ class TestCreate:
             },
         )
         assert r["complete"] is False and any("script" in p for p in r["missing"])
-        assert "action='delete'" in r["undo"]
+        assert "preview_delete" in r["undo"]
 
     def test_align_failure_aborts_before_write(self, cfg):
         s = FakeServer()
@@ -233,7 +233,7 @@ class TestUpdate:
             s, cfg, action="update", kind="group", record_id=GROUP_ID, fields={"active": False}
         )
         assert r["complete"] is True
-        assert r["changes"] == {"active": {"from": "true", "to": "false"}}
+        assert r["changes"][0]["changes"] == {"active": {"from": "true", "to": "false"}}
 
     def test_no_change_writes_nothing(self, cfg):
         s = FakeServer(rows=[("sn_ex_sp_action_group", {"sys_id": GROUP_ID, "active": "true"})])
@@ -329,69 +329,147 @@ def _deleted_ids(server):
     return [w[1].rsplit("/", 1)[1] for w in server.writes if w[0] == "DELETE"]
 
 
-class TestDelete:
-    def test_single_leaf_delete_is_verified(self, cfg):
-        s = FakeServer(rows=_button_set())
-        r = _call(s, cfg, action="delete", kind="parameter", record_id=PARAM_ID)
-        assert r["complete"] is True and _deleted_ids(s) == [PARAM_ID]
+def _audit_rows(server, ids):
+    for rid in ids:
+        server.tables.setdefault("sys_audit_delete", []).append(
+            {"sys_id": "aaaa9999" + rid[8:], "documentkey": rid}
+        )
 
-    def test_record_still_pointed_at_is_refused(self, cfg):
+
+def _preview(server, cfg, **target):
+    return _call(server, cfg, action="preview_delete", **target)
+
+
+def _approved_delete(server, cfg, **target):
+    """preview_delete, then delete with exactly what the preview returned."""
+    p = _preview(server, cfg, **target)
+    assert p["preview"] is True, p
+    return _call(
+        server,
+        cfg,
+        action="delete",
+        preview_token=p["preview_token"],
+        confirm_count=p["count"],
+        **target,
+    )
+
+
+class TestDelete:
+    def test_preview_writes_nothing_and_does_not_switch_scope(self, cfg):
         s = FakeServer(rows=_button_set())
-        r = _call(s, cfg, action="delete", kind="type", record_id=TYPE_ID)
-        assert r["success"] is False and s.writes == []
-        assert r["dependents"][0]["record_id"] == ACT_ID
+        r = _preview(s, cfg, records=_ALL)
+        assert r["count"] == 5 and s.writes == []
+        assert [p["kind"] for p in r["plan"]] == ["link", "parameter", "action", "group", "type"]
+        assert "explicit go-ahead" in r["next"] and r["preview_token"] in r["next"]
+        r["_align"].assert_not_called()
+
+    def test_delete_without_token_is_refused_by_the_schema(self):
+        with pytest.raises(ValueError, match="preview_token"):
+            ManagePortalActionParams(action="delete", kind="parameter", record_id=PARAM_ID)
+        with pytest.raises(ValueError, match="preview_token"):
+            ManagePortalActionParams(action="delete", records=_ALL, confirm_count=5)
+
+    def test_single_delete_is_verified_and_reports_recovery(self, cfg):
+        s = FakeServer(rows=_button_set())
+        _audit_rows(s, [PARAM_ID])
+        r = _approved_delete(s, cfg, kind="parameter", record_id=PARAM_ID)
+        assert r["complete"] is True and _deleted_ids(s) == [PARAM_ID]
+        assert r["deleted"][0]["recoverable"] is True
+        assert "Undelete" in r["restore"]
+
+    def test_missing_delete_audit_says_not_restorable(self, cfg):
+        s = FakeServer(rows=_button_set())
+        r = _approved_delete(s, cfg, kind="parameter", record_id=PARAM_ID)
+        assert r["deleted"][0]["recoverable"] is False
+        assert "NOT confirmed restorable" in r["restore"]
 
     def test_whole_set_deletes_children_first(self, cfg):
         s = FakeServer(rows=_button_set())
-        r = _call(s, cfg, action="delete", records=_ALL, confirm_count=5)
+        _audit_rows(s, [LINK_ID, PARAM_ID, ACT_ID, GROUP_ID, TYPE_ID])
+        r = _approved_delete(s, cfg, records=_ALL)
         assert r["complete"] is True, r["missing"]
         assert _deleted_ids(s) == [LINK_ID, PARAM_ID, ACT_ID, GROUP_ID, TYPE_ID]
 
-    def test_many_without_confirm_count_deletes_nothing(self, cfg):
+    def test_wrong_token_deletes_nothing(self, cfg):
         s = FakeServer(rows=_button_set())
-        r = _call(s, cfg, action="delete", records=_ALL)
-        assert r["success"] is False and r["count"] == 5 and s.writes == []
-        assert "confirm_count=5" in r["message"]
+        r = _call(
+            s,
+            cfg,
+            action="delete",
+            records=_ALL,
+            preview_token="0000000000000000",
+            confirm_count=5,
+        )
+        assert r["error"] == "PREVIEW_STALE" and s.writes == []
 
-    def test_wrong_confirm_count_deletes_nothing(self, cfg):
+    def test_wrong_count_deletes_nothing(self, cfg):
         s = FakeServer(rows=_button_set())
-        r = _call(s, cfg, action="delete", records=_ALL, confirm_count=4)
-        assert r["success"] is False and s.writes == []
+        p = _preview(s, cfg, records=_ALL)
+        r = _call(
+            s,
+            cfg,
+            action="delete",
+            records=_ALL,
+            preview_token=p["preview_token"],
+            confirm_count=4,
+        )
+        assert r["error"] == "PREVIEW_STALE" and s.writes == []
 
-    def test_dry_run_shows_ordered_plan(self, cfg):
+    def test_record_edited_after_preview_deletes_nothing(self, cfg):
         s = FakeServer(rows=_button_set())
-        r = _call(s, cfg, action="delete", records=_ALL, dry_run=True)
-        assert r["count"] == 5 and [p["kind"] for p in r["plan"]] == [
-            "link",
-            "parameter",
-            "action",
-            "group",
-            "type",
-        ]
-        assert s.writes == []
+        p = _preview(s, cfg, records=_ALL)
+        s.tables["sn_ex_sp_action_group"][0]["sys_mod_count"] = "7"
+        r = _call(
+            s,
+            cfg,
+            action="delete",
+            records=_ALL,
+            preview_token=p["preview_token"],
+            confirm_count=5,
+        )
+        assert r["error"] == "PREVIEW_STALE" and s.writes == []
+
+    def test_token_for_one_set_does_not_delete_another(self, cfg):
+        s = FakeServer(rows=_button_set())
+        p = _preview(s, cfg, kind="parameter", record_id=PARAM_ID)
+        r = _call(
+            s,
+            cfg,
+            action="delete",
+            kind="link",
+            record_id=LINK_ID,
+            preview_token=p["preview_token"],
+            confirm_count=1,
+        )
+        assert r["error"] == "PREVIEW_STALE" and s.writes == []
+
+    def test_record_still_pointed_at_is_refused_even_in_preview(self, cfg):
+        s = FakeServer(rows=_button_set())
+        r = _preview(s, cfg, kind="type", record_id=TYPE_ID)
+        assert r["success"] is False and r["dependents"][0]["record_id"] == ACT_ID
 
     def test_dependent_outside_the_request_blocks_all(self, cfg):
         s = FakeServer(rows=_button_set())
         partial = [r for r in _ALL if r["kind"] != "link"]
-        r = _call(s, cfg, action="delete", records=partial, confirm_count=4)
-        assert r["success"] is False and s.writes == []
+        r = _preview(s, cfg, records=partial)
+        assert r["success"] is False
         assert {d["record_id"] for d in r["dependents"]} == {LINK_ID}
 
-    def test_missing_record_deletes_nothing(self, cfg):
+    def test_missing_record_is_refused(self, cfg):
         s = FakeServer(rows=_button_set())
         recs = _ALL + [{"kind": "group", "record_id": "aaaa0000bbbb0000cccc0000dddd0000"}]
-        r = _call(s, cfg, action="delete", records=recs, confirm_count=6)
-        assert r["success"] is False and s.writes == []
+        r = _preview(s, cfg, records=recs)
+        assert r["success"] is False
 
     def test_unreadable_dependents_refuse(self, cfg):
         s = FakeServer(rows=_button_set(), fail_read="sn_ex_sp_m2m_action_group")
-        r = _call(s, cfg, action="delete", kind="group", record_id=GROUP_ID)
-        assert r["success"] is False and s.writes == []
+        r = _preview(s, cfg, kind="group", record_id=GROUP_ID)
+        assert r["success"] is False
 
     def test_stops_at_first_failure_and_reports_remaining(self, cfg):
         s = FakeServer(rows=_button_set())
         s.fail_delete = {ACT_ID}
-        r = _call(s, cfg, action="delete", records=_ALL, confirm_count=5)
+        r = _approved_delete(s, cfg, records=_ALL)
         assert r["complete"] is False
         assert [d["record_id"] for d in r["deleted"]] == [LINK_ID, PARAM_ID]
         assert [d["record_id"] for d in r["not_deleted"]] == [ACT_ID, GROUP_ID, TYPE_ID]
@@ -399,7 +477,7 @@ class TestDelete:
     def test_record_surviving_delete_is_not_confirmed(self, cfg):
         s = FakeServer(rows=_button_set())
         s.keep_on_delete = {PARAM_ID}
-        r = _call(s, cfg, action="delete", kind="parameter", record_id=PARAM_ID)
+        r = _approved_delete(s, cfg, kind="parameter", record_id=PARAM_ID)
         assert r["complete"] is False and "still exists" in r["missing"][0]
 
 
@@ -410,56 +488,68 @@ class TestBulkUpdate:
             ("sn_ex_sp_action_group", {"sys_id": TYPE_ID, "name": "H", "active": "true"}),
         ]
 
-    def test_many_needs_confirm_count(self, cfg):
+    _KW = dict(kind="group", record_ids=[GROUP_ID, TYPE_ID], fields={"active": False})
+
+    def test_many_needs_a_preview_token(self):
+        with pytest.raises(ValueError, match="preview_token"):
+            ManagePortalActionParams(action="update", **self._KW)
+
+    def test_preview_then_apply(self, cfg):
         s = FakeServer(rows=self._groups())
-        kw = dict(action="update", kind="group", record_ids=[GROUP_ID, TYPE_ID])
-        r = _call(s, cfg, fields={"active": False}, **kw)
-        assert r["success"] is False and r["count"] == 2 and s.writes == []
-        r = _call(s, cfg, fields={"active": False}, confirm_count=2, **kw)
+        p = _call(s, cfg, action="preview_update", **self._KW)
+        assert p["count"] == 2 and s.writes == []
+        r = _call(
+            s,
+            cfg,
+            action="update",
+            preview_token=p["preview_token"],
+            confirm_count=2,
+            **self._KW,
+        )
         assert r["complete"] is True and r["updated"] == [GROUP_ID, TYPE_ID]
 
     def test_count_is_what_actually_changes(self, cfg):
-        """A record already at the target value is not in the plan or the count."""
         rows = self._groups()
         rows[1][1]["active"] = "false"
         s = FakeServer(rows=rows)
-        r = _call(
-            s,
-            cfg,
-            action="update",
-            kind="group",
-            record_ids=[GROUP_ID, TYPE_ID],
-            fields={"active": False},
-        )
-        assert r["complete"] is True and r["updated"] == [GROUP_ID]
+        p = _call(s, cfg, action="preview_update", **self._KW)
+        assert p["count"] == 1
 
-    def test_missing_record_changes_nothing(self, cfg):
-        s = FakeServer(rows=self._groups()[:1])
+    def test_changed_after_preview_changes_nothing(self, cfg):
+        s = FakeServer(rows=self._groups())
+        p = _call(s, cfg, action="preview_update", **self._KW)
+        s.tables["sn_ex_sp_action_group"][1]["active"] = "false"
         r = _call(
             s,
             cfg,
             action="update",
-            kind="group",
-            record_ids=[GROUP_ID, TYPE_ID],
-            fields={"active": False},
+            preview_token=p["preview_token"],
             confirm_count=2,
+            **self._KW,
         )
-        assert r["success"] is False and s.writes == []
+        assert r["error"] == "PREVIEW_STALE" and s.writes == []
+
+    def test_single_update_needs_no_token(self, cfg):
+        s = FakeServer(rows=self._groups())
+        r = _call(
+            s, cfg, action="update", kind="group", record_id=GROUP_ID, fields={"active": False}
+        )
+        assert r["complete"] is True
 
 
 class TestBatchParams:
     def test_records_takes_nothing_else(self):
-        with pytest.raises(ValueError, match="nothing else"):
-            ManagePortalActionParams(action="delete", kind="group", records=_ALL)
+        with pytest.raises(ValueError, match="not both"):
+            ManagePortalActionParams(action="preview_delete", kind="group", records=_ALL)
 
-    def test_record_ids_is_for_update_only(self):
-        with pytest.raises(ValueError, match="record_ids is for update"):
-            ManagePortalActionParams(action="delete", kind="group", record_ids=[GROUP_ID])
+    def test_record_ids_is_not_for_delete(self):
+        with pytest.raises(ValueError, match="nothing else"):
+            ManagePortalActionParams(action="preview_delete", kind="group", record_ids=[GROUP_ID])
 
     def test_duplicates_rejected(self):
         with pytest.raises(ValueError, match="twice"):
             ManagePortalActionParams(
-                action="update",
+                action="preview_update",
                 kind="group",
                 record_ids=[GROUP_ID, GROUP_ID],
                 fields={"active": False},
@@ -519,10 +609,19 @@ class TestScopeForChanges:
             patch.object(pa, "invalidate_query_cache"),
             patch.object(pa, "align_session_for_create", return_value=switch),
         ):
+            target = dict(kind="group", record_id=GROUP_ID)
+            p = manage_portal_action(
+                cfg, auth, ManagePortalActionParams(action="preview_delete", **target)
+            )
             r = manage_portal_action(
                 cfg,
                 auth,
-                ManagePortalActionParams(action="delete", kind="group", record_id=GROUP_ID),
+                ManagePortalActionParams(
+                    action="delete",
+                    preview_token=p["preview_token"],
+                    confirm_count=1,
+                    **target,
+                ),
             )
         assert r["complete"] is True and r["scope_switch"] == {"switched": True}
 
@@ -543,20 +642,18 @@ class TestScopeForChanges:
                 ),
             ]
         )
-        r = _call(
+        r = _approved_delete(
             s,
             cfg,
-            action="delete",
             records=[
                 {"kind": "parameter", "record_id": PARAM_ID},
                 {"kind": "parameter", "record_id": LINK_ID},
             ],
-            confirm_count=2,
         )
         assert r["success"] is False and "more than one scope" in r["message"]
         assert s.writes == []
 
     def test_dry_run_does_not_switch_scope(self, cfg):
         s = FakeServer(rows=[("sn_ex_sp_action_group", {"sys_id": GROUP_ID, "name": "G"})])
-        r = _call(s, cfg, action="delete", kind="group", record_id=GROUP_ID, dry_run=True)
+        r = _preview(s, cfg, kind="group", record_id=GROUP_ID)
         r["_align"].assert_not_called()

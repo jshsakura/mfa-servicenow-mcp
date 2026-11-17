@@ -197,7 +197,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_portal_action` | W | Employee Center action-widget buttons: create/update/delete action types, actions (+parameters), groups, group links. | portal_developer, portal_design, full |
+| `manage_portal_action` | R/W | Employee Center action-widget buttons: create/update/delete action types, actions (+parameters), groups, links. Delet... | portal_developer, portal_design, full |
 
 ### Portal CRUD (3)
 
