@@ -161,6 +161,9 @@ _SOURCE_FIELDS = {
     "html",
     "client_script",
     "processing_script",
+    "action_script",
+    "applicability_script",
+    "applicability_condition",
 }
 
 
@@ -774,7 +777,53 @@ class TestDownloadSourcesUIComponents:
 
         assert result["success"] is True
         assert result["source_types"]["ui_action"]["count"] == 1
-        assert mock_query_all.call_count == 5  # 5 UI types (incl. ui_policy)
+        assert mock_query_all.call_count == 6  # 6 UI types (incl. ui_policy, ticket actions)
+
+    @patch("servicenow_mcp.tools.source_tools.sn_query_all")
+    @patch("servicenow_mcp.tools.source_tools.sn_query_page")
+    def test_ticket_page_action_lands_as_files(
+        self, mock_query_page, mock_query_all, config, auth, tmp_path
+    ):
+        """A Standard Ticket page button downloads as editable files, nested by
+        its ticket configuration's table, so it is diffable and pushable by path
+        instead of only reachable through the browser."""
+        record = {
+            "sys_id": "aaaa1111bbbb2222cccc3333dddd4444",
+            "name": "Resolve",
+            "ticket_configuration": "eeee5555ffff6666aaaa7777bbbb8888",
+            "ticket_configuration.table": "incident",
+            "active": "true",
+            "sys_scope": "x_app",
+            "sys_updated_on": "2026-04-01 15:00:00",
+            "sys_updated_by": "admin",
+            "action_script": "current.state = 6;\ncurrent.update();",
+            "applicability_script": "answer = current.active == true;",
+            "applicability_condition": "active=true",
+        }
+        mock_query_all.side_effect = _query_all_side_effect_for(
+            {"std_ticket_config_action": _strip_source([record])}
+        )
+        mock_query_page.side_effect = _page_side_effect_for([record])
+        result = download_server_sources(
+            config,
+            auth,
+            DownloadSourcesParams(scope="x_app", output_dir=str(tmp_path), families=["ui"]),
+        )
+
+        assert result["success"] is True
+        assert result["source_types"]["std_ticket_action"]["count"] == 1
+        folder = tmp_path / "std_ticket_config_action" / "incident" / "Resolve"
+        assert (folder / "action_script.js").read_text().startswith("current.state = 6;")
+        assert (folder / "applicability_script.js").exists()
+        assert (folder / "applicability_condition.txt").read_text() == "active=true"
+
+        from servicenow_mcp.tools.sync_tools import _folder_layout_field_map
+
+        assert _folder_layout_field_map("std_ticket_config_action") == {
+            "action_script.js": "action_script",
+            "applicability_script.js": "applicability_script",
+            "applicability_condition.txt": "applicability_condition",
+        }
 
     @patch("servicenow_mcp.tools.source_tools.sn_query_all")
     @patch("servicenow_mcp.tools.source_tools.sn_query_page")

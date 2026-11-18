@@ -151,6 +151,7 @@ DEFAULT_SOURCE_TYPE_ORDER = [
     "client_script",
     "catalog_client_script",
     "ui_action",
+    "std_ticket_action",
     "ui_script",
     "ui_page",
     "ui_macro",
@@ -181,6 +182,7 @@ SourceType = Literal[
     "client_script",
     "catalog_client_script",
     "ui_action",
+    "std_ticket_action",
     "ui_script",
     "ui_page",
     "ui_macro",
@@ -210,6 +212,7 @@ SpecificSourceType = Literal[
     "client_script",
     "catalog_client_script",
     "ui_action",
+    "std_ticket_action",
     "ui_script",
     "ui_page",
     "ui_macro",
@@ -370,6 +373,39 @@ SOURCE_CONFIG: Dict[str, Dict[str, Any]] = {
         # source_layout.FIELD_FILENAME) — neither used to reach disk.
         "source_fields": ["script", "condition", "client_script_v2"],
         "search_fields": ["name", "table", "action_name", "script"],
+        "lookup_fields": ["sys_id", "name"],
+    },
+    # Standard Ticket page buttons (Resolve / Close / Reopen on the portal ticket
+    # page). Not a sys_ui_action: their bodies live here, and without this entry
+    # the only way to read or change one was driving the browser.
+    "std_ticket_action": {
+        "table": "std_ticket_config_action",
+        "identifier_field": "name",
+        # `name` is unique only within a ticket configuration ('Resolve' exists
+        # once per configured table), so nest by that configuration's table.
+        # Downloads read display_value=False, so `name` (translated_text) is the
+        # stored value, not the session language's label: one folder per button
+        # whatever language the session runs in.
+        "folder_qualifier_field": "ticket_configuration.table",
+        "target_table_field": "ticket_configuration.table",
+        "summary_fields": [
+            "sys_id",
+            "name",
+            "ticket_configuration",
+            "ticket_configuration.table",
+            "order",
+            "active",
+            "advanced",
+            "user_input",
+            "sys_scope",
+            "sys_scope.scope",
+            "sys_updated_on",
+            "sys_updated_by",
+        ],
+        # applicability_condition is an encoded query; with `advanced` on, the
+        # applicability_script decides instead. Both gate whether the button shows.
+        "source_fields": ["action_script", "applicability_script", "applicability_condition"],
+        "search_fields": ["name", "action_script", "applicability_script"],
         "lookup_fields": ["sys_id", "name"],
     },
     "ui_script": {
@@ -3773,7 +3809,14 @@ class _ScopeDownloadParams(BaseModel):
 
 _SCRIPT_INCLUDE_TYPES = ["script_include"]
 _SERVER_SCRIPT_TYPES = ["business_rule", "client_script", "catalog_client_script"]
-_UI_COMPONENT_TYPES = ["ui_action", "ui_script", "ui_page", "ui_macro", "ui_policy"]
+_UI_COMPONENT_TYPES = [
+    "ui_action",
+    "std_ticket_action",
+    "ui_script",
+    "ui_page",
+    "ui_macro",
+    "ui_policy",
+]
 _API_SOURCE_TYPES = ["scripted_rest", "processor"]
 _SECURITY_SOURCE_TYPES = ["acl"]
 _THEME_TYPES = ["sp_theme", "sp_portal", "sp_css", "sp_header_footer", "ux_theme", "ux_style"]
@@ -3797,7 +3840,7 @@ _ADMIN_SCRIPT_TYPES = [
 _SOURCE_FAMILIES: Dict[str, List[str]] = {
     "script_includes": _SCRIPT_INCLUDE_TYPES,
     "server_scripts": _SERVER_SCRIPT_TYPES,  # business rules, client + catalog client scripts
-    "ui": _UI_COMPONENT_TYPES,  # UI actions/scripts/pages/macros/policies
+    "ui": _UI_COMPONENT_TYPES,  # UI actions, ticket page actions, scripts/pages/macros/policies
     "api": _API_SOURCE_TYPES,  # scripted REST + processors
     "security": _SECURITY_SOURCE_TYPES,  # ACLs
     "admin": _ADMIN_SCRIPT_TYPES,  # fix scripts, scheduled jobs, script actions, notifications, transforms
@@ -4763,7 +4806,7 @@ def download_app_sources(
     _groups = [
         ["script_include"],
         ["business_rule", "client_script", "catalog_client_script"],
-        ["ui_action", "ui_script", "ui_page", "ui_macro", "ui_policy"],
+        list(_UI_COMPONENT_TYPES),
         ["scripted_rest", "processor"],
         ["acl"],
         ["fix_script", "scheduled_job", "script_action", "email_notification", "transform_script"],

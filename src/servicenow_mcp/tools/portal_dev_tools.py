@@ -72,6 +72,11 @@ PORTAL_DEV_TABLES: Dict[str, Dict[str, Any]] = {
         "label": "UI Action",
         "fields": "sys_id,name,table,action_name,sys_scope,sys_updated_on,sys_updated_by,active",
     },
+    "std_ticket_action": {
+        "table": "std_ticket_config_action",
+        "label": "Ticket Page Action",
+        "fields": "sys_id,name,ticket_configuration.table,sys_scope,sys_updated_on,sys_updated_by,active",
+    },
     "ui_script": {
         "table": "sys_ui_script",
         "label": "UI Script",
@@ -957,6 +962,13 @@ _SUMMARY_SOURCE_FIELDS: Dict[str, Dict[str, Any]] = {
         "name_field": "name",
         "meta_fields": "sys_id,name,table,action_name,sys_scope,sys_updated_on",
         "source_fields": ["script"],
+    },
+    "std_ticket_action": {
+        "table": "std_ticket_config_action",
+        "label": "Ticket Page Action",
+        "name_field": "name",
+        "meta_fields": "sys_id,name,ticket_configuration.table,sys_scope,sys_updated_on",
+        "source_fields": ["action_script", "applicability_script"],
     },
     "ui_script": {
         "table": "sys_ui_script",

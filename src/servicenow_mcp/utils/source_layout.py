@@ -64,6 +64,11 @@ FIELD_FILENAME: Dict[str, str] = {
     "payload": "payload.xml",
     "message_text": "message_text.txt",
     "subject": "subject.txt",
+    # Standard Ticket page action (std_ticket_config_action): two script bodies
+    # and an encoded-query gate.
+    "action_script": "action_script.js",
+    "applicability_script": "applicability_script.js",
+    "applicability_condition": "applicability_condition.txt",
 }
 
 # Fallback for any field not in the canonical map.

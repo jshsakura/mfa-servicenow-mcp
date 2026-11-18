@@ -51,6 +51,7 @@ ENTRY_CATEGORY_MAP: Dict[str, str] = {
     "sys_script": "business_rule",
     "sys_script_client": "client_script",
     "sys_ui_action": "ui_action",
+    "std_ticket_config_action": "std_ticket_action",
     "sys_ui_page": "ui_page",
     "sys_ui_script": "ui_script",
     "sys_ws_operation": "scripted_rest",
