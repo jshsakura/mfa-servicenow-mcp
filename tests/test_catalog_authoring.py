@@ -253,7 +253,7 @@ def test_copy_item_with_an_unreadable_dictionary_says_it_copied_less():
         out = svc.copy_item(_config(), f.auth, item_id=ITEM, name="Copy", dry_run=True)
     finally:
         p.stop()
-    assert "dictionary was not readable" in out["narrowed"]
+    assert out["narrowed"].startswith("Dictionary not readable for sc_cat_item")
     assert out["proposed_record"]["roles"] == "snc_internal"
 
 
@@ -521,3 +521,64 @@ def test_tool_dispatch_and_narrowing():
         assert a in ManageCatalogParams.model_fields["action"].annotation.__args__
     assert "script" not in ManageCatalogParams._FIELDS_BY_ACTION["copy_item"]
     assert json.dumps(ManageCatalogParams._FIELDS_BY_ACTION["set_choices"], default=sorted)
+
+
+def _dict_rows(*elements):
+    return [{"element": e, "internal_type": "string", "read_only": "false"} for e in elements]
+
+
+def test_child_rows_copy_every_field_their_table_has_and_point_at_the_copy():
+    # Live: a copied variable lost list_table/show_help and a client script its
+    # target — fields no hand-written list had.
+    data = _full_copy_data()
+    data[("item_option_new", f"cat_item={ITEM}")] = [
+        {
+            "sys_id": VAR_A,
+            "name": "watch",
+            "type": "21",
+            "list_table": "sys_user",
+            "show_help": "true",
+        }
+    ]
+    data[("sys_dictionary", "nameINitem_option_new")] = _dict_rows(
+        "name", "type", "list_table", "show_help", "cat_item"
+    )
+    data[("sys_dictionary", "nameINcatalog_script_client")] = _dict_rows(
+        "name", "type", "script", "cat_variable", "cat_item"
+    )
+    new_var = "newitem_o01".ljust(32, "0")
+    # Read back: the server kept show_help as something else.
+    data[("item_option_new", "sys_idIN")] = [
+        {
+            "sys_id": new_var,
+            "name": "watch",
+            "type": "21",
+            "list_table": "sys_user",
+            "show_help": "false",
+            "cat_item": "x",
+        }
+    ]
+    f, p = _fake(data)
+    try:
+        out = svc.copy_item(_config(), f.auth, item_id=ITEM, name="Copy")
+    finally:
+        p.stop()
+    assert out["success"], out
+    by = {}
+    for _m, table, body, _u in f.writes:
+        by.setdefault(table, []).append(body)
+    var = by["item_option_new"][0]
+    assert var["list_table"] == "sys_user" and var["show_help"] == "true"
+    assert var["cat_item"] == out["new_item_id"]
+    script = by["catalog_script_client"][0]
+    assert script["cat_variable"] == f"IO:{new_var}" and script["cat_item"] == out["new_item_id"]
+    check = out["copy_check"]
+    assert check["differences"] >= 1
+    assert {
+        "table": "item_option_new",
+        "field": "show_help",
+        "sent": "true",
+        "stored": "false",
+    }.items() <= next(d for d in check["listed"] if d["field"] == "show_help").items()
+    # Tables the fake cannot read back are named, never counted as matching.
+    assert check["checked"] is False and check["unread"]

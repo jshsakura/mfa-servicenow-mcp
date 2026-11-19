@@ -1839,27 +1839,68 @@ def _copy_body(row: Dict[str, Any], fields: Tuple[str, ...]) -> Dict[str, Any]:
     return body
 
 
-_NARROWED_NOTE = (
-    "The item table's dictionary was not readable, so only the base fields were copied "
-    f"({', '.join(_ITEM_COPY_FIELDS)}); compare the copy with the source before using it."
-)
+# What the copy sets itself on each child row, and the fields it falls back to
+# when that table's dictionary cannot be read. The fallback lists used to BE the
+# copy: a variable lost list_table and show_help, a client script its target —
+# all fields nobody had added to a list (found by comparing a live copy).
+_CHILD_TABLES: Dict[str, Tuple[frozenset, Tuple[str, ...]]] = {
+    "item_option_new": (frozenset({"cat_item", "variable_set"}), _VAR_COPY_FIELDS),
+    "question_choice": (frozenset({"question"}), _CHOICE_COPY_FIELDS),
+    "catalog_ui_policy": (
+        frozenset({"catalog_item", "variable_set"}),
+        _POLICY_COPY_FIELDS + ("catalog_conditions",),
+    ),
+    "catalog_ui_policy_action": (
+        frozenset({"ui_policy", "catalog_item", "variable_set"}),
+        _POLICY_ACTION_COPY_FIELDS + ("catalog_variable", "variable"),
+    ),
+    "catalog_script_client": (
+        frozenset({"cat_item", "variable_set"}),
+        _SCRIPT_COPY_FIELDS + ("cat_variable",),
+    ),
+}
+# Server-changed values listed back at most this many; the count is always given.
+_MAX_COPY_DIFFERENCES = 20
 
 
-def _item_copy_fields(
-    config: ServerConfig, auth_manager: AuthManager, item_table: str
+def _table_chain(config: ServerConfig, auth_manager: AuthManager, table: str) -> List[str]:
+    """``table`` and the tables it extends (item_option_new -> question), below sys_metadata."""
+    rows = _rows(
+        config,
+        auth_manager,
+        "sys_db_object",
+        f"name={table}",
+        "name,super_class.name,super_class.super_class.name",
+    )
+    chain = [table]
+    if rows:
+        for key in ("super_class.name", "super_class.super_class.name"):
+            parent = str(_rv(rows[0].get(key)) or "")
+            if parent and parent != "sys_metadata" and parent not in chain:
+                chain.append(parent)
+    return chain
+
+
+def _copyable_fields(
+    config: ServerConfig, auth_manager: AuthManager, table: str, skip: frozenset
 ) -> Optional[Tuple[str, ...]]:
-    """Every writable, copyable column of the item's table; None when unreadable."""
-    tables = "sc_cat_item" if item_table == "sc_cat_item" else f"sc_cat_item,{item_table}"
+    """Every writable column of ``table`` (and what it extends); None when unreadable.
+
+    Left out: system columns, ``skip`` (what the copy sets itself, or derives),
+    read-only and virtual ones (computed on read: preview, measured), and image
+    columns (an image is the SOURCE record's attachment).
+    """
     try:
+        chain = _table_chain(config, auth_manager, table)
         rows = _rows(
             config,
             auth_manager,
             "sys_dictionary",
-            f"nameIN{tables}^elementISNOTEMPTY",
+            f"nameIN{','.join(chain)}^elementISNOTEMPTY",
             "element,internal_type,read_only,virtual",
         )
     except Exception as exc:  # noqa: BLE001 - reported as a narrower copy, never hidden
-        logger.debug("Dictionary of %s not readable: %s", tables, exc)
+        logger.debug("Dictionary of %s not readable: %s", table, exc)
         return None
     fields = set()
     for row in rows:
@@ -1867,9 +1908,8 @@ def _item_copy_fields(
         if (
             not element
             or element.startswith("sys_")
-            or element in _ITEM_NOT_COPIED
+            or element in skip
             or str(_rv(row.get("read_only"))) == "true"
-            # Computed on read (preview is one, measured): there is nothing to copy.
             or str(_rv(row.get("virtual"))) == "true"
             or str(_rv(row.get("internal_type"))) in _ITEM_ATTACHMENT_TYPES
         ):
@@ -1884,6 +1924,74 @@ def _present_tables(config: ServerConfig, auth_manager: AuthManager, names: Tupl
     return {str(_rv(r.get("name"))) for r in rows}
 
 
+def _remap_ids(body: Dict[str, Any], idmap: Dict[str, str], unmapped: set) -> Dict[str, Any]:
+    """Point every copied value at the copy: a bare sys_id or an IO:<sys_id> inside text."""
+    for key, value in list(body.items()):
+        if not isinstance(value, str):
+            continue
+        if value in idmap:
+            body[key] = idmap[value]
+        elif "IO:" in value:
+            body[key] = _remap_io(value, idmap, unmapped)
+    return body
+
+
+def _compare_copy(
+    config: ServerConfig, auth_manager: AuthManager, sent: Dict[str, List[Tuple[str, Dict]]]
+) -> Dict[str, Any]:
+    """What the server KEPT of what was sent, read back table by table.
+
+    A derived or ignored column looks written from the POST alone (taxonomy_topic
+    did); only reading the rows again tells kept from dropped. An unread table is
+    named, never counted as matching.
+    """
+    differences: List[Dict[str, str]] = []
+    unread: List[str] = []
+    total = 0
+    for table, pairs in sent.items():
+        fields = sorted({f for _, body in pairs for f in body})
+        stored: Dict[str, Dict[str, Any]] = {}
+        try:
+            for ch in _chunks([new_id for new_id, _ in pairs]):
+                for row in _rows(
+                    config,
+                    auth_manager,
+                    table,
+                    f"sys_idIN{','.join(ch)}",
+                    "sys_id," + ",".join(fields),
+                ):
+                    stored[str(_rv(row.get("sys_id")))] = row
+        except Exception as exc:  # noqa: BLE001 - unread is reported, not passed
+            logger.debug("Copy check of %s not readable: %s", table, exc)
+            unread.append(table)
+            continue
+        for new_id, body in pairs:
+            back = stored.get(new_id)
+            if back is None:
+                unread.append(f"{table}:{new_id}")
+                continue
+            for field, value in body.items():
+                kept = str(_rv(back.get(field)))
+                if kept != str(value):
+                    total += 1
+                    if len(differences) < _MAX_COPY_DIFFERENCES:
+                        differences.append(
+                            {
+                                "table": table,
+                                "sys_id": new_id,
+                                "field": field,
+                                "sent": str(value)[:80],
+                                "stored": kept[:80],
+                            }
+                        )
+    return {
+        "checked": not unread,
+        "differences": total,
+        **({"listed": differences} if differences else {}),
+        **({"unread": unread[:10]} if unread else {}),
+    }
+
+
 def copy_item(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1895,10 +2003,13 @@ def copy_item(
     """Copy an item with its variables, choices, set links, UI policies and client scripts.
 
     Everything is READ first (a read failure writes nothing); then written in
-    order. A write failure stops the copy and reports what exists — no rollback.
+    order, then read back and compared. A write failure stops the copy and
+    reports what exists — no rollback.
     """
     truncated: List[str] = []
     links: Dict[str, List[Dict[str, Any]]] = {}
+    fields_of: Dict[str, Tuple[str, ...]] = {}
+    narrowed: List[str] = []
     try:
         cls_rows = _rows(
             config, auth_manager, "sc_cat_item", f"sys_id={item_id}", "sys_id,sys_class_name"
@@ -1914,17 +2025,19 @@ def copy_item(
         item_table = str(_rv(cls_rows[0].get("sys_class_name")) or "sc_cat_item")
         if not item_table.startswith("sc_cat_item"):
             item_table = "sc_cat_item"
-        item_fields = _item_copy_fields(config, auth_manager, item_table)
-        narrowed = item_fields is None
-        if item_fields is None:
-            item_fields = _ITEM_COPY_FIELDS
-        src = _rows(
-            config,
-            auth_manager,
-            item_table,
-            f"sys_id={item_id}",
-            "sys_id," + ",".join(item_fields),
-        )[0]
+        for table, (skip, fallback) in [(item_table, (_ITEM_NOT_COPIED, _ITEM_COPY_FIELDS))] + list(
+            _CHILD_TABLES.items()
+        ):
+            found = _copyable_fields(config, auth_manager, table, skip)
+            if found is None:
+                narrowed.append(table)
+            fields_of[table] = found or fallback
+
+        def read(table: str, query: str, extra: str = "") -> List[Dict[str, Any]]:
+            fields = ",".join(f for f in (extra, *fields_of[table]) if f)
+            return _rows(config, auth_manager, table, query, "sys_id," + fields, truncated)
+
+        src = read(item_table, f"sys_id={item_id}")[0]
         present = _present_tables(config, auth_manager, tuple(t for t, _, _ in _ITEM_LINKS))
         for table, key, fields in _ITEM_LINKS:
             if table in present:
@@ -1936,25 +2049,11 @@ def copy_item(
                     "sys_id," + ",".join(fields),
                     truncated,
                 )
-        variables = _rows(
-            config,
-            auth_manager,
-            "item_option_new",
-            f"cat_item={item_id}^ORDERBYorder",
-            "sys_id," + ",".join(_VAR_COPY_FIELDS),
-            truncated,
-        )
+        variables = read("item_option_new", f"cat_item={item_id}^ORDERBYorder")
         var_ids = [_rv(v.get("sys_id")) for v in variables]
         choices: List[Dict[str, Any]] = []
         for ch in _chunks(var_ids):
-            choices += _rows(
-                config,
-                auth_manager,
-                "question_choice",
-                f"questionIN{','.join(ch)}",
-                "sys_id,question," + ",".join(_CHOICE_COPY_FIELDS),
-                truncated,
-            )
+            choices += read("question_choice", f"questionIN{','.join(ch)}", "question")
         set_links = _rows(
             config,
             auth_manager,
@@ -1963,34 +2062,12 @@ def copy_item(
             "sys_id,variable_set,order",
             truncated,
         )
-        policies = _rows(
-            config,
-            auth_manager,
-            "catalog_ui_policy",
-            f"catalog_item={item_id}",
-            "sys_id,catalog_conditions," + ",".join(_POLICY_COPY_FIELDS),
-            truncated,
-        )
+        policies = read("catalog_ui_policy", f"catalog_item={item_id}")
         pol_ids = [_rv(p.get("sys_id")) for p in policies]
         actions: List[Dict[str, Any]] = []
         for ch in _chunks(pol_ids):
-            actions += _rows(
-                config,
-                auth_manager,
-                "catalog_ui_policy_action",
-                f"ui_policyIN{','.join(ch)}",
-                "sys_id,ui_policy,catalog_variable,variable,"
-                + ",".join(_POLICY_ACTION_COPY_FIELDS),
-                truncated,
-            )
-        scripts = _rows(
-            config,
-            auth_manager,
-            "catalog_script_client",
-            f"cat_item={item_id}",
-            "sys_id,cat_variable," + ",".join(_SCRIPT_COPY_FIELDS),
-            truncated,
-        )
+            actions += read("catalog_ui_policy_action", f"ui_policyIN{','.join(ch)}", "ui_policy")
+        scripts = read("catalog_script_client", f"cat_item={item_id}")
     except Exception as e:
         return _fail("Could not read the source item; nothing was written", e)
     if truncated:
@@ -2005,7 +2082,7 @@ def copy_item(
 
     skipped: List[Dict[str, str]] = []
     item_body: Dict[str, Any] = {"name": name, "active": "false"}
-    item_body.update(_copy_body(src, item_fields))
+    item_body.update(_copy_body(src, fields_of[item_table]))
     primary_category = item_body.get("category", "")
     # The primary category's row is made by writing the field; only the others are rows.
     links["sc_cat_item_category"] = [
@@ -2022,6 +2099,12 @@ def copy_item(
                 "reason": "source has both flow_designer_flow and workflow; copied the flow only",
             }
         )
+    narrowed_note = (
+        f"Dictionary not readable for {', '.join(narrowed)}: only their base fields were "
+        "copied. Compare the copy with the source before using it."
+        if narrowed
+        else ""
+    )
 
     plan = {
         "item_option_new": len(variables),
@@ -2033,17 +2116,18 @@ def copy_item(
         "catalog_script_client": len(scripts),
     }
     if dry_run:
-        preview = build_create_preview(table="sc_cat_item", proposed=item_body)
+        preview = build_create_preview(table=item_table, proposed=item_body)
         preview["operation"] = "copy_item"
         preview["source_item"] = item_id
         preview["would_copy"] = plan
         preview["skipped"] = skipped
-        preview["item_fields"] = len(item_fields)
+        preview["fields_copied"] = {t: len(f) for t, f in fields_of.items()}
         if narrowed:
-            preview["narrowed"] = _NARROWED_NOTE
+            preview["narrowed"] = narrowed_note
         return preview
 
     created: Dict[str, List[Dict[str, str]]] = {}
+    sent: Dict[str, List[Tuple[str, Dict]]] = {}
     idmap: Dict[str, str] = {}
     unmapped: set = set()
 
@@ -2055,11 +2139,19 @@ def copy_item(
         if not new_id:
             raise _WriteFailed(table, old_id, "POST returned no sys_id")
         created.setdefault(table, []).append({"old": old_id, "new": new_id})
+        sent.setdefault(table, []).append((new_id, dict(body)))
         return new_id
+
+    def child(table: str, row: Dict[str, Any], **own: str) -> Dict[str, Any]:
+        body = _remap_ids(_copy_body(row, fields_of[table]), idmap, unmapped)
+        body.update(own)
+        return body
 
     new_item = ""
     try:
         new_item = post(item_table, item_id, item_body)
+        # A child pointing at the source item points at the copy.
+        idmap[item_id] = new_item
         for table, key, fields in _ITEM_LINKS:
             for row in links.get(table, []):
                 body = _copy_body(row, fields)
@@ -2067,9 +2159,9 @@ def copy_item(
                 post(table, _rv(row.get("sys_id")), body)
         for v in variables:
             old = _rv(v.get("sys_id"))
-            body = _copy_body(v, _VAR_COPY_FIELDS)
-            body["cat_item"] = new_item
-            idmap[old] = post("item_option_new", old, body)
+            idmap[old] = post(
+                "item_option_new", old, child("item_option_new", v, cat_item=new_item)
+            )
         for c in choices:
             q = _rv(c.get("question"))
             if q not in idmap:
@@ -2081,9 +2173,11 @@ def copy_item(
                     }
                 )
                 continue
-            body = _copy_body(c, _CHOICE_COPY_FIELDS)
-            body["question"] = idmap[q]
-            post("question_choice", _rv(c.get("sys_id")), body)
+            post(
+                "question_choice",
+                _rv(c.get("sys_id")),
+                child("question_choice", c, question=idmap[q]),
+            )
         for ln in set_links:
             body = {"sc_cat_item": new_item, "variable_set": _rv(ln.get("variable_set"))}
             if _rv(ln.get("order")) != "":
@@ -2092,12 +2186,9 @@ def copy_item(
         pol_map: Dict[str, str] = {}
         for p in policies:
             old = _rv(p.get("sys_id"))
-            body = _copy_body(p, _POLICY_COPY_FIELDS)
-            cond = _rv(p.get("catalog_conditions"))
-            if cond:
-                body["catalog_conditions"] = _remap_io(cond, idmap, unmapped)
-            body["catalog_item"] = new_item
-            pol_map[old] = post("catalog_ui_policy", old, body)
+            pol_map[old] = post(
+                "catalog_ui_policy", old, child("catalog_ui_policy", p, catalog_item=new_item)
+            )
         for a in actions:
             pol = _rv(a.get("ui_policy"))
             if pol not in pol_map:
@@ -2109,23 +2200,17 @@ def copy_item(
                     }
                 )
                 continue
-            body = _copy_body(a, _POLICY_ACTION_COPY_FIELDS)
-            cv = _rv(a.get("catalog_variable"))
-            if cv:
-                body["catalog_variable"] = _remap_io(cv, idmap, unmapped)
-            var = _rv(a.get("variable"))
-            if var:
-                body["variable"] = idmap.get(var, var)
-            body["ui_policy"] = pol_map[pol]
-            body["catalog_item"] = new_item
-            post("catalog_ui_policy_action", _rv(a.get("sys_id")), body)
-        for s in scripts:
-            body = _copy_body(s, _SCRIPT_COPY_FIELDS)
-            cvar = _rv(s.get("cat_variable"))
-            if cvar:
-                body["cat_variable"] = _remap_io(cvar, idmap, unmapped)
-            body["cat_item"] = new_item
-            post("catalog_script_client", _rv(s.get("sys_id")), body)
+            post(
+                "catalog_ui_policy_action",
+                _rv(a.get("sys_id")),
+                child("catalog_ui_policy_action", a, ui_policy=pol_map[pol], catalog_item=new_item),
+            )
+        for sc in scripts:
+            post(
+                "catalog_script_client",
+                _rv(sc.get("sys_id")),
+                child("catalog_script_client", sc, cat_item=new_item),
+            )
     except _WriteFailed as f:
         return {
             "success": False,
@@ -2142,7 +2227,7 @@ def copy_item(
 
     notes = ["Linked variable sets are shared with the source item, not copied."]
     if narrowed:
-        notes.append(_NARROWED_NOTE)
+        notes.append(narrowed_note)
     if links.get("m2m_connected_content"):
         notes.append(
             "Topics were copied as m2m_connected_content rows: that table is data, not "
@@ -2153,6 +2238,14 @@ def copy_item(
             "IO: references to variables outside this item (kept as-is, e.g. set variables): "
             + ", ".join(sorted(unmapped))
         )
+    check = _compare_copy(config, auth_manager, sent)
+    if check["differences"]:
+        notes.append(
+            f"{check['differences']} sent value(s) were not stored as sent (derived or "
+            "normalized by the server) — see copy_check.listed."
+        )
+    if not check["checked"]:
+        notes.append("Part of the copy could not be read back: copy_check.unread is unchecked.")
     proof = _reread(
         config, auth_manager, item_table, new_item, "sys_id,name,active,roles,taxonomy_topic"
     )
@@ -2163,6 +2256,7 @@ def copy_item(
         "verified": proof is not None,
         "record": proof,
         "created": created,
+        "copy_check": check,
         "skipped": skipped,
         "notes": notes,
     }
