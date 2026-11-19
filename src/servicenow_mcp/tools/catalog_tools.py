@@ -107,13 +107,13 @@ class ManageCatalogParams(BaseModel):
     Required per action:
       create_category:  title
       update_category:  category_id, at least one field
-      update_item:      item_id, at least one field (item_options: portal flags, request_method)
+      update_item:      item_id, at least one field (item_options: portal flags, request_method, roles)
       move_items:       item_ids, target_category_id
       create_variable:  catalog_item_id, variable_name, variable_type, label
       update_variable:  variable_id, at least one field
       create_item:      name (inactive unless active=true; flow_designer_flow XOR workflow)
       create_record_producer: name, table_name (target; checked), script optional (inactive)
-      copy_item:        item_id (source), name (new, inactive)
+      copy_item:        item_id (source), name (new, inactive); copies topics, user criteria
       create_variable_set: title, internal_name
       update_variable_set: variable_set, at least one field
       attach_variable_set / detach_variable_set: catalog_item_id, variable_set
@@ -240,7 +240,7 @@ class ManageCatalogParams(BaseModel):
 
     item_options: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="update_item: sc_cat_item flags by column, e.g. {no_quantity_v2: true}",
+        description="update_item: sc_cat_item flags/roles by column, e.g. {no_quantity_v2: true}",
     )
     user_criteria: Optional[str] = Field(default=None, description="user_criteria sys_id")
     access: Optional[Literal["available", "not_available"]] = Field(

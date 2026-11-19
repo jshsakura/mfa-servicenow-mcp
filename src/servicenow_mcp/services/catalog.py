@@ -189,6 +189,8 @@ _ITEM_BOOL_OPTIONS = frozenset(
 # Choice columns, checked against this instance's sys_choice rather than a list
 # written here. request_method's "Order" is the NULL_OVERRIDE choice: stored empty.
 _ITEM_CHOICE_OPTIONS = ("request_method", "availability", "access_type")
+# Free text: roles is a comma list of role names (user_roles), checked by reading back.
+_ITEM_TEXT_OPTIONS = ("roles",)
 _TRUE = ("true", "1", "yes")
 
 
@@ -199,7 +201,18 @@ def _item_option_body(
     body: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
     """Validate ``options`` into ``body``; a refusal dict when any key or value is wrong."""
-    unknown = sorted(k for k in options if k not in _ITEM_BOOL_OPTIONS | set(_ITEM_CHOICE_OPTIONS))
+    if "taxonomy_topic" in options:
+        return {
+            "success": False,
+            "error": "DERIVED_ITEM_FIELD",
+            "message": (
+                "taxonomy_topic is derived, not stored: written directly it comes back empty "
+                "(measured). It is set by a m2m_connected_content row (catalog_item, topic, "
+                "content_type) — copy_item copies those. Nothing was written."
+            ),
+        }
+    known = _ITEM_BOOL_OPTIONS | set(_ITEM_CHOICE_OPTIONS) | set(_ITEM_TEXT_OPTIONS)
+    unknown = sorted(k for k in options if k not in known)
     if unknown:
         return {
             "success": False,
@@ -207,10 +220,18 @@ def _item_option_body(
             "message": (
                 f"Not an item option: {', '.join(unknown)}. Booleans: "
                 f"{', '.join(sorted(_ITEM_BOOL_OPTIONS))}. Choices: "
-                f"{', '.join(_ITEM_CHOICE_OPTIONS)}. Nothing was written."
+                f"{', '.join(_ITEM_CHOICE_OPTIONS)}. Text: {', '.join(_ITEM_TEXT_OPTIONS)}. "
+                "Nothing was written."
             ),
         }
     for key, value in options.items():
+        if key in _ITEM_TEXT_OPTIONS:
+            body[key] = (
+                ",".join(str(v).strip() for v in value)
+                if isinstance(value, list)
+                else str(value).strip()
+            )
+            continue
         if key in _ITEM_BOOL_OPTIONS:
             if not isinstance(value, bool) and str(value).strip().lower() not in (
                 "true",
@@ -1421,6 +1442,9 @@ def list_item_variables(
 
 _IO_REF = re.compile(r"IO:([0-9a-fA-F]{32})")
 
+# The fields copied when the item table's dictionary cannot be read. A copy used
+# to take ONLY these: roles and the topic were left behind, so the copy showed to
+# a different audience, under no topic, while reporting success.
 _ITEM_COPY_FIELDS = (
     "short_description",
     "description",
@@ -1429,6 +1453,37 @@ _ITEM_COPY_FIELDS = (
     "flow_designer_flow",
     "workflow",
     "delivery_plan",
+    "roles",
+)
+# Never copied from the source row even when the dictionary says writable:
+# - taxonomy_topic is DERIVED. Measured on PDI: written on insert it came back
+#   empty; a m2m_connected_content row set it. The topic links are copied instead.
+# - the rest are the catalog builder's own state or point at the source itself.
+_ITEM_NOT_COPIED = frozenset(
+    {
+        "name",
+        "active",
+        "taxonomy_topic",
+        "published_ref",
+        "sc_ic_item_staging",
+        "sc_ic_version",
+        "version",
+        "state",
+        "checked_out",
+    }
+)
+# An image field holds an attachment of the SOURCE record; the copy would point at it.
+_ITEM_ATTACHMENT_TYPES = frozenset({"user_image", "image", "video"})
+# What hangs off an item by relation rather than by a field. category / sc_catalogs
+# are not here: writing the field makes its m2m row (measured), so the copied
+# field brings them — only categories beyond the primary one are copied as rows.
+# m2m_connected_content (topics) is DATA: measured, it is not captured in an
+# update set, so a copy moved by update set arrives without its topics.
+_ITEM_LINKS = (
+    ("m2m_connected_content", "catalog_item", ("topic", "content_type", "order")),
+    ("sc_cat_item_user_criteria_mtom", "sc_cat_item", ("user_criteria",)),
+    ("sc_cat_item_user_criteria_no_mtom", "sc_cat_item", ("user_criteria",)),
+    ("sc_cat_item_category", "sc_cat_item", ("sc_category",)),
 )
 _VAR_COPY_FIELDS = (
     "name",
@@ -1784,6 +1839,51 @@ def _copy_body(row: Dict[str, Any], fields: Tuple[str, ...]) -> Dict[str, Any]:
     return body
 
 
+_NARROWED_NOTE = (
+    "The item table's dictionary was not readable, so only the base fields were copied "
+    f"({', '.join(_ITEM_COPY_FIELDS)}); compare the copy with the source before using it."
+)
+
+
+def _item_copy_fields(
+    config: ServerConfig, auth_manager: AuthManager, item_table: str
+) -> Optional[Tuple[str, ...]]:
+    """Every writable, copyable column of the item's table; None when unreadable."""
+    tables = "sc_cat_item" if item_table == "sc_cat_item" else f"sc_cat_item,{item_table}"
+    try:
+        rows = _rows(
+            config,
+            auth_manager,
+            "sys_dictionary",
+            f"nameIN{tables}^elementISNOTEMPTY",
+            "element,internal_type,read_only,virtual",
+        )
+    except Exception as exc:  # noqa: BLE001 - reported as a narrower copy, never hidden
+        logger.debug("Dictionary of %s not readable: %s", tables, exc)
+        return None
+    fields = set()
+    for row in rows:
+        element = str(_rv(row.get("element")))
+        if (
+            not element
+            or element.startswith("sys_")
+            or element in _ITEM_NOT_COPIED
+            or str(_rv(row.get("read_only"))) == "true"
+            # Computed on read (preview is one, measured): there is nothing to copy.
+            or str(_rv(row.get("virtual"))) == "true"
+            or str(_rv(row.get("internal_type"))) in _ITEM_ATTACHMENT_TYPES
+        ):
+            continue
+        fields.add(element)
+    return tuple(sorted(fields)) or None
+
+
+def _present_tables(config: ServerConfig, auth_manager: AuthManager, names: Tuple[str, ...]) -> set:
+    """Which of ``names`` exist here. Raises when that cannot be read."""
+    rows = _rows(config, auth_manager, "sys_db_object", f"nameIN{','.join(names)}", "name")
+    return {str(_rv(r.get("name"))) for r in rows}
+
+
 def copy_item(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1798,21 +1898,44 @@ def copy_item(
     order. A write failure stops the copy and reports what exists — no rollback.
     """
     truncated: List[str] = []
+    links: Dict[str, List[Dict[str, Any]]] = {}
     try:
-        src_rows = _rows(
-            config,
-            auth_manager,
-            "sc_cat_item",
-            f"sys_id={item_id}",
-            "sys_id," + ",".join(_ITEM_COPY_FIELDS),
+        cls_rows = _rows(
+            config, auth_manager, "sc_cat_item", f"sys_id={item_id}", "sys_id,sys_class_name"
         )
-        if not src_rows:
+        if not cls_rows:
             return {
                 "success": False,
                 "error": "SOURCE_NOT_FOUND",
                 "message": f"{item_id} not found",
             }
-        src = src_rows[0]
+        # A record producer copied into sc_cat_item would lose every producer
+        # column without an error; the copy goes into the source's own class.
+        item_table = str(_rv(cls_rows[0].get("sys_class_name")) or "sc_cat_item")
+        if not item_table.startswith("sc_cat_item"):
+            item_table = "sc_cat_item"
+        item_fields = _item_copy_fields(config, auth_manager, item_table)
+        narrowed = item_fields is None
+        if item_fields is None:
+            item_fields = _ITEM_COPY_FIELDS
+        src = _rows(
+            config,
+            auth_manager,
+            item_table,
+            f"sys_id={item_id}",
+            "sys_id," + ",".join(item_fields),
+        )[0]
+        present = _present_tables(config, auth_manager, tuple(t for t, _, _ in _ITEM_LINKS))
+        for table, key, fields in _ITEM_LINKS:
+            if table in present:
+                links[table] = _rows(
+                    config,
+                    auth_manager,
+                    table,
+                    f"{key}={item_id}",
+                    "sys_id," + ",".join(fields),
+                    truncated,
+                )
         variables = _rows(
             config,
             auth_manager,
@@ -1832,7 +1955,7 @@ def copy_item(
                 "sys_id,question," + ",".join(_CHOICE_COPY_FIELDS),
                 truncated,
             )
-        links = _rows(
+        set_links = _rows(
             config,
             auth_manager,
             "io_set_item",
@@ -1882,7 +2005,14 @@ def copy_item(
 
     skipped: List[Dict[str, str]] = []
     item_body: Dict[str, Any] = {"name": name, "active": "false"}
-    item_body.update(_copy_body(src, _ITEM_COPY_FIELDS))
+    item_body.update(_copy_body(src, item_fields))
+    primary_category = item_body.get("category", "")
+    # The primary category's row is made by writing the field; only the others are rows.
+    links["sc_cat_item_category"] = [
+        r
+        for r in links.get("sc_cat_item_category", [])
+        if _rv(r.get("sc_category")) != primary_category
+    ]
     if item_body.get("flow_designer_flow") and item_body.get("workflow"):
         item_body.pop("workflow")
         skipped.append(
@@ -1896,7 +2026,8 @@ def copy_item(
     plan = {
         "item_option_new": len(variables),
         "question_choice": len(choices),
-        "io_set_item": len(links),
+        "io_set_item": len(set_links),
+        **{t: len(rows) for t, rows in links.items() if rows},
         "catalog_ui_policy": len(policies),
         "catalog_ui_policy_action": len(actions),
         "catalog_script_client": len(scripts),
@@ -1907,6 +2038,9 @@ def copy_item(
         preview["source_item"] = item_id
         preview["would_copy"] = plan
         preview["skipped"] = skipped
+        preview["item_fields"] = len(item_fields)
+        if narrowed:
+            preview["narrowed"] = _NARROWED_NOTE
         return preview
 
     created: Dict[str, List[Dict[str, str]]] = {}
@@ -1925,7 +2059,12 @@ def copy_item(
 
     new_item = ""
     try:
-        new_item = post("sc_cat_item", item_id, item_body)
+        new_item = post(item_table, item_id, item_body)
+        for table, key, fields in _ITEM_LINKS:
+            for row in links.get(table, []):
+                body = _copy_body(row, fields)
+                body[key] = new_item
+                post(table, _rv(row.get("sys_id")), body)
         for v in variables:
             old = _rv(v.get("sys_id"))
             body = _copy_body(v, _VAR_COPY_FIELDS)
@@ -1945,7 +2084,7 @@ def copy_item(
             body = _copy_body(c, _CHOICE_COPY_FIELDS)
             body["question"] = idmap[q]
             post("question_choice", _rv(c.get("sys_id")), body)
-        for ln in links:
+        for ln in set_links:
             body = {"sc_cat_item": new_item, "variable_set": _rv(ln.get("variable_set"))}
             if _rv(ln.get("order")) != "":
                 body["order"] = _rv(ln.get("order"))
@@ -2002,12 +2141,21 @@ def copy_item(
         }
 
     notes = ["Linked variable sets are shared with the source item, not copied."]
+    if narrowed:
+        notes.append(_NARROWED_NOTE)
+    if links.get("m2m_connected_content"):
+        notes.append(
+            "Topics were copied as m2m_connected_content rows: that table is data, not "
+            "captured in an update set, so a copy moved by update set arrives with no topic."
+        )
     if unmapped:
         notes.append(
             "IO: references to variables outside this item (kept as-is, e.g. set variables): "
             + ", ".join(sorted(unmapped))
         )
-    proof = _reread(config, auth_manager, "sc_cat_item", new_item, "sys_id,name,active")
+    proof = _reread(
+        config, auth_manager, item_table, new_item, "sys_id,name,active,roles,taxonomy_topic"
+    )
     return {
         "success": True,
         "message": f"Copied item {item_id} to {new_item} (active=false)",

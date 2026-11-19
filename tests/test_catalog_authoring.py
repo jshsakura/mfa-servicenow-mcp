@@ -160,6 +160,121 @@ def test_copy_item_remaps_io_ids_and_links_sets():
     assert not [w for w in f.writes if w[1] == "item_option_new_set"]
 
 
+TOPIC = "aaaa1111bbbb2222cccc3333dddd0007"
+UC = "aaaa1111bbbb2222cccc3333dddd0008"
+CAT = "aaaa1111bbbb2222cccc3333dddd0009"
+CAT2 = "aaaa1111bbbb2222cccc3333dddd000a"
+
+
+def _full_copy_data():
+    data = _copy_data()
+    data[("sc_cat_item", f"sys_id={ITEM}")] = [
+        {
+            "sys_id": ITEM,
+            "sys_class_name": "sc_cat_item",
+            "short_description": "sd",
+            "roles": "snc_internal",
+            "category": CAT,
+            "taxonomy_topic": TOPIC,
+            "picture": "abc.iix",
+            "no_search": "true",
+            "preview": "JavaScript: popupOpenStandard()",
+        }
+    ]
+    data[("sys_dictionary", "nameINsc_cat_item")] = [
+        {"element": e, "internal_type": t, "read_only": ro, "virtual": str(e == "preview").lower()}
+        for e, t, ro in (
+            ("short_description", "string", "false"),
+            ("roles", "user_roles", "false"),
+            ("category", "reference", "false"),
+            ("taxonomy_topic", "reference", "false"),
+            ("picture", "user_image", "false"),
+            ("no_search", "boolean", "false"),
+            ("cc_render_type", "glide_list", "true"),
+            ("preview", "catalog_preview", "false"),
+            ("name", "string", "false"),
+            ("sys_scope", "reference", "false"),
+        )
+    ]
+    data[("sys_db_object", "nameIN")] = [
+        {"name": t}
+        for t in (
+            "m2m_connected_content",
+            "sc_cat_item_user_criteria_mtom",
+            "sc_cat_item_category",
+        )
+    ]
+    data[("m2m_connected_content", f"catalog_item={ITEM}")] = [
+        {"sys_id": "t1", "topic": TOPIC, "content_type": "ct", "order": "100"}
+    ]
+    data[("sc_cat_item_user_criteria_mtom", f"sc_cat_item={ITEM}")] = [
+        {"sys_id": "u1", "user_criteria": UC}
+    ]
+    data[("sc_cat_item_category", f"sc_cat_item={ITEM}")] = [
+        {"sys_id": "k1", "sc_category": CAT},
+        {"sys_id": "k2", "sc_category": CAT2},
+    ]
+    return data
+
+
+def test_copy_item_takes_every_writable_field_and_the_topic_links():
+    # Live: a copy came out without roles and topic, so it showed to another audience.
+    f, p = _fake(_full_copy_data())
+    try:
+        out = svc.copy_item(_config(), f.auth, item_id=ITEM, name="Copy")
+    finally:
+        p.stop()
+    assert out["success"], out
+    by = {}
+    for _m, table, body, _u in f.writes:
+        by.setdefault(table, []).append(body)
+    item = by["sc_cat_item"][0]
+    assert item["roles"] == "snc_internal" and item["no_search"] == "true"
+    assert item["name"] == "Copy" and item["active"] == "false"
+    # Derived (measured: written directly it comes back empty), an attachment of the
+    # source, and a read-only column are not copied.
+    assert not {"taxonomy_topic", "picture", "cc_render_type", "sys_scope", "preview"} & set(item)
+    new_item = out["new_item_id"]
+    assert by["m2m_connected_content"] == [
+        {"topic": TOPIC, "content_type": "ct", "order": "100", "catalog_item": new_item}
+    ]
+    assert by["sc_cat_item_user_criteria_mtom"] == [{"user_criteria": UC, "sc_cat_item": new_item}]
+    # The primary category's row comes from writing the field; only the other is a row.
+    assert by["sc_cat_item_category"] == [{"sc_category": CAT2, "sc_cat_item": new_item}]
+    assert "sc_cat_item_user_criteria_no_mtom" not in by  # table absent here
+    assert any("update set" in n for n in out["notes"])
+
+
+def test_copy_item_with_an_unreadable_dictionary_says_it_copied_less():
+    data = _full_copy_data()
+    del data[("sys_dictionary", "nameINsc_cat_item")]
+    f, p = _fake(data)
+    try:
+        out = svc.copy_item(_config(), f.auth, item_id=ITEM, name="Copy", dry_run=True)
+    finally:
+        p.stop()
+    assert "dictionary was not readable" in out["narrowed"]
+    assert out["proposed_record"]["roles"] == "snc_internal"
+
+
+def test_update_item_names_why_taxonomy_topic_cannot_be_written():
+    f, p = _fake({})
+    try:
+        out = svc.update_item(
+            _config(), f.auth, item_id=ITEM, item_options={"taxonomy_topic": TOPIC}
+        )
+    finally:
+        p.stop()
+    assert out["error"] == "DERIVED_ITEM_FIELD" and "m2m_connected_content" in out["message"]
+    assert f.writes == []
+
+
+def test_update_item_takes_roles():
+    body = {}
+    assert svc._item_option_body(_config(), None, {"roles": ["admin", "itil"]}, body) is None
+    assert body == {"roles": "admin,itil"}
+
+
 def test_copy_item_dry_run_makes_no_write():
     f, p = _fake(_copy_data())
     try:
