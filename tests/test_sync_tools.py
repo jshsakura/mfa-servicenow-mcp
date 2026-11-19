@@ -4292,9 +4292,121 @@ class TestContentFirstDriftGate:
 
         assert result["error"] == "CONFLICT_NO_ANCHOR"
         mock_update.assert_not_called()
-        # The message must name the cheap fix as a call, not just refuse.
-        assert "download_portal_sources(scope=" in result["message"]
-        assert "force=true" in result["message"]
+        # A re-download cannot anchor a copy that differs (reconcile keeps it
+        # unanchored), so the answer is a decision, not a detour: the server's
+        # current body is written next to the copy and each choice is a call.
+        mirror = widget_dir / "script.remote.js"
+        assert mirror.read_text(encoding="utf-8") == "var x = 999; // bob's current work"
+        assert (widget_dir / "script.js").read_text(encoding="utf-8") == "var x = 1; // ANCIENT"
+        decision = result["decision_required"]
+        assert decision["sidecars"] == ["script.remote.js"]
+        assert "force=true" in decision["options"]["keep_mine"]
+        assert (
+            "confirm_overwrite_updated_on='2026-07-30 12:00:00'" in decision["options"]["keep_mine"]
+        )
+        assert "on_local_edits='stash'" in decision["options"]["take_server"]
+        assert "download_portal_sources" not in result["message"]
+
+    @patch("servicenow_mcp.tools.sync_tools.sn_query")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_take_server_option_ends_the_no_anchor_loop(
+        self, mock_fetch, mock_update, mock_sn_query, mock_config, mock_auth, download_root
+    ):
+        """The take_server call the decision names must actually anchor the copy;
+        the detour it replaced (re-download) left it unanchored, so the next push
+        refused again — forever."""
+        widget_dir = download_root / "global" / "sp_widget" / "my-widget"
+        self._drop_anchor(widget_dir)
+        (widget_dir / "script.js").write_text("var x = 1; // ANCIENT", encoding="utf-8")
+        live = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 999; // current",
+            "template": "<div>hello</div>",
+            "client_script": "function go(){}",
+            "css": ".a{}",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "bob",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+            "sys_mod_count": "42",
+        }
+        mock_fetch.return_value = live
+        path = str(widget_dir / "script.js")
+
+        first = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=path)
+        )
+        assert first["error"] == "CONFLICT_NO_ANCHOR"
+
+        diff_local_component(
+            mock_config,
+            mock_auth,
+            DiffLocalComponentParams(path=path, refresh=True, on_local_edits="stash"),
+        )
+        assert (widget_dir / "script.js").read_text(encoding="utf-8") == live["script"]
+        assert not (widget_dir / "script.remote.js").exists()
+        assert _read_sync_meta(widget_dir.parent)["my-widget"]["field_shas"]["script"]
+
+        again = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=path)
+        )
+        assert again.get("error") != "CONFLICT_NO_ANCHOR", again
+        mock_update.assert_not_called()
+
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    @patch("servicenow_mcp.tools.sync_tools.update_portal_component")
+    @patch("servicenow_mcp.tools.sync_tools._fetch_portal_component_record")
+    def test_record_missing_from_local_map_is_looked_up_by_name(
+        self, mock_fetch, mock_update, mock_by_name, mock_config, mock_auth, download_root
+    ):
+        """No local file names the sys_id: ask the server by name instead of
+        stopping at 'not found in _map.json'. Unanchored, so it still asks."""
+        table_dir = download_root / "global" / "sp_widget"
+        widget_dir = table_dir / "my-widget"
+        (table_dir / "_map.json").write_text("{}", encoding="utf-8")
+        self._drop_anchor(widget_dir)
+        (widget_dir / "script.js").write_text("var x = 2; // mine", encoding="utf-8")
+        mock_by_name.return_value = [
+            {"sys_id": "wid-1", "name": "my-widget", "sys_scope.scope": "global"}
+        ]
+        mock_fetch.return_value = {
+            "sys_id": "wid-1",
+            "name": "my-widget",
+            "script": "var x = 1;",
+            "sys_updated_on": "2026-07-30 12:00:00",
+            "sys_updated_by": "admin",
+            "sys_created_by": "admin",
+            "sys_scope": "global",
+            "sys_mod_count": "3",
+        }
+
+        result = update_remote_from_local(
+            mock_config, mock_auth, PushLocalComponentParams(path=str(widget_dir / "script.js"))
+        )
+
+        assert result["error"] == "CONFLICT_NO_ANCHOR"
+        assert result["resolved_by_name"] is True
+        assert result["component"]["sys_id"] == "wid-1"
+        mock_update.assert_not_called()
+
+    @patch("servicenow_mcp.tools.sync_tools._resolve_target_by_name")
+    def test_by_name_lookup_with_no_match_says_so(
+        self, mock_by_name, mock_config, mock_auth, download_root
+    ):
+        table_dir = download_root / "global" / "sp_widget"
+        (table_dir / "_map.json").write_text("{}", encoding="utf-8")
+        mock_by_name.return_value = []
+
+        result = update_remote_from_local(
+            mock_config,
+            mock_auth,
+            PushLocalComponentParams(path=str(table_dir / "my-widget" / "script.js")),
+        )
+
+        assert result["error"] == "TARGET_NOT_FOUND"
+        assert result["message"].startswith("Not in the local map")
 
     @staticmethod
     def _rename_to_unsafe_name(download_root):

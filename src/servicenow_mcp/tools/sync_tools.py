@@ -19,10 +19,12 @@ from pydantic import BaseModel, Field
 
 from ..auth.auth_manager import AuthManager
 from ..utils import json_fast
+from ..utils.atomic_io import atomic_write_text
 from ..utils.config import ServerConfig
 from ..utils.http_result import json_result
 from ..utils.instances import INSTANCE_CONFIG_ENV, load_instance_config_env, safe_instance_url
 from ..utils.registry import register_tool
+from ..utils.source_layout import normalize_source_eol
 from ..utils.sync_anchor import (
     BLANK_REMOTE_KEPT,
     CONFLICT_MIRRORED,
@@ -1013,6 +1015,18 @@ def _is_download_root(path: Path) -> bool:
     return False
 
 
+class _UnmappedComponent(ValueError):
+    """A record folder on disk whose sys_id no local file names.
+
+    Carries everything else that was resolved, so the push can look the record up
+    on the server by name instead of stopping at "not found in _map.json".
+    """
+
+    def __init__(self, message: str, partial: "_ResolvedComponent") -> None:
+        super().__init__(message)
+        self.partial = partial
+
+
 def _resolve_local_path(path: Path) -> _ResolvedComponent:
     """Resolve a local file or directory to its ServiceNow component identity.
 
@@ -1072,11 +1086,6 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             or map_data.get(folder_name)
             or _reverse_lookup_map(map_data, folder_name)
         )
-        if not sys_id:
-            raise ValueError(
-                f"Component '{folder_name}' not found in {table_dir / '_map.json'}. "
-                f"Re-download sources first."
-            )
         fields: Dict[str, Path] = {}
         for filename, field_name in file_field_map.items():
             fpath = path / filename
@@ -1086,6 +1095,21 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             raise ValueError(f"No editable source files found in {path}")
         scope_root = table_dir.parent
         remote_name, qualifier = _resolve_remote_identity(path, table_name, folder_name)
+        if not sys_id:
+            raise _UnmappedComponent(
+                f"Component '{folder_name}' not found in {table_dir / '_map.json'}. "
+                f"Re-download sources first.",
+                _ResolvedComponent(
+                    table=table_name,
+                    sys_id="",
+                    name=folder_name,
+                    fields=fields,
+                    scope_root=scope_root,
+                    instance_url=_resolve_origin_url(scope_root),
+                    remote_name=remote_name,
+                    qualifier=qualifier,
+                ),
+            )
         return _ResolvedComponent(
             table=table_name,
             sys_id=sys_id,
@@ -1136,10 +1160,22 @@ def _resolve_local_path(path: Path) -> _ResolvedComponent:
             or map_data.get(folder_name)
             or _reverse_lookup_map(map_data, folder_name)
         )
-        if not sys_id:
-            raise ValueError(f"Component '{folder_name}' not found in {table_dir / '_map.json'}")
         scope_root = table_dir.parent
         remote_name, qualifier = _resolve_remote_identity(parent, table_name, folder_name)
+        if not sys_id:
+            raise _UnmappedComponent(
+                f"Component '{folder_name}' not found in {table_dir / '_map.json'}",
+                _ResolvedComponent(
+                    table=table_name,
+                    sys_id="",
+                    name=folder_name,
+                    fields={field_name: path},
+                    scope_root=scope_root,
+                    instance_url=_resolve_origin_url(scope_root),
+                    remote_name=remote_name,
+                    qualifier=qualifier,
+                ),
+            )
         return _ResolvedComponent(
             table=table_name,
             sys_id=sys_id,
@@ -3069,8 +3105,24 @@ def update_remote_from_local(
 ) -> Dict[str, Any]:
     path = Path(params.path).expanduser().resolve()
 
+    resolved_by_name = False
     try:
         resolved = _resolve_local_path(path)
+    except _UnmappedComponent as e:
+        # No local file names this record's sys_id. Ask the server for it by
+        # name rather than stop: 0 or several matches still refuse, and a record
+        # found this way has no anchor, so the gate below asks before it writes.
+        found = _resolve_cross_instance_target(
+            config, auth_manager, e.partial, config.instance_url.rstrip("/")
+        )
+        if isinstance(found, dict):
+            found["message"] = (
+                "Not in the local map, so it was looked up by name on the server: "
+                + str(found.get("message") or "")
+            )
+            return found
+        resolved = found
+        resolved_by_name = True
     except ValueError as e:
         return {"error": str(e)}
 
@@ -3484,19 +3536,51 @@ def update_remote_from_local(
                     f"is inconclusive: {why}. That is NOT confirmation that only you have been in "
                     f"this record. Review the diff before forcing."
                 )
+            no_anchor_decision: Dict[str, Any] = {}
             if drift["unanchored"]:
                 # Nothing was recorded about where this copy came from, so "is it
-                # ahead of or behind the server" is not a question we can answer.
-                # Re-downloading is the cheap fix: it anchors the record, and its
-                # reconcile keeps your edits (a genuine divergence lands as a
-                # <field>.remote sidecar to merge) — so this is not "lose my work".
+                # ahead of or behind the server" cannot be answered — and a
+                # re-download cannot answer it either: reconcile keeps an
+                # unanchored file that differs (LEGACY_KEPT) and records no anchor,
+                # so sending the caller there was a loop. The read in hand is the
+                # untruncated live record, so write it next to the copy as the
+                # .remote mirror and hand back the decision as calls.
+                sidecars: List[str] = []
+                for field_name in update_data:
+                    fpath = resolved.fields.get(field_name)
+                    if fpath is None:
+                        continue
+                    mirror = mirror_path_for(fpath)
+                    atomic_write_text(
+                        mirror, normalize_source_eol(str(remote_record.get(field_name) or ""))
+                    )
+                    sidecars.append(mirror.name)
+                where = f"path='{path}'"
+                no_anchor_decision = {
+                    "sidecars": sidecars,
+                    "options": {
+                        "keep_mine": (
+                            f"update_remote_from_local({where}, force=true, "
+                            f"confirm_overwrite_updated_on='{remote_updated_on}')"
+                        ),
+                        "take_server": (
+                            f"diff_local_component({where}, refresh=true, on_local_edits='stash')"
+                            " — your copy is set aside under _stash/, not deleted"
+                        ),
+                        "merge": (
+                            "edit the main file using the .remote copy, then keep_mine; the "
+                            ".remote clears itself after the push"
+                        ),
+                    },
+                }
                 head = (
-                    f"No sync anchor recorded for this local copy (no _sync_meta entry), so "
-                    f"there is NO evidence of which server version it was taken from — it "
-                    f"could be older than what is live (server: {remote_updated_on}"
-                    f"{f' by {remote_updated_by}' if remote_updated_by else ''}). Anchor it "
-                    f"first with {_redownload_call(resolved)}: that preserves your local edits "
-                    f"(a real divergence is written next to it as a '.remote' sidecar to merge)."
+                    f"No sync anchor recorded for this local copy, so there is NO evidence of "
+                    f"which server version it was taken from — it could be older than what is "
+                    f"live (server: {remote_updated_on}"
+                    f"{f' by {remote_updated_by}' if remote_updated_by else ''}). The server's "
+                    f"current body is now next to it as {', '.join(sidecars) or '.remote'}. "
+                    f"Ask the user which one to keep: keep_mine, take_server, or merge "
+                    f"(see decision_required)."
                 )
             else:
                 head = (
@@ -3513,6 +3597,8 @@ def update_remote_from_local(
             return {
                 "error": error_code,
                 "message": message,
+                **({"decision_required": no_anchor_decision} if no_anchor_decision else {}),
+                **({"resolved_by_name": True} if resolved_by_name else {}),
                 # The non-unanchored head embeds risk['message'] verbatim; dedup
                 # is containment-checked so the unanchored branch keeps its prose.
                 "risk": _risk_without_duplicate_message(risk, containing=message),

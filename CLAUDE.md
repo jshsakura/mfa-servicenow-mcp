@@ -128,9 +128,14 @@ Picking the wrong tool wastes round-trips and tokens. Default decision tree:
    `CONFLICT_NO_ANCHOR`. It used to pass: with no entry, the counter, the sha and
    the timestamp are all empty, drift read as "nothing moved", and an arbitrarily
    old local body overwrote another developer's current work at `risk_level:
-   none` — absence of evidence scored as evidence of absence. The fix is to
-   re-download (it anchors the record and keeps your edits; a real divergence
-   lands as a `.remote` sidecar), not to reach for `force`.
+   none` — absence of evidence scored as evidence of absence. A re-download does
+   NOT fix it when the copy differs: reconcile keeps an unanchored differing file
+   (`LEGACY_KEPT`) and records no anchor, so "re-download, then push" was a loop.
+   The gate instead writes the live body as the `.remote` mirror and returns
+   `decision_required` — keep mine (force + confirm stamp), take the server's
+   (`refresh` + `on_local_edits='stash'`, which anchors it), or merge. It is the
+   user's question; never pick for them. A folder whose sys_id no local file
+   names is looked up by name on the server (0 or several matches refuse).
 
    **A server fact is read from the server, never from `_sync_meta`.** The anchor
    records what YOU last received; it is not a cache of the record's state. The
