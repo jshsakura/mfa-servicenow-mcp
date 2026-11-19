@@ -58,6 +58,7 @@ user's screen and the click was explicit; pretending it did not happen is the
 one option that helps nobody.
 """
 
+import json
 import logging
 import re
 import time
@@ -81,7 +82,8 @@ from .capture import (
 )
 from .evaluate import run_in_page
 from .impersonate import END_IMPERSONATION_ACTION, IMPERSONATE_ACTION, become, restore
-from .page_state import read_page_state
+from .page_state import read_page_state, read_page_state_raw
+from .probe import busy_script
 from .server_scripts import ACTIVATING_ACTIONS, ServerScriptBlocked
 from .server_scripts import rejection as script_rejection
 from .server_scripts import surface_for_url
@@ -121,7 +123,46 @@ ACTIONS_NEEDING_SELECTOR = frozenset(
         "drag",
     }
 )
-ACTIONS_NEEDING_VALUE = frozenset({"fill", "select", "type", "goto", "eval", IMPERSONATE_ACTION})
+ACTIONS_NEEDING_VALUE = frozenset(
+    {"fill", "select", "type", "goto", "eval", "expect", IMPERSONATE_ACTION}
+)
+
+# Input steps, after which the page is given time to react before the next step.
+# Measured in one live Workflow Studio session: 110 act calls held 203 fixed
+# `wait`s (275s in all) guessed at 300-2500ms after keypresses — too short and
+# the next step missed its element, too long and the time was simply gone. The
+# page says when it is done: what it shows stops changing and the requests the
+# step started come back. Capped, because a page that never stops is not a
+# reason to stall the batch.
+SETTLING_ACTIONS = frozenset(
+    {
+        "click",
+        "double_click",
+        "fill",
+        "select",
+        "check",
+        "uncheck",
+        "hover",
+        "press",
+        "type",
+        "drag",
+    }
+)
+SETTLE_CAP_MS = 3_000
+SETTLE_QUIET_MS = 300
+# Only requests opened this recently hold a step: a long poll opened minutes
+# ago is not something this keypress is waiting on.
+SETTLE_RECENT_MS = 2_500
+_SETTLE_POLL_S = 0.1
+
+# `expect` checks the page mid-batch and stops it when it is not where the plan
+# assumed. Without it a caller could not verify between keypresses, so it sent
+# two or three per call and looked — the same session split every "add a step"
+# into four or five round trips. Short default: the state is either there once
+# the previous step settled or the plan is wrong, and 30s of waiting fixes
+# neither.
+EXPECT_DEFAULT_TIMEOUT_MS = 2_000
+EXPECT_SCOPES = ("any", "focused", "listed", "gone")
 
 # Page-level moves. A document load outlasts the element budget, and doing it with
 # eval (`location.href=...`, 215 times in one week of logs) tears down the context
@@ -154,6 +195,7 @@ SUPPORTED_ACTIONS: Tuple[str, ...] = (
     "drag",
     "wait_for",
     "wait",
+    "expect",
     "goto",
     "reload",
     EVAL_ACTION,
@@ -512,7 +554,17 @@ def normalize(raw_actions: Sequence[Any]) -> List[Dict[str, Any]]:
                 f"{', '.join(_DROP_AT)}."
             )
 
-        timeout_ms = int(raw.get("timeout_ms") or DEFAULT_STEP_TIMEOUT_MS)
+        state = str(raw.get("state") or "visible")
+        default_timeout = DEFAULT_STEP_TIMEOUT_MS
+        if name == "expect":
+            default_timeout = EXPECT_DEFAULT_TIMEOUT_MS
+            state = str(raw.get("state") or "any").strip().lower()
+            if state not in EXPECT_SCOPES:
+                raise ValueError(
+                    f"Action {index} ('expect'): state is where to look — "
+                    f"{', '.join(EXPECT_SCOPES)}."
+                )
+        timeout_ms = int(raw.get("timeout_ms") or default_timeout)
         normalized.append(
             {
                 "action": name,
@@ -521,7 +573,7 @@ def normalize(raw_actions: Sequence[Any]) -> List[Dict[str, Any]]:
                 "key": (str(raw["key"]) if raw.get("key") else None),
                 "ms": max(0, min(int(raw.get("ms") or 0), MAX_WAIT_MS)),
                 "timeout_ms": max(100, min(timeout_ms, MAX_STEP_TIMEOUT_MS)),
-                "state": str(raw.get("state") or "visible"),
+                "state": state,
                 "to": (as_selector(str(raw["to"])) if raw.get("to") else None),
             }
         )
@@ -535,6 +587,7 @@ def budget_seconds(actions: Sequence[Dict[str, Any]]) -> float:
     globals to report the new user, so one timeout does not cover it.
     """
     total = sum(step["timeout_ms"] + step["ms"] for step in actions)
+    total += sum(SETTLE_CAP_MS for step in actions if step["action"] in SETTLING_ACTIONS)
     total += sum(step["timeout_ms"] for step in actions if step["action"] in SESSION_ACTIONS)
     total += sum(
         MIN_NAVIGATION_TIMEOUT_MS for step in actions if step["action"] in NAVIGATION_ACTIONS
@@ -554,6 +607,113 @@ def _page_url(page: Any) -> str:
     except Exception as exc:  # noqa: BLE001 - a torn-down page has no url
         logger.debug("Could not read the page URL: %s", exc)
         return ""
+
+
+def settles_after(steps: Sequence[Dict[str, Any]], index: int) -> bool:
+    """Whether step *index* (1-based) is followed by a settle.
+
+    Input steps settle so the next step reads the page after it reacted. An
+    explicit `wait` next is the caller's own pause and is not doubled.
+    """
+    step = steps[index - 1]
+    following = steps[index]["action"] if index < len(steps) else None
+    return step["action"] in SETTLING_ACTIONS and following != "wait"
+
+
+def _busy(page: Any) -> int:
+    """Recent requests still open, or -1 when the page cannot say."""
+    try:
+        return int(page.evaluate(busy_script(SETTLE_RECENT_MS)))
+    except Exception:  # noqa: BLE001 - navigating page, old probe, closed tab
+        return -1
+
+
+def _settle(page: Any) -> Dict[str, Any]:
+    """Wait until what the page shows stops changing and its recent requests are done.
+
+    Returns ``{}`` when it settled, ``{"settle_capped": reason}`` when the cap was
+    hit, and ``"settle_signal": "page state only"`` when the page had no request
+    counter to read (a probe from before this build) — settled on what it shows,
+    which is said rather than passed off as the full check.
+    """
+    started = time.time()
+    deadline = started + SETTLE_CAP_MS / 1000.0
+    last = None
+    stable_since = started
+    no_signal = False
+    busy = 0
+    while True:
+        try:
+            fingerprint = json.dumps(read_page_state_raw(page), sort_keys=True, default=str)
+        except Exception:  # noqa: BLE001 - read_page_state_raw does not raise; belt only
+            fingerprint = None
+        busy = _busy(page)
+        no_signal = no_signal or busy < 0
+        now = time.time()
+        if fingerprint != last:
+            last, stable_since = fingerprint, now
+        elif busy <= 0 and (now - stable_since) * 1000 >= SETTLE_QUIET_MS:
+            return {"settle_signal": "page state only"} if no_signal else {}
+        if now >= deadline:
+            why = f"{busy} request(s) still open" if busy > 0 else "the page kept changing"
+            return {"settle_capped": f"{SETTLE_CAP_MS}ms, {why}"}
+        time.sleep(_SETTLE_POLL_S)
+
+
+def _expect_where(state: Dict[str, Any], needle: str, scope: str) -> Optional[str]:
+    """Where in the page state *needle* shows up (case-insensitive), or None."""
+    focused = state.get("focused") or {}
+    places: List[Tuple[str, List[str]]] = []
+    if scope in ("any", "focused", "gone"):
+        places.append(
+            ("focused", [str(focused.get("label") or ""), str(focused.get("value") or "")])
+        )
+    if scope in ("any", "listed", "gone"):
+        for key in ("menu", "options", "near_focus", "dialogs"):
+            places.append((key, [str(v) for v in state.get(key) or []]))
+    if scope in ("any", "gone"):
+        for key in ("alerts", "selected_tabs", "outline"):
+            places.append((key, [str(v) for v in state.get(key) or []]))
+    for where, texts in places:
+        if any(needle in t.lower() for t in texts):
+            return where
+    return None
+
+
+def _where_now(state: Dict[str, Any]) -> str:
+    if "unread" in state:
+        return f"the page could not be read ({state['unread']})"
+    focused = state.get("focused") or {}
+    parts = [f"focused '{focused.get('label') or focused.get('tag') or 'nothing'}'"]
+    for key in ("menu", "options", "dialogs"):
+        if state.get(key):
+            parts.append(f"{key} {list(state[key])[:6]}")
+    return "; ".join(parts)
+
+
+def _expect(page: Any, step: Dict[str, Any], index: int) -> Dict[str, Any]:
+    """Poll the page state until the expectation holds, else stop the batch here."""
+    want = str(step["value"] or "")
+    needle = want.strip().lower()
+    scope = step["state"]
+    deadline = time.time() + step["timeout_ms"] / 1000.0
+    while True:
+        state = read_page_state_raw(page)
+        # An unread page proves neither: it is not "there", and it is not "gone".
+        if "unread" not in state:
+            where = _expect_where(state, needle, scope)
+            if scope == "gone" and where is None:
+                return {"expected": f"'{want}' gone"}
+            if scope != "gone" and where is not None:
+                return {"expected": f"'{want}' in {where}"}
+        if time.time() >= deadline:
+            what = "still there" if scope == "gone" else f"not found ({scope})"
+            raise ActionError(
+                f"expect '{want}': {what} after {step['timeout_ms']}ms. Now: {_where_now(state)}. "
+                "The rest of the batch was not run.",
+                index=index,
+            )
+        time.sleep(_RESOLVE_POLL_S)
 
 
 def _run_step(
@@ -628,6 +788,9 @@ def _run_step(
                 )
             raise ActionError(f"eval failed: {error}", index=index)
         return {"result": outcome}
+
+    if name == "expect":
+        return _expect(page, step, index)
 
     if name == "press" and not selector:
         try:
@@ -886,6 +1049,8 @@ def act(
                     try:
                         entry.update(_run_step(page, step, index, session, allow_server_script))
                         entry["ok"] = True
+                        if settles_after(steps, index):
+                            entry.update(_settle(page))
                     except ActionError as exc:
                         entry["ok"] = False
                         entry["error"] = str(exc)

@@ -148,6 +148,18 @@ def read_page_state(page: Any) -> Dict[str, Any]:
     Never raises. An unread state says so, never comes back as ``{}`` — an
     empty dict means the page was read and has no focus, list, dialog or alert.
     """
+    merged = read_page_state_raw(page)
+    if "unread" not in merged:
+        _only_if_changed(page, merged)
+    return merged
+
+
+def read_page_state_raw(page: Any) -> Dict[str, Any]:
+    """read_page_state without the outline dedup: for polling (expect, settle).
+
+    A poll must not record the outline as "already sent", or the report that
+    follows would name it unchanged when the caller never saw it.
+    """
     try:
         frames = list(page.frames)
     except Exception:  # noqa: BLE001
@@ -175,7 +187,6 @@ def read_page_state(page: Any) -> Dict[str, Any]:
                 merged[key] += [v for v in value if v not in merged[key]]
             else:
                 merged[key] = value
-    _only_if_changed(page, merged)
     if not read_any:
         logger.debug("Could not read the page state: %s", last_error)
         return {"unread": last_error or "no readable frame"}

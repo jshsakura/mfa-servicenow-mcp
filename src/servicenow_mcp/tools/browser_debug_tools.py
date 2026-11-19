@@ -220,6 +220,7 @@ class DebugAction(BaseModel):
         "drag",
         "wait_for",
         "wait",
+        "expect",
         "goto",
         "reload",
         "eval",
@@ -232,7 +233,7 @@ class DebugAction(BaseModel):
     )
     value: Optional[str] = Field(
         default=None,
-        description="fill/type text, select option, goto path, eval JS, who to impersonate, drag top|center|bottom.",
+        description="fill/type text, select option, goto path, eval JS, expect text, who to impersonate, drag top|center|bottom.",
     )
     to: Optional[str] = Field(
         default=None, description="drag: selector to drop on (selector is what is dragged)."
@@ -240,11 +241,12 @@ class DebugAction(BaseModel):
     key: Optional[str] = Field(default=None, description="Key for press, e.g. Enter.")
     ms: Optional[int] = Field(
         default=None,
-        description="Fixed pause for action='wait'. Avoid: steps wait for their element; use wait_for.",
+        description="Fixed pause for action='wait'. Avoid: input steps settle on their own; use expect.",
     )
     timeout_ms: Optional[int] = Field(default=None, description="Per-step timeout. Default 5000.")
     state: Optional[str] = Field(
-        default=None, description="For wait_for: visible (default), hidden, attached, detached."
+        default=None,
+        description="wait_for: visible|hidden|attached|detached. expect: any|focused|listed|gone.",
     )
 
 
@@ -998,7 +1000,7 @@ def _lean_steps(steps: Any) -> List[Any]:
 @register_tool(
     name="act_in_debug_window",
     params=ActInDebugWindowParams,
-    description="Drive the open debug window: click, fill, select, wait, eval, impersonate. Reports what steps caused.",
+    description="Drive the debug window: click, fill, press, eval, impersonate; expect checks mid-batch. Steps settle on their own.",
     serialization="raw_dict",
     return_type=dict,
 )

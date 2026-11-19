@@ -168,6 +168,13 @@ PROBE_SCRIPT = """
     });
   });
 
+  // Requests still open, by start time: what "has the page finished reacting to
+  // that keypress" waits on. Only recent ones count (busy()), so a long poll
+  // opened minutes ago does not hold every step to its cap.
+  const openReqs = new Map();
+  let openSeq = 0;
+  const opened = () => { const id = ++openSeq; openReqs.set(id, Date.now()); return id; };
+
   // --- XMLHttpRequest --------------------------------------------------
   const OpenOriginal = XMLHttpRequest.prototype.open;
   const SendOriginal = XMLHttpRequest.prototype.send;
@@ -178,7 +185,9 @@ PROBE_SCRIPT = """
   XMLHttpRequest.prototype.send = function (body) {
     const meta = this.__snMcp || {};
     const started = Date.now();
+    const openId = opened();
     this.addEventListener('loadend', () => {
+      openReqs.delete(openId);
       push({
         kind: 'xhr', transport: 'xhr',
         method: meta.method || 'GET', url: redact(meta.url || ''),
@@ -198,13 +207,16 @@ PROBE_SCRIPT = """
       const url = redact(String((input && input.url) || input || ''));
       const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
       const body = init && init.body;
+      const openId = opened();
       return fetchOriginal.apply(this, arguments).then((response) => {
+        openReqs.delete(openId);
         push({
           kind: 'xhr', transport: 'fetch', method, url,
           status: response.status, ms: Date.now() - started, req: summarize(body), resBytes: -1
         });
         return response;
       }, (err) => {
+        openReqs.delete(openId);
         push({
           kind: 'xhr', transport: 'fetch', method, url,
           status: 0, ms: Date.now() - started, req: summarize(body),
@@ -273,7 +285,14 @@ PROBE_SCRIPT = """
     // its old probe until the page reloads (the script returns early when the
     // global exists), so "the code shipped" never means "the page has it".
     // 4: drain() takes a {tabId: seq} map instead of a bare number.
-    version: 4,
+    // 5: busy(ms) — requests still open that started within the last ms.
+    version: 5,
+    busy: (ms) => {
+      const since = Date.now() - (ms || 2500);
+      let n = 0;
+      for (const t of openReqs.values()) if (t >= since) n++;
+      return n;
+    },
     dirty: dirtyFields,
     // Everything the reaper needs to decide "is this window in use?", in one
     // evaluate. `now` is the PAGE's clock so the caller subtracts two readings
@@ -312,6 +331,18 @@ PROBE_SCRIPT = """
     "storage_key": _STORAGE_KEY,
     "mirror_ms": _MIRROR_INTERVAL_MS,
 }
+
+
+def busy_script(recent_ms: int) -> str:
+    """Expression: requests still open that started in the last *recent_ms*.
+
+    -1 when the probe is absent or older than version 5 (a window open across
+    an upgrade keeps its old probe until reload): no signal, never "idle".
+    """
+    return (
+        f"(() => {{ const p = window['{PROBE_GLOBAL}'];"
+        f" return (p && p.busy) ? p.busy({int(recent_ms)}) : -1; }})()"
+    )
 
 
 def dirty_script() -> str:
@@ -383,6 +414,7 @@ __all__ = [
     "MAX_EVENTS",
     "PROBE_GLOBAL",
     "PROBE_SCRIPT",
+    "busy_script",
     "dirty_script",
     "drain_script",
     "presence_script",
