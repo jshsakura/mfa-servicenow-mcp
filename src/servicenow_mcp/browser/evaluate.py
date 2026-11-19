@@ -233,6 +233,54 @@ def run_in_page(page: Any, *, expression: Optional[str] = None, body: Optional[s
     return clamp_result(raw)
 
 
+# Child frames tried when the top document has no answer. Workflow Studio's
+# builder is an iframe ($flow-designer.do) three shadow roots down the shell
+# (measured on PDI): an expression run on the top document cannot reach it, so a
+# read of the builder's own buttons came back as an empty list — "nothing there"
+# for a page full of controls.
+MAX_FRAMES_TRIED = 8
+
+
+def _is_empty(result: Dict[str, Any]) -> bool:
+    if not result.get("ok"):
+        return False
+    value = result.get("value")
+    return value in (None, "", "[undefined]") or value == [] or value == {}
+
+
+def _frame_label(frame: Any) -> str:
+    try:
+        url = str(frame.url)
+    except Exception:  # noqa: BLE001 - a detached frame has no url
+        return "(detached frame)"
+    return url.split("?", 1)[0].rsplit("/", 1)[-1] or url[:80]
+
+
+def run_in_frames(page: Any, *, expression: str) -> Dict[str, Any]:
+    """An expression on the top document, then on child frames when it came back empty.
+
+    The first frame that answers with something is the answer, named under
+    ``frame``. All empty stays the top document's empty, with ``frames_tried`` so
+    "empty everywhere" is not read as "only the top was asked".
+    """
+    result = run_in_page(page, expression=expression)
+    if not _is_empty(result):
+        return result
+    tried = 0
+    try:
+        frames = [f for f in page.frames if f is not page.main_frame]
+    except Exception:  # noqa: BLE001 - no frames to enumerate is not an error
+        frames = []
+    for frame in frames[:MAX_FRAMES_TRIED]:
+        tried += 1
+        answer = run_in_page(frame, expression=expression)
+        if answer.get("ok") and not _is_empty(answer):
+            return {**answer, "frame": _frame_label(frame)}
+    if tried:
+        result = {**result, "frames_tried": tried}
+    return result
+
+
 __all__ = [
     "MAX_DEPTH",
     "MAX_ENTRIES",
@@ -241,5 +289,6 @@ __all__ = [
     "body_script",
     "clamp_result",
     "expression_script",
+    "run_in_frames",
     "run_in_page",
 ]

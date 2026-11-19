@@ -144,15 +144,56 @@ def _outline(text: str, budget: int) -> Dict[str, Any]:
     return {"text": kept, "depth": shown_depth, "lines_total": len(lines)}
 
 
+class _StaleSnapshotRef(LookupError):
+    """A ref from an older snapshot: its frame or element is gone."""
+
+
+def stale_ref_note(target: str) -> str:
+    # Workflow Studio re-creates its builder iframe as panels open and close, and
+    # a ref names its frame (f30e56 = frame 30): the frame is gone, so the ref is.
+    return (
+        f"'{target}' is from an older snapshot: its frame or element has been replaced "
+        "since (Workflow Studio re-creates its iframe as panels open). Snapshot 'page' "
+        "again for fresh refs, or point at it by role/text, which survives a re-render."
+    )
+
+
+def _find(page: Any, target: str) -> Any:
+    """The target's locator in the page or the first frame that has it; None if none."""
+    selector = as_selector(target)
+    if selector.startswith(REF_PREFIX):
+        try:
+            locator = page.locator(selector)
+            if locator.count():
+                return locator
+        except Exception as exc:  # noqa: BLE001 - "Invalid frame in aria-ref selector"
+            raise _StaleSnapshotRef(target) from exc
+        raise _StaleSnapshotRef(target)
+    # A CSS/role selector does not cross into an iframe from the page; the builder
+    # of Workflow Studio is one. Ask each document, as act steps do.
+    try:
+        documents = [page] + [f for f in page.frames if f is not page.main_frame]
+    except Exception:  # noqa: BLE001
+        documents = [page]
+    for document in documents:
+        try:
+            locator = document.locator(selector)
+            if locator.count():
+                return locator
+        except Exception:  # noqa: BLE001 - a detached frame; try the next
+            continue
+    return None
+
+
 def take(page: Any, target: str) -> Dict[str, Any]:
     """Snapshot the page (``target='page'``) or one element (a selector or ref)."""
     try:
         if target == "page":
             text = page.aria_snapshot(mode="ai")
         else:
-            locator = page.locator(as_selector(target))
-            if not locator.count():
-                return {"error": f"No element matched '{target}' to snapshot."}
+            locator = _find(page, target)
+            if locator is None:
+                return {"error": f"No element matched '{target}' to snapshot (page and frames)."}
             text = locator.first.aria_snapshot(mode="ai")
     except TypeError:
         return {
@@ -161,7 +202,9 @@ def take(page: Any, target: str) -> Dict[str, Any]:
                 "Upgrade playwright, then reconnect the MCP server."
             )
         }
-    except Exception as exc:  # noqa: BLE001 - stale ref, detached frame, bad selector
+    except _StaleSnapshotRef:
+        return {"error": stale_ref_note(target)}
+    except Exception as exc:  # noqa: BLE001 - detached frame, bad selector
         return {"error": f"Snapshot of '{target}' failed: {str(exc).splitlines()[0][:200]}"}
 
     text = _lean(str(text or ""))

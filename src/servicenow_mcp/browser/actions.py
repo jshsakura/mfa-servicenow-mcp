@@ -111,6 +111,7 @@ MAX_WAIT_MS = 30_000
 # Actions that need an element, mapped to the argument they additionally need.
 ACTIONS_NEEDING_SELECTOR = frozenset(
     {
+        "focus",
         "click",
         "double_click",
         "fill",
@@ -189,6 +190,7 @@ SUPPORTED_ACTIONS: Tuple[str, ...] = (
     "check",
     "uncheck",
     "hover",
+    "focus",
     "press",
     "type",
     "scroll_to",
@@ -394,7 +396,14 @@ def near_matches(page: Any, selector: str, limit: int = 6) -> List[Dict[str, Any
     if not text:
         return []
     words = [w for w in re.split(r"\s+", text) if len(w) >= 2]
-    probes = [text] + sorted(set(words) - {text}, key=len, reverse=True)[:2]
+    # A label that ends in the element's own name changes when it is renamed:
+    # Workflow Studio's "…Subflow after 9 - If" became "…after 9 - <label>" once
+    # the If was labelled, and single-word probes ("Subflow") hit every add
+    # button but that one. The head of the label is what stays, so it is tried
+    # first — dropping one word at a time, never below three.
+    tokens = text.split()
+    heads = [" ".join(tokens[:n]) for n in range(len(tokens) - 1, max(2, len(tokens) - 4), -1)]
+    probes = [text] + heads + sorted(set(words) - {text}, key=len, reverse=True)[:2]
     seen: set = set()
     out: List[Dict[str, Any]] = []
     for probe in probes:
@@ -444,6 +453,19 @@ def _near_item(el: Any) -> Optional[Dict[str, Any]]:
         return item
     except Exception:  # noqa: BLE001
         return None
+
+
+# Keys that CHOOSE in a listbox or menu, and the rows they choose among.
+_CHOOSING_KEYS = frozenset({"Enter", "Space", " "})
+_LIST_ROW_ROLES = ("option", "menuitem", "menuitemradio", "menuitemcheckbox", "treeitem")
+
+
+def _is_list_row(locator: Any) -> bool:
+    try:
+        role = locator.get_attribute("role", timeout=300)
+    except Exception:  # noqa: BLE001 - unreadable: press as asked
+        return False
+    return str(role or "").lower() in _LIST_ROW_ROLES
 
 
 def _wait_enabled(locator: Any) -> bool:
@@ -685,9 +707,13 @@ def _where_now(state: Dict[str, Any]) -> str:
         return f"the page could not be read ({state['unread']})"
     focused = state.get("focused") or {}
     parts = [f"focused '{focused.get('label') or focused.get('tag') or 'nothing'}'"]
-    for key in ("menu", "options", "dialogs"):
+    if state.get("focus_outside_dialog"):
+        parts.append("focus is OUTSIDE the open dialog")
+    for key in ("open_popups", "menu", "options", "dialogs"):
         if state.get(key):
             parts.append(f"{key} {list(state[key])[:6]}")
+    if state.get("outline"):
+        parts.append(f"outline {len(state['outline'])} rows")
     return "; ".join(parts)
 
 
@@ -936,7 +962,16 @@ def _run_step(
             locator.uncheck(timeout=timeout_ms)
         elif name == "hover":
             locator.hover(timeout=timeout_ms)
+        elif name == "focus":
+            locator.focus(timeout=timeout_ms)
         elif name == "press":
+            if step["key"] in _CHOOSING_KEYS and _is_list_row(locator):
+                # A listbox/menu takes Enter on its HIGHLIGHTED row, wherever
+                # focus was sent: Enter at the "Requested Item" option picked
+                # the highlighted "Metric" (live, Workflow Studio). The row was
+                # named, so choosing it is a click on it.
+                locator.click(timeout=timeout_ms)
+                return {"clicked_row": f"'{step['key']}' on a list row chooses the highlighted one"}
             locator.press(step["key"], timeout=timeout_ms)
         elif name == "type":
             locator.press_sequentially(step["value"], timeout=timeout_ms)

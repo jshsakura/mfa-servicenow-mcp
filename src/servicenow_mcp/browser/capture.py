@@ -26,7 +26,7 @@ from .badge import (
     instance_labels,
     show_badge_script,
 )
-from .evaluate import run_in_page
+from .evaluate import run_in_frames
 from .probe import PROBE_SCRIPT, dirty_script, drain_script, presence_script
 from .session import read_effective_user
 from .snapshot import take as take_snapshot
@@ -753,7 +753,7 @@ def capture(
                 # state is answered from the same moment the events describe,
                 # and before the screenshot so the picture matches the answer.
                 evaluation = (
-                    run_in_page(page, expression=evaluate_expression)
+                    run_in_frames(page, expression=evaluate_expression)
                     if evaluate_expression
                     else None
                 )

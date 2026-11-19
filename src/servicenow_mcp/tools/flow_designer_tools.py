@@ -2659,6 +2659,91 @@ def _node_not_found(flow_id: str, node_id: str, source: str) -> Dict[str, Any]:
     }
 
 
+# A flow's stages, and which steps each one is set on. Measured on PDI:
+# sys_hub_flow_stage rows hang off the design flow (`flow`), and
+# `component_indexes` lists the 0-based positions of the steps the stage is set
+# on — "4,7" was the chip on steps 5 and 8 in the builder. Neither the processflow
+# payload nor the tree carried them, so "is the stage on that step" could only be
+# answered from a screenshot.
+_STAGE_FIELDS = "label,value,order,component_indexes"
+
+
+def _fetch_flow_stages(
+    config: ServerConfig, auth_manager: AuthManager, flow_id: str
+) -> Optional[List[Dict[str, Any]]]:
+    """The flow's stages in order, each with the step numbers it is set on.
+
+    None when the table could not be read — not the same answer as [] (none).
+    """
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_hub_flow_stage",
+            query=f"flow={flow_id}",
+            fields=_STAGE_FIELDS,
+            limit=200,
+            offset=0,
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - reported as unread, never as "no stages"
+        logger.debug("Stages of flow %s not readable: %s", flow_id, exc)
+        return None
+    stages: List[Dict[str, Any]] = []
+    for row in sorted(rows or [], key=lambda r: _safe_int(r.get("order"))):
+        steps = [
+            _safe_int(i) + 1
+            for i in str(row.get("component_indexes") or "").split(",")
+            if i.strip().isdigit()
+        ]
+        stages.append(
+            {
+                "label": str(row.get("label") or ""),
+                "value": str(row.get("value") or ""),
+                "steps": steps,
+            }
+        )
+    return stages
+
+
+def _attach_stages_and_signature(
+    structure: Dict[str, Any], config: ServerConfig, auth_manager: AuthManager, flow_id: str
+) -> Dict[str, Any]:
+    """Stages on every step they apply to, and the flow's declared signature.
+
+    The summary tree dropped the flow's inputs/outputs/variables, and stages were
+    never read: a flow built in Workflow Studio could not be checked from the
+    server for either.
+    """
+    stages = _fetch_flow_stages(config, auth_manager, flow_id)
+    if stages is None:
+        structure["stages"] = "not read (sys_hub_flow_stage unreadable)"
+    elif stages:
+        structure["stages"] = stages
+        by_step = {step: st["label"] for st in stages for step in st["steps"]}
+        for node in structure.get("tree") or []:
+            if isinstance(node, dict):
+                label = by_step.get(_safe_int(node.get("order")))
+                if label:
+                    node["stage"] = label
+        text = structure.get("tree_text")
+        if isinstance(text, str) and by_step:
+            structure["tree_text"] = re.sub(
+                r"^(\s*\[(\d+)\][^\n]*)$",
+                lambda m: m.group(1)
+                + (f"  [stage {by_step[int(m.group(2))]}]" if int(m.group(2)) in by_step else ""),
+                text,
+                flags=re.M,
+            )
+    if not any(structure.get(k) for k in ("inputs", "outputs", "variables", "signature")):
+        snapshot_id = _get_snapshot_id(config, auth_manager, flow_id) or ""
+        signature = _fetch_flow_signature(config, auth_manager, flow_id, snapshot_id)
+        structure["signature"] = signature or (
+            "no inputs, outputs or variables rows came back (none declared, or not readable)"
+        )
+    return structure
+
+
 def get_flow_details(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2721,6 +2806,10 @@ def get_flow_details(
                         if params.summary_format
                         else detail
                     )
+                    if params.summary_format:
+                        _attach_stages_and_signature(
+                            result["structure"], config, auth_manager, flow_id
+                        )
                 if params.include_triggers:
                     # Compact by default; summary_format=False keeps the raw rows.
                     result["triggers"] = (
@@ -2813,6 +2902,8 @@ def get_flow_details(
                 )
             else:
                 result["structure"] = _bound_structure(structure)
+            if structure.get("success"):
+                _attach_stages_and_signature(result["structure"], config, auth_manager, flow_id)
             if not structure.get("success"):
                 result["structure_error"] = structure.get("error", "unknown")
 

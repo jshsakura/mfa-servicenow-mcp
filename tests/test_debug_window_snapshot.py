@@ -103,7 +103,8 @@ class TestTake:
 
     def test_stale_ref_is_reported(self) -> None:
         out = snapshot.take(_Page(raise_on={"aria-ref=f1e2"}), "f1e2")
-        assert out["error"].startswith("Snapshot of 'f1e2' failed: Invalid frame")
+        # Named as stale with the way out, not Playwright's "Invalid frame" text.
+        assert "older snapshot" in out["error"] and "Snapshot 'page' again" in out["error"]
 
     def test_oversized_page_keeps_whole_levels_and_says_so(self, monkeypatch: Any) -> None:
         deep = "\n".join(

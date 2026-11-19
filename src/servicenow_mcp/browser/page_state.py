@@ -27,9 +27,15 @@ PAGE_STATE_SCRIPT = r"""
   const clip = s => (s || '').replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
   const visible = el => {
     if (!el.getClientRects().length) return false;
+    // checkVisibility reads the ANCESTORS too (a closing modal fades its wrapper,
+    // not the role=dialog node); aria-hidden/inert is how a modal library hides
+    // what sits behind it, and a closed one keeps its node for the next open.
+    if (el.checkVisibility && !el.checkVisibility({checkOpacity: true, checkVisibilityCSS: true})) return false;
+    if (el.closest && el.closest('[aria-hidden="true"],[inert]')) return false;
     const st = getComputedStyle(el);
     return st.visibility !== 'hidden' && st.display !== 'none' && st.opacity !== '0';
   };
+  const dialogEls = [], popups = [];
   const label = el => clip(
     el.getAttribute('aria-label') || el.getAttribute('placeholder') ||
     el.getAttribute('title') || el.getAttribute('name') || el.innerText || ''
@@ -47,6 +53,7 @@ PAGE_STATE_SCRIPT = r"""
       else if (role === 'alert' || role === 'status') key = 'alert';
       if (!key || roles[key].length >= MAX_ITEMS || !visible(el)) continue;
       let text;
+      if (key === 'dialog') dialogEls.push(el);
       if (key === 'dialog') {
         // A nested role=dialog (React modal content + its wrapper) is one dialog.
         if (el.parentElement && el.parentElement.closest('[role=dialog],[role=alertdialog]')) continue;
@@ -68,7 +75,21 @@ PAGE_STATE_SCRIPT = r"""
       if (!roles[key].includes(text)) roles[key].push(text);
     }
   };
+  // A menu that is OPEN, as opposed to items that are merely on screen: its
+  // trigger says so (aria-haspopup + aria-expanded=true). Workflow Studio opens
+  // the next "add" menu by itself after Done, and visible items alone could not
+  // tell that apart from a static list.
+  const findPopups = root => {
+    for (const el of root.querySelectorAll('[aria-expanded="true"][aria-haspopup]')) {
+      if (popups.length >= 5) return;
+      if (el.getAttribute('aria-haspopup') === 'false' || !visible(el)) continue;
+      const name = label(el);
+      if (name && !popups.includes(name)) popups.push(name);
+    }
+    for (const el of root.querySelectorAll('*')) if (el.shadowRoot) findPopups(el.shadowRoot);
+  };
   try { walk(document); } catch (e) { truncated = true; }
+  try { findPopups(document); } catch (e) { /* popups are a hint; the rest stands */ }
   let a = document.activeElement;
   while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
   const out = {};
@@ -95,6 +116,14 @@ PAGE_STATE_SCRIPT = r"""
       up = up.parentElement || (up.getRootNode && up.getRootNode().host);
     }
   }
+  // Typing goes where focus is. With a dialog open and focus BEHIND it, the
+  // fields near focus are the background panel's — read live as the dialog's,
+  // two variables were created as subflow inputs. Say it outright.
+  if (dialogEls.length && a && a !== document.body) {
+    const inside = d => { let n = a; while (n) { if (d.contains(n)) return true; const r = n.getRootNode && n.getRootNode(); n = r && r.host; } return false; };
+    if (!dialogEls.some(inside)) out.focus_outside_dialog = true;
+  }
+  if (popups.length) out.open_popups = popups;
   if (roles.option.length) out.options = roles.option;
   if (roles.menuitem.length) out.menu = roles.menuitem;
   if (roles.dialog.length) out.dialogs = roles.dialog;
@@ -111,7 +140,26 @@ PAGE_STATE_SCRIPT = r"""
       const box = r.closest('.actionContainer');
       // componentInstance_<index>_<depth>, depth 1 = top level (measured)
       const depth = (parseInt(((box && box.getAttribute('data-position-depth')) || '').split('_').pop(), 10) || 1) - 1;
-      const text = (r.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+      let text = (r.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+      // What the text alone does not say (measured on PDI). A labelled If reads
+      // as its label, so the kind comes from the container class (if-type,
+      // else-type, end-type, setflowvariables-type...), shown when the text
+      // does not already start with it.
+      const kind = ((box && box.className) || '').split(/\s+/)
+        .filter(c => c.endsWith('-type') && c !== 'action-type' && c !== 'flowlogic-type')
+        .map(c => c.slice(0, -5))[0];
+      const words = text.replace(/^\d+\s*/, '').replace(/^then\s+/i, '').toLowerCase().replace(/[^a-z]/g, '');
+      if (kind && !words.startsWith(kind)) text += ` [${kind}]`;
+      // The stage chip sits in the step's stage container; empty ones carry isEmpty.
+      const holder = r.closest('.instance-component-stage-container');
+      const chip = holder && holder.querySelector('.stage-container');
+      if (chip && !chip.classList.contains('isEmpty')) {
+        const stage = (chip.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+        if (stage) text += ` [stage ${stage}]`;
+      }
+      // A collapsed block hides its children: say so, or they read as absent.
+      const toggle = r.querySelector('.expand-collapse-container [aria-expanded]');
+      if (toggle && toggle.getAttribute('aria-expanded') === 'false') text += ' [collapsed]';
       outline.push('  '.repeat(Math.max(0, depth)) + text);
     }
     out.outline = outline;

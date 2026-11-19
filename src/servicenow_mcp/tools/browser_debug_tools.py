@@ -214,6 +214,7 @@ class DebugAction(BaseModel):
         "check",
         "uncheck",
         "hover",
+        "focus",
         "press",
         "type",
         "scroll_to",
