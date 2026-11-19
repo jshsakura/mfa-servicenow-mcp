@@ -398,7 +398,7 @@ def _normalize_arguments(
     )
 
 
-def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
+def _compact_schema(schema: Any, *, _top_level: bool = False, _array_item: bool = False) -> Any:
     """Strip Pydantic noise from JSON schema to minimize LLM context tokens.
 
     Removes: title, long defaults (str/list), verbose anyOf, long descriptions,
@@ -410,13 +410,19 @@ def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
     if not isinstance(schema, dict):
         return schema
 
-    # Flatten anyOf nullable (Optional[X] → X)
+    # Flatten anyOf nullable (Optional[X] → X). For a property that is safe:
+    # null and "omitted" mean the same thing. For an ARRAY ELEMENT it is not —
+    # List[Optional[str]] uses null as a positional "empty slot", and flattening
+    # it to a plain string made clients reject the very value the description
+    # asked for. So an element keeps null as a type alternative.
     if "anyOf" in schema:
         types = schema["anyOf"]
         non_null = [t for t in types if t.get("type") != "null"]
         if len(non_null) == 1:
             merged = {k: v for k, v in schema.items() if k != "anyOf"}
             merged.update(non_null[0])
+            if _array_item and len(non_null) < len(types) and isinstance(merged.get("type"), str):
+                merged["type"] = [merged["type"], "null"]
             return _compact_schema(merged, _top_level=_top_level)
 
     result: Dict[str, Any] = {}
@@ -461,7 +467,7 @@ def _compact_schema(schema: Any, *, _top_level: bool = False) -> Any:
                 for prop_name, prop_schema in v.items()
             }
             continue
-        result[k] = _compact_schema(v)
+        result[k] = _compact_schema(v, _array_item=(k == "items"))
     return result
 
 
@@ -1903,7 +1909,8 @@ class ServiceNowMCP:
             if read_actions and arguments.get("action") in read_actions:
                 requires_confirmation = False
 
-        if requires_confirmation and self._is_guarded_dry_run(name, arguments):
+        is_guarded_preview = requires_confirmation and self._is_guarded_dry_run(name, arguments)
+        if is_guarded_preview:
             # A preview writes nothing: run_with_dry_run_guard stops the first
             # write for any tool whose params carry dry_run. Asking for approval
             # to look made callers skip the preview and guess from a query.
@@ -1926,8 +1933,13 @@ class ServiceNowMCP:
         # G9) run HERE — after the confirm gate — so an unconfirmed mutation is
         # rejected above without any network call. They make one live remote read
         # to block a blind overwrite of a concurrent edit or a silent duplicate.
-        with self._scoped_active_instance(cross_instance_ctx):
-            run_post_confirm_guards(self, name, arguments)
+        # The same holds for these guards: each answers "may this WRITE land?"
+        # (update set G11, concurrent edit, duplicate), and a preview lands
+        # nothing. Running them made a scaffold dry_run stop on the update-set
+        # question before it could show what it would create.
+        if not is_guarded_preview:
+            with self._scoped_active_instance(cross_instance_ctx):
+                run_post_confirm_guards(self, name, arguments)
         arguments = strip_post_confirm_fields(
             arguments, keep=self.tool_definitions[name][1].model_fields
         )

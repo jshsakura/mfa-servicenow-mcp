@@ -1147,6 +1147,29 @@ def test_a_dry_run_preview_needs_no_confirm_and_writes_nothing(monkeypatch, tmp_
     assert sent == []
 
 
+def test_a_dry_run_preview_skips_the_post_confirm_write_guards(monkeypatch, tmp_path):
+    # G11 asked "which update set?" before a scaffold dry_run could show what it
+    # would create. Those guards decide whether a WRITE may land; a preview lands
+    # nothing. A real confirmed write still meets them.
+    import servicenow_mcp.policies as policies
+
+    calls = []
+    monkeypatch.setattr(policies, "run_post_confirm_guards", lambda *a, **k: calls.append(a[1]))
+    server = _build_server(monkeypatch, tmp_path)
+    sent = _register_writer(server, "manage_incident", _DryRunParams)
+
+    asyncio.run(server._call_tool_impl("manage_incident", {"dry_run": True, "confirm": "approve"}))
+    assert calls == [] and sent == []
+
+    # The confirmed write itself is not the point here (the stub would go to the
+    # network); that the guards were consulted for it is.
+    try:
+        asyncio.run(server._call_tool_impl("manage_incident", {"confirm": "approve"}))
+    except Exception:
+        pass
+    assert calls == ["manage_incident"]
+
+
 def test_dry_run_on_a_tool_without_the_field_still_needs_confirm(monkeypatch, tmp_path):
     # The argument would be dropped by validation and the write would go out.
     server = _build_server(monkeypatch, tmp_path)

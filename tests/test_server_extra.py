@@ -78,6 +78,29 @@ class TestCompactSchemaExtras:
         result = _compact_schema(schema)
         assert result["properties"]["field"]["default"] == short_default
 
+    def test_nullable_array_element_keeps_null(self):
+        # List[Optional[str]] uses null as an empty slot (scaffold widgets per
+        # column). Flattening the element to "string" made the client reject
+        # [sys_id, null] — the exact value the description asks for.
+        schema = {
+            "type": "object",
+            "properties": {
+                "widgets": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        },
+                        {"type": "null"},
+                    ]
+                }
+            },
+        }
+        result = _compact_schema(schema)
+        widgets = result["properties"]["widgets"]
+        assert widgets["type"] == "array"  # the property itself still flattens
+        assert widgets["items"]["type"] == ["string", "null"]
+
 
 # ---------------------------------------------------------------------------
 # _strip_field_filler edge case (line 179)
