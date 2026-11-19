@@ -241,10 +241,43 @@ def _strip_metadata(record: Dict[str, Any], keep_fields: List[str]) -> Dict[str,
     return {k: v for k, v in record.items() if k in keep_fields or k == "sys_id" or k == "name"}
 
 
+# Tables whose rows are change records, not source: never a write target here.
+_NOT_EDITABLE_SOURCE_TABLES = frozenset({"sys_update_xml"})
+
+
+_editable_cache: Optional[Dict[str, Set[str]]] = None
+
+
+def portal_component_editable_fields() -> Dict[str, Set[str]]:
+    """table -> editable code fields: the hand map UNION every SOURCE_CONFIG table's
+    source_fields.
+
+    The hand map alone drifted: diff and the push folder map are derived from
+    SOURCE_CONFIG, so a newly downloadable table (ticket page actions, live)
+    diffed fine and then failed at this writer with "Unsupported table" — and a
+    business rule's filter_condition file could be edited but never sent.
+    Whatever the downloader writes as source, the writer accepts.
+    """
+    global _editable_cache
+    if _editable_cache is None:
+        from .source_tools import SOURCE_CONFIG  # lazy: large module
+
+        merged: Dict[str, Set[str]] = {
+            t: set(f) for t, f in PORTAL_COMPONENT_EDITABLE_FIELDS.items()
+        }
+        for cfg in SOURCE_CONFIG.values():
+            table, fields = cfg.get("table"), cfg.get("source_fields") or []
+            if table and fields and table not in _NOT_EDITABLE_SOURCE_TABLES:
+                merged.setdefault(table, set()).update(fields)
+        _editable_cache = merged
+    return _editable_cache
+
+
 def _normalize_portal_component_table(table: str) -> str:
     normalized = table.strip()
-    if normalized not in PORTAL_COMPONENT_EDITABLE_FIELDS:
-        supported = ", ".join(sorted(PORTAL_COMPONENT_EDITABLE_FIELDS))
+    editable = portal_component_editable_fields()
+    if normalized not in editable:
+        supported = ", ".join(sorted(editable))
         raise ValueError(f"Unsupported table '{table}'. Supported tables: {supported}")
     return normalized
 
@@ -256,7 +289,7 @@ def _validate_portal_component_update_data(
         raise ValueError("update_data must include at least one field to modify")
 
     normalized_table = _normalize_portal_component_table(table)
-    allowed_fields = PORTAL_COMPONENT_EDITABLE_FIELDS[normalized_table]
+    allowed_fields = portal_component_editable_fields()[normalized_table]
     invalid_fields = sorted(field for field in update_data if field not in allowed_fields)
     if invalid_fields:
         allowed = ", ".join(sorted(allowed_fields))

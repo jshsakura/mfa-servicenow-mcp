@@ -51,6 +51,8 @@ class TestCreate(unittest.TestCase):
         result = cs_svc.create(_config(), auth, name="My CS", application="x_myapp")
         self.assertTrue(result["success"])
         self.assertEqual(result["application"]["stored"], _APP)
+        self.assertIn("set_update_set", result["next"][0])
+        self.assertIn("update_set_id='abc'", result["next"][0])
         # The scope namespace was resolved; the POST carries the sys_id.
         self.assertEqual(auth.make_request.call_args.kwargs["json"]["application"], _APP)
         self.assertNotIn("developer", auth.make_request.call_args.kwargs["json"])

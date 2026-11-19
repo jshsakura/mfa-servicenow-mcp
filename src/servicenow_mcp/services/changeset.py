@@ -257,7 +257,21 @@ def create(
             f"switched to {app_name} so the set lands there; the session stays in it"
         )
     if stored == app_id:
-        return {"success": True, "message": f"Changeset created in {app_name}", **out}
+        # Creating a set does not make it current — measured live, the session
+        # stayed on the app's Default, where the next change would have landed.
+        set_id = str(record.get("sys_id") or "")
+        return {
+            "success": True,
+            "message": (
+                f"Changeset created in {app_name}. It is NOT current yet: the next change "
+                f"still lands in the session's current set until you switch."
+            ),
+            **out,
+            "next": [
+                f"manage_session_context(action='set_update_set', update_set_id='{set_id}', "
+                "confirm='approve')"
+            ],
+        }
 
     # Wrong app, and it cannot be fixed in place — measured live: a PATCH of an
     # existing set's application is silently ignored from a Global session and

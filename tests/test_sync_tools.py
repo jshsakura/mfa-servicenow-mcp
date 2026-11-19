@@ -439,7 +439,9 @@ class TestResolveLocalPath:
         assert "script" in resolved.fields
 
     def test_resolve_provider_folder_layout_dir(self, download_root):
-        # The whole record folder resolves too, collecting every source field.
+        # The whole record folder resolves too. sp_angular_provider has no
+        # client_script column (probed live), so a stray client_script.js is not
+        # collected as a field the push would send to a column that is not there.
         rec_dir = download_root / "global" / "sp_angular_provider" / "myService"
         rec_dir.mkdir(parents=True)
         (rec_dir / "script.js").write_text("angular.module('x');", encoding="utf-8")
@@ -448,7 +450,7 @@ class TestResolveLocalPath:
         resolved = _resolve_local_path(rec_dir)
         assert resolved.table == "sp_angular_provider"
         assert resolved.sys_id == "prov-1"
-        assert resolved.fields.keys() == {"script", "client_script"}
+        assert resolved.fields.keys() == {"script"}
 
     def test_resolve_provider_flat_layout_still_supported(self, download_root):
         # Back-compat: the historical flat "<name>.script.js" layout still works.
@@ -3385,6 +3387,23 @@ def test_header_footer_editable_fields_are_widget_parity() -> None:
         PORTAL_COMPONENT_EDITABLE_FIELDS["sp_header_footer"]
         == PORTAL_COMPONENT_EDITABLE_FIELDS["sp_widget"]
     )
+
+
+def test_every_pushable_folder_field_is_accepted_by_the_writer() -> None:
+    # diff and the push folder map derive from SOURCE_CONFIG; the writer kept a
+    # hand list. Live, a ticket page action diffed fine and then failed with
+    # "Unsupported table", and a BR filter_condition edit could never be sent.
+    from servicenow_mcp.tools.portal_tools import portal_component_editable_fields
+    from servicenow_mcp.tools.sync_tools import _all_supported_tables, _folder_layout_field_map
+
+    editable = portal_component_editable_fields()
+    gaps = {}
+    for table in sorted(_all_supported_tables()):
+        fields = set((_folder_layout_field_map(table) or {}).values())
+        missing = fields - editable.get(table, set())
+        if missing:
+            gaps[table] = sorted(missing)
+    assert gaps == {}
 
 
 def test_header_footer_download_fetches_all_code_fields() -> None:

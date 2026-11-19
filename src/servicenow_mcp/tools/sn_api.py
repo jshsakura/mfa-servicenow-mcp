@@ -2574,9 +2574,9 @@ def sn_schema(
         # manage_portal_component (BY SYS_ID), say so — closes the read/write
         # discoverability gap (anything download_*_sources can pull, you can push
         # back). Lazy import avoids a module-load cycle with portal_tools.
-        from servicenow_mcp.tools.portal_tools import PORTAL_COMPONENT_EDITABLE_FIELDS
+        from servicenow_mcp.tools.portal_tools import portal_component_editable_fields
 
-        editable = PORTAL_COMPONENT_EDITABLE_FIELDS.get(params.table)
+        editable = portal_component_editable_fields().get(params.table)
         if editable:
             result["editable_via"] = {
                 "tool": "manage_portal_component",

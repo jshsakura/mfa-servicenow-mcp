@@ -109,13 +109,11 @@ SINGLE_FILE_TABLES: Set[str] = {
 # is why a freshly downloaded provider/SI tree could not be pushed by local
 # path and forced a record-lookup + update_code fallback. Accept the folder
 # layout these tables actually ship in; the flat layout stays supported for
-# back-compat. Both writer conventions for client_script are tolerated.
+# back-compat.
 SINGLE_FILE_FOLDER_FIELD_MAP: Dict[str, Dict[str, str]] = {
-    "sp_angular_provider": {
-        "script.js": "script",
-        "client_script.client.js": "client_script",
-        "client_script.js": "client_script",
-    },
+    # `script` only: sp_angular_provider has no client_script column (probed
+    # live), so a client_script file here pointed at a field that does not exist.
+    "sp_angular_provider": {"script.js": "script"},
     "sys_script_include": {"script.js": "script"},
     "sp_css": {"css.scss": "css"},
     "sp_ng_template": {"template.html": "template"},
