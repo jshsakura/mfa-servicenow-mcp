@@ -498,7 +498,7 @@ Read-only (सुरक्षित डिफ़ॉल्ट):
 | Package | Tools | अधिकतम टोकन | अधिकतम (3 instances) | Description |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + incident और change ऑपरेशनल writes |
-| `portal_developer` | 51 | ~16.8K | ~18.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
+| `portal_developer` | 52 | ~16.8K | ~18.6K | ⚠️ standard + portal, changeset, script include, और local-sync डिलीवरी writes |
 | `platform_developer` | 47 | ~13.7K | ~15.3K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, और script writes |
 | `full` | 72 | ~21.8K | ~24.2K | ⚠️ **सबसे उन्नत** — सभी डोमेन में सभी write टूल एक साथ |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ स्वतंत्र ITSM: record का निदान, table automation का नक्शा, catalog/policy/notification config, approval और test order, assignment/approval rule और choice list, portal theme, update set या XML से ship. |

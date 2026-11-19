@@ -87,21 +87,16 @@ def test_download_and_audit_tools_in_all_packages():
     for pkg in ["portal_developer", "platform_developer", "full"]:
         assert "download_app_sources" in pkgs[pkg], f"download_app_sources missing from {pkg}"
 
-    # Targeted source-family refresh (download_server_sources) + schema are rare; they
-    # live in platform_developer + full only, NOT portal_developer — portal
-    # developers get the noise off their surface. download_server_sources replaced the
-    # former six per-family tools (download_script_includes/server_scripts/etc.).
-    rare_downloads = [
-        "download_server_sources",
-        "download_table_schema",
-    ]
+    # Targeted source-family refresh lives in portal_developer too: the push gate
+    # names download_server_sources as the call that refreshes a BR/SI/UI action
+    # or ticket page action, and download_app_sources has no sys_id filter — so a
+    # portal developer without it had only a whole-scope download to fall back on.
+    # download_table_schema stays out: schema dumps are rare for portal work.
+    for pkg in ["portal_developer", "platform_developer", "full"]:
+        assert "download_server_sources" in pkgs[pkg], f"download_server_sources missing from {pkg}"
     for pkg in ["platform_developer", "full"]:
-        for tool in rare_downloads:
-            assert tool in pkgs[pkg], f"'{tool}' missing from '{pkg}' package"
-    for tool in rare_downloads:
-        assert (
-            tool not in pkgs["portal_developer"]
-        ), f"'{tool}' should NOT be in portal_developer (sub-downloads moved to platform_developer)"
+        assert "download_table_schema" in pkgs[pkg], f"download_table_schema missing from {pkg}"
+    assert "download_table_schema" not in pkgs["portal_developer"]
 
     # The old per-family download tools were consolidated into download_server_sources.
     for old in [

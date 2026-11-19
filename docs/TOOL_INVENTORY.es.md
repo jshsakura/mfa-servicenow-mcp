@@ -21,7 +21,7 @@ Está documentado más abajo, pero los recuentos de paquetes en este archivo ref
 | `itsm_developer` | 37 | ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
 | `asset_manager` | 9 | Materiales, activos e ITOM: consultas y escrituras de activos validadas contra la instancia (`manage_asset`). Complementos separados por coma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 34 | standard más flujos de escritura de incidentes y cambios para soporte operativo. |
-| `portal_developer` | 51 | standard más flujos de portal, changeset, script include y entrega de sincronización local. |
+| `portal_developer` | 52 | standard más flujos de portal, changeset, script include y entrega de sincronización local. |
 | `platform_developer` | 47 | standard más flujos de workflow, Flow Designer, UI policy, incidentes/cambios y escrituras de scripts. |
 | `full` | 72 | La superficie empaquetada más amplia: todos los flujos manage_* más operaciones avanzadas. |
 

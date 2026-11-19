@@ -32,7 +32,7 @@ Add-on — सामान्य-उद्देश्य, अपने आप �
 | Package | Tools | अधिकतम टोकन | अधिकतम (3 instances) | कब उपयोग करें |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ सर्विस डेस्क एजेंट जिन्हें incidents और changes को अपडेट/बंद करने की आवश्यकता हो |
-| `portal_developer` | 51 | ~16.8K | ~18.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
+| `portal_developer` | 52 | ~16.8K | ~18.6K | ⚠️ पोर्टल डेवलपर जो widgets, changesets, और script includes परिनियोजित करते हैं |
 | `platform_developer` | 47 | ~13.7K | ~15.3K | ⚠️ प्लेटफ़ॉर्म इंजीनियर जो workflows, Flow Designer, और scripts प्रबंधित करते हैं |
 | `full` | 72 | ~21.8K | ~24.2K | ⚠️ सबसे उन्नत — सभी डोमेन में सभी लेखन टूल्स एक साथ (नीचे चेतावनी देखें) |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ स्वतंत्र ITSM: record का निदान, table automation का नक्शा, catalog/policy/notification config, approval और test order, assignment/approval rule और choice list, portal theme, update set या XML से ship. |

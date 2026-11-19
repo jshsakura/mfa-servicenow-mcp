@@ -25,7 +25,7 @@ slug: hi/TOOL_INVENTORY
 | `itsm_developer` | 37 | स्वतंत्र ITSM: record का निदान, table automation का नक्शा, catalog/policy/notification config, approval और test order, assignment/approval rule और choice list, portal theme, update set या XML से ship. |
 | `asset_manager` | 9 | सामग्री, asset और ITOM कार्य के लिए न्यूनतम सतह: query, और इंस्टेंस पर पहले जाँचे गए asset write (`manage_asset`)। Add-on comma से जोड़ें: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 34 | परिचालन समर्थन के लिए standard के साथ incident और change write workflows। |
-| `portal_developer` | 51 | standard के साथ portal, changeset, script include, और local-sync delivery workflows। |
+| `portal_developer` | 52 | standard के साथ portal, changeset, script include, और local-sync delivery workflows। |
 | `platform_developer` | 47 | standard के साथ workflow, Flow Designer, UI policy, incident/change, और script writes। |
 | `full` | 72 | सबसे व्यापक पैकेज सतह: सभी manage_* workflows के साथ उन्नत संचालन। |
 

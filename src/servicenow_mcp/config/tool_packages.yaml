@@ -155,6 +155,9 @@ portal_developer:
     - get_portal
     # Flow Designer (Read) — unified tool; it has no write actions any more
     - manage_flow_designer
+    # Targeted source refresh (UI actions, ticket page actions, BRs, SIs...) —
+    # one family instead of a whole-scope download_app_sources
+    - download_server_sources
     # Local Sync writes
     - update_remote_from_local
 

@@ -367,7 +367,7 @@ Set `MCP_TOOL_PACKAGE` to choose a tool set. Default: `standard` (read-only).
 | `itsm_developer` | 37 | ⚠️ Standalone ITSM: diagnose a record, map table automation, configure catalog/policies/notifications, approvals and test orders, assignment/approval rules and choice lists, portal themes, ship by update set or XML. |
 | `asset_manager` | 9 | ⚠️ Materials, asset and ITOM work: queries plus asset writes checked against the instance (`manage_asset`). Add-ons by comma: `scripting`, `office_files`, `debug_window`, `source_sync` (`MCP_TOOL_PACKAGE=asset_manager,office_files`) |
 | `service_desk` | 34 | standard + incident and change operational writes |
-| `portal_developer` | 51 | standard + portal, changeset, script include, and local-sync delivery workflows |
+| `portal_developer` | 52 | standard + portal, changeset, script include, and local-sync delivery workflows |
 | `platform_developer` | 47 | standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
 | `full` | 72 | Broadest packaged surface: all `manage_*` workflows plus advanced operations |
 

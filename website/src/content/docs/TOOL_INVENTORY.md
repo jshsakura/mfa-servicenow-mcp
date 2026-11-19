@@ -21,7 +21,7 @@ It is documented below, but package counts in this file reflect the YAML-defined
 | `core` | 12 | Minimal read-only essentials for quick health/schema/table work. |
 | `standard` | 31 | Default read-only package across incidents, changes, portal, logs, and source analysis. |
 | `service_desk` | 34 | standard plus incident and change write workflows for operational support. |
-| `portal_developer` | 51 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
+| `portal_developer` | 52 | standard plus portal, changeset, script include, and local-sync delivery workflows. |
 | `platform_developer` | 47 | standard plus workflow, Flow Designer, UI policy, incident/change, and script writes. |
 | `full` | 72 | Broadest packaged surface: all manage_* workflows plus advanced operations. |
 | `itsm_developer` | 37 | Standalone ITSM: records, approvals, catalog/policy config, portal themes, shipping. |
@@ -319,7 +319,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
 | `download_app_sources` | R | FULL/all source of an app scope to disk (all groups+deps). scope REQUIRED — ask user. Step 1, not portal. | standard, portal_developer, platform_developer, service_desk, full |
-| `download_server_sources` | R | Targeted source families (SIs/BRs/UI/api/security/admin/theme). Whole app: download_app_sources. | platform_developer, itsm_developer, source_sync, full |
+| `download_server_sources` | R | Targeted source families (SIs/BRs/UI/api/security/admin/theme). Whole app: download_app_sources. | portal_developer, platform_developer, itsm_developer, source_sync, full |
 | `download_table_schema` | R | Download sys_dictionary field defs. Specify tables or auto-detect from local sources. | platform_developer, full |
 | `extract_table_dependencies` | R | GlideRecord table dependency graph from server scripts (SI/BR/widgets). Pass widget_id for one widget. | standard, portal_developer, platform_developer, service_desk, scripting, full |
 | `get_metadata_source` | R | Get one source record (SI/BR/widget) by name/sys_id. Returns body; 'complete' flags if truncated preview. | standard, portal_developer, platform_developer, service_desk, itsm_developer, scripting, full |

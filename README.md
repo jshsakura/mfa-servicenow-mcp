@@ -502,7 +502,7 @@ Read-only (safe defaults):
 | Package | Tools | Max tokens | Max (3 instances) | Description |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + incident and change operational writes |
-| `portal_developer` | 51 | ~16.8K | ~18.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
+| `portal_developer` | 52 | ~16.8K | ~18.6K | ⚠️ standard + portal, changeset, script include, and local-sync delivery writes |
 | `platform_developer` | 47 | ~13.7K | ~15.3K | ⚠️ standard + workflow, Flow Designer, UI policy, incident/change, and script writes |
 | `full` | 72 | ~21.8K | ~24.2K | ⚠️ **Most advanced** — all write tools across all domains at once |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ Standalone ITSM: diagnose a record, map table automation, configure catalog/policies/notifications, approvals and test orders, assignment/approval rules and choice lists, portal themes, ship by update set or XML. |

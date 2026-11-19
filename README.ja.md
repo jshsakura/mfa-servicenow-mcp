@@ -498,7 +498,7 @@ python -m servicenow_mcp \
 | Package | Tools | 最大トークン | 最大（インスタンス3件） | Description |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + インシデントと変更の運用書き込み |
-| `portal_developer` | 51 | ~16.8K | ~18.6K | ⚠️ standard + ポータル、changeset、script include、ローカル同期配信の書き込み |
+| `portal_developer` | 52 | ~16.8K | ~18.6K | ⚠️ standard + ポータル、changeset、script include、ローカル同期配信の書き込み |
 | `platform_developer` | 47 | ~13.7K | ~15.3K | ⚠️ standard + ワークフロー、Flow Designer、UI policy、インシデント/変更、スクリプトの書き込み |
 | `full` | 72 | ~21.8K | ~24.2K | ⚠️ **最も高度** — すべてのドメインにまたがるすべての書き込みツールを一度に |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ 単体で完結する ITSM：レコードの診断、テーブル自動化の把握、カタログ・ポリシー・通知の設定、承認とテスト発注、割り当て・承認ルールと選択肢リスト、ポータルテーマ、更新セットまたは XML で出荷。 |

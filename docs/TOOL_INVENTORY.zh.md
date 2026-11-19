@@ -21,7 +21,7 @@
 | `itsm_developer` | 37 | 独立的 ITSM 组合：诊断记录、梳理表自动化、配置目录/策略/通知、审批与测试下单、分配/审批规则与选项列表、门户主题，通过更新集或 XML 交付。 |
 | `asset_manager` | 9 | 面向物料、资产和 ITOM 工作的最简组合：查询，以及先在实例上校验的资产写入（`manage_asset`）。附加包用逗号添加：`scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `service_desk` | 34 | standard 加上用于运营支持的事件与变更写入工作流。 |
-| `portal_developer` | 51 | standard 加上门户、变更集、script include 和本地同步交付工作流。 |
+| `portal_developer` | 52 | standard 加上门户、变更集、script include 和本地同步交付工作流。 |
 | `platform_developer` | 47 | standard 加上工作流、Flow Designer、UI policy、incident/change 和脚本写入。 |
 | `full` | 72 | 最广泛的打包功能面：所有 manage_* 工作流加上高级操作。 |
 

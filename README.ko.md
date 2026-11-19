@@ -499,7 +499,7 @@ python -m servicenow_mcp \
 | 패키지명 | 도구 수 | 최대 토큰 | 최대 (인스턴스 3개) | 설명 |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + 인시던트/변경 운영 쓰기 |
-| `portal_developer` | 51 | ~16.8K | ~18.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
+| `portal_developer` | 52 | ~16.8K | ~18.6K | ⚠️ standard + 포털, 체인지셋, Script Include, 로컬 동기화 쓰기 |
 | `platform_developer` | 47 | ~13.7K | ~15.3K | ⚠️ standard + 워크플로우, Flow Designer, UI Policy, 인시던트/변경/스크립트 쓰기 |
 | `full` | 72 | ~21.8K | ~24.2K | ⚠️ **가장 고급** — 모든 도메인의 쓰기 도구 전체를 동시에 |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ 단독 ITSM 구성: 레코드 진단, 테이블 자동화 파악, 카탈로그·정책·알림 설정, 승인과 테스트 주문, 배정·승인 규칙과 선택지 목록, 포털 테마, 업데이트 세트나 XML로 배포. |

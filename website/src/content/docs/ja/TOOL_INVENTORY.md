@@ -25,7 +25,7 @@ slug: ja/TOOL_INVENTORY
 | `itsm_developer` | 37 | 単体で完結する ITSM：レコードの診断、テーブル自動化の把握、カタログ・ポリシー・通知の設定、承認とテスト発注、割り当て・承認ルールと選択肢リスト、ポータルテーマ、更新セットまたは XML で出荷。 |
 | `asset_manager` | 9 | 資材・資産・ITOM 業務向けの最小構成：クエリと、インスタンスで事前に検証する資産の書き込み（`manage_asset`）。アドオンはカンマで追加: `scripting`, `office_files`, `debug_window`, `source_sync`（`MCP_TOOL_PACKAGE=asset_manager,office_files`） |
 | `service_desk` | 34 | standard に加え、運用サポート向けのインシデントと変更の書き込みワークフロー。 |
-| `portal_developer` | 51 | standard に加え、ポータル、チェンジセット、スクリプトインクルード、ローカル同期デリバリーワークフロー。 |
+| `portal_developer` | 52 | standard に加え、ポータル、チェンジセット、スクリプトインクルード、ローカル同期デリバリーワークフロー。 |
 | `platform_developer` | 47 | standard に加え、ワークフロー、Flow Designer、UI ポリシー、インシデント/変更、スクリプトの書き込み。 |
 | `full` | 72 | 最も広いパッケージ化サーフェス: すべての manage_* ワークフローに加えて高度な操作。 |
 

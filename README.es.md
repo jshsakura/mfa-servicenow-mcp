@@ -498,7 +498,7 @@ Solo lectura (valores predeterminados seguros):
 | Paquete | Herramientas | Tokens máx. | Máx. (3 instancias) | Descripción |
 | :--- | :---: | :---: | :---: | :--- |
 | `service_desk` | 34 | ~8.3K | ~9.3K | ⚠️ standard + escrituras operativas de incidentes y cambios |
-| `portal_developer` | 51 | ~16.8K | ~18.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
+| `portal_developer` | 52 | ~16.8K | ~18.6K | ⚠️ standard + escrituras de portal, changeset, script include y entrega de sincronización local |
 | `platform_developer` | 47 | ~13.7K | ~15.3K | ⚠️ standard + escrituras de workflow, Flow Designer, UI policy, incidentes/cambios y scripts |
 | `full` | 72 | ~21.8K | ~24.2K | ⚠️ **El más avanzado** — todas las herramientas de escritura en todos los dominios a la vez |
 | `itsm_developer` | 37 | ~11.3K | ~12.7K | ⚠️ ITSM autónomo: diagnosticar un registro, mapear la automatización de una tabla, configurar catálogo/políticas/notificaciones, aprobaciones y pedidos de prueba, reglas de asignación/aprobación y listas de opciones, temas del portal, entregar por update set o XML. |
