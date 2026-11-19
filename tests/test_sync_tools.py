@@ -4306,6 +4306,11 @@ class TestContentFirstDriftGate:
         )
         assert "on_local_edits='stash'" in decision["options"]["take_server"]
         assert "download_portal_sources" not in result["message"]
+        # Re-download is the loop; the message must not send the caller there.
+        assert "re-download" not in result["message"].lower()
+        # No anchor means no download time: the risk must not order the server's
+        # last edit relative to a download that was never recorded.
+        assert "after your download" not in result["risk"].get("message", "")
 
     @patch("servicenow_mcp.tools.sync_tools.sn_query")
     @patch("servicenow_mcp.tools.sync_tools.update_portal_component")

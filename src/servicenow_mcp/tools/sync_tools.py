@@ -3573,6 +3573,24 @@ def update_remote_from_local(
                         ),
                     },
                 }
+                # The scorer phrases drift against a download time; with no anchor
+                # there is none, so "X changed this after your download" asserts an
+                # ordering nobody read (live: a 2017 OOTB stamp reported as a change
+                # made after a copy taken minutes ago). Say what is actually known.
+                last_edit = (
+                    f"'{remote_updated_by}' at {remote_updated_on}"
+                    if remote_updated_by
+                    else str(remote_updated_on)
+                )
+                risk = {
+                    **risk,
+                    "message": (
+                        f"Unknown whether your copy includes the server's last change "
+                        f"({last_edit}): there is no anchor to order them. Your push would "
+                        f"replace the differing lines of the live version; ask before forcing."
+                    ),
+                    "factors": ["no sync anchor: copy's origin version unknown"],
+                }
                 head = (
                     f"No sync anchor recorded for this local copy, so there is NO evidence of "
                     f"which server version it was taken from — it could be older than what is "
@@ -3587,12 +3605,20 @@ def update_remote_from_local(
                     f"{risk['message']} (server: {remote_updated_on}, your copy: "
                     f"{local_updated_on})."
                 )
+            # Unanchored: a re-download keeps the differing copy (LEGACY_KEPT), so
+            # pointing there is the old loop — take_server in decision_required is
+            # the call that actually takes the latest.
+            take_latest = (
+                "Or take the server's copy: decision_required.options.take_server."
+                if drift["unanchored"]
+                else "Or re-download to take the latest instead."
+            )
             message = (
                 f"{head}{live_note} To overwrite exactly this reviewed version, push again with "
                 f"force=true confirm_overwrite_updated_on='{remote_updated_on}' (re-blocks if "
                 f"the server moves again; for a record tracked in an update set the overwritten "
                 f"body is normally recoverable from the server's version history, which is not "
-                f"guaranteed for every table). Or re-download to take the latest instead."
+                f"guaranteed for every table). {take_latest}"
             )
             return {
                 "error": error_code,
