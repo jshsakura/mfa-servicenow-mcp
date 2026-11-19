@@ -74,6 +74,13 @@ def test_focused_scope_does_not_accept_a_menu_item():
     assert "not run" in message
 
 
+def test_an_open_menu_is_found_by_its_trigger():
+    # Live: the trigger was in open_popups and expect looked everywhere else.
+    page = ScriptedPage([{"open_popups": ["More Actions menu"], "near_focus": ["Properties"]}])
+    out = actions._expect(page, _expect("More Actions", "listed"), 1)
+    assert out == {"expected": "'More Actions' in open_popups"}
+
+
 def test_gone_passes_once_the_text_is_absent():
     page = ScriptedPage([{"dialogs": ["Discard changes? [Cancel | OK]"]}, {}])
     assert actions._expect(page, _expect("Discard", "gone"), 1) == {"expected": "'Discard' gone"}

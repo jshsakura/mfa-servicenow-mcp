@@ -691,7 +691,7 @@ def _expect_where(state: Dict[str, Any], needle: str, scope: str) -> Optional[st
             ("focused", [str(focused.get("label") or ""), str(focused.get("value") or "")])
         )
     if scope in ("any", "listed", "gone"):
-        for key in ("menu", "options", "near_focus", "dialogs"):
+        for key in ("open_popups", "menu", "options", "near_focus", "dialogs"):
             places.append((key, [str(v) for v in state.get(key) or []]))
     if scope in ("any", "gone"):
         for key in ("alerts", "selected_tabs", "outline"):
