@@ -190,7 +190,7 @@ class _RowLocator:
 def row(monkeypatch):
     holder = {}
 
-    def _resolve(page, selector, timeout_ms, need_visible):
+    def _resolve(page, selector, timeout_ms, need_visible, notes=None):
         return holder["loc"]
 
     monkeypatch.setattr(actions, "_resolve_locator", _resolve)
@@ -280,3 +280,63 @@ def test_the_signature_is_fetched_when_the_summary_has_none(monkeypatch):
     )
     out = fdt._attach_stages_and_signature({"tree": []}, None, None, "x")
     assert out["signature"] == {"variables": [{"name": "isdone", "type": "boolean"}]}
+
+
+# --- a label typed in the wrong case ----------------------------------------
+
+
+def test_caseless_selector_relaxes_quoted_attribute_values_only():
+    sel = '[aria-label="Add action, Flow Logic"] >> nth=0'
+    assert actions.caseless_selector(sel) == '[aria-label="Add action, Flow Logic" i]'
+    assert actions.caseless_selector('[aria-label^="Expand" i]') is None
+    assert actions.caseless_selector("button:has-text('Save')") is None
+    assert actions.caseless_selector("f5e19") is None
+    # A middle index could land on a neighbour once case stops telling them apart.
+    assert actions.caseless_selector('[aria-label="Add"] >> nth=2') is None
+
+
+class _CaseDoc:
+    """Matches CSS attribute values the way a browser does: exact unless ` i`."""
+
+    def __init__(self, labels):
+        self.labels = labels
+        self.main_frame = self
+        self.frames = [self]
+
+    def _hits(self, selector):
+        sel = selector.replace(" >> visible=true", "")
+        value = sel.split('="', 1)[1].split('"', 1)[0]
+        if sel.endswith(" i]"):
+            return [lab for lab in self.labels if lab.lower() == value.lower()]
+        return [lab for lab in self.labels if lab == value]
+
+    def locator(self, selector):
+        return _CaseHits(self._hits(selector))
+
+
+class _CaseHits:
+    def __init__(self, labels):
+        self.labels = labels
+        self.first = labels[0] if labels else None
+
+    def count(self):
+        return len(self.labels)
+
+    def nth(self, i):
+        return self.labels[i]
+
+
+def test_one_element_differing_only_in_case_is_used_and_said():
+    page = _CaseDoc(["Add Action, Flow Logic"])
+    notes = {}
+    got = actions._resolve_locator(
+        page, '[aria-label="Add action, Flow Logic"]', 300, need_visible=True, notes=notes
+    )
+    assert got == "Add Action, Flow Logic"
+    assert notes == {"matched_ignoring_case": '[aria-label="Add action, Flow Logic" i]'}
+
+
+def test_two_elements_differing_only_in_case_are_not_a_guess():
+    page = _CaseDoc(["Add Action", "ADD ACTION"])
+    with pytest.raises(LookupError):
+        actions._resolve_locator(page, '[aria-label="add action"]', 200, need_visible=True)

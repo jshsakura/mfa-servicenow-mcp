@@ -296,7 +296,64 @@ def _any_visible(page: Any, selector: str, *, unreadable: bool) -> bool:
     return False
 
 
-def _resolve_locator(page: Any, selector: str, timeout_ms: int, *, need_visible: bool) -> Any:
+# `[aria-label="Add action, …"]` against a button labelled "Add Action, …" — the
+# commonest miss in one live Workflow Studio hour (labels are typed from memory,
+# and the builder capitalises them). Each one waited out its whole timeout while
+# near_matches named the right element. Attribute values compare case-sensitively
+# in CSS unless the selector carries ` i`.
+_ATTR_EQUALS = re.compile(r"""\[\s*([\w-]+)\s*([*^$|~]?=)\s*(["'])(.*?)\3\s*\]""")
+_NTH_SUFFIX = re.compile(r"\s*>>\s*nth=(-?\d+)\s*$")
+
+
+def caseless_selector(selector: str) -> Optional[str]:
+    """The same selector with every quoted attribute value compared ignoring case.
+
+    None when there is nothing to relax: a ref, or no quoted attribute value, or
+    one that already carries the ` i` flag. An `nth` other than the first/last
+    is not relaxed either — another element that only differs in case would
+    shift the index, and the step would act on a neighbour.
+    """
+    if selector.startswith(REF_PREFIX):
+        return None
+    nth = _NTH_SUFFIX.search(selector)
+    if nth and nth.group(1) not in ("0", "-1"):
+        return None
+    base = selector[: nth.start()] if nth else selector
+    relaxed = _ATTR_EQUALS.sub(
+        lambda m: f"[{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}{m.group(3)} i]", base
+    )
+    return relaxed if relaxed != base else None
+
+
+def _only_caseless_match(page: Any, relaxed: str, *, need_visible: bool) -> Any:
+    """The element ``relaxed`` names, when exactly one in the whole page does.
+
+    Two or more is not a guess this makes: the caller named one element, and case
+    is the only thing that told them apart.
+    """
+    found: List[Any] = []
+    for target in _targets(page):
+        if not _has(target, relaxed):
+            continue
+        try:
+            matches = target.locator(f"{relaxed} >> visible=true" if need_visible else relaxed)
+            count = matches.count()
+        except Exception:  # noqa: BLE001 - unknown is not a match
+            return None
+        found.extend(matches.nth(i) for i in range(min(count, 2)))
+        if len(found) > 1:
+            return None
+    return found[0] if len(found) == 1 else None
+
+
+def _resolve_locator(
+    page: Any,
+    selector: str,
+    timeout_ms: int,
+    *,
+    need_visible: bool,
+    notes: Optional[Dict[str, Any]] = None,
+) -> Any:
     """The element a step should act on, waiting for it across page and frames.
 
     Portal pages keep hidden copies of the same markup (modals, inactive tabs), so
@@ -314,12 +371,15 @@ def _resolve_locator(page: Any, selector: str, timeout_ms: int, *, need_visible:
     if selector.startswith(REF_PREFIX):
         return _resolve_ref(page, selector)
     deadline = time.time() + max(0.0, timeout_ms / 1000.0)
+    relaxed = caseless_selector(selector)
     hidden = 0
     while True:
         hidden = 0
+        seen = False
         for target in _targets(page):
             if not _has(target, selector):
                 continue
+            seen = True
             matches = target.locator(selector)
             if not need_visible:
                 return matches.first
@@ -331,6 +391,14 @@ def _resolve_locator(page: Any, selector: str, timeout_ms: int, *, need_visible:
             if visible is not None:
                 return visible
             hidden += matches.count()
+        if not seen and relaxed:
+            # Same wait, same deadline: only what counts as a match is wider, and
+            # only to one element. Said in the step, so the caller fixes its label.
+            only = _only_caseless_match(page, relaxed, need_visible=need_visible)
+            if only is not None:
+                if notes is not None:
+                    notes["matched_ignoring_case"] = relaxed
+                return only
         if time.time() >= deadline:
             if hidden:
                 raise _OnlyHidden(hidden)
@@ -764,6 +832,7 @@ def _run_step(
     selector = step["selector"]
     timeout_ms = step["timeout_ms"]
     context = session or {}
+    notes: Dict[str, Any] = {}
 
     if not allow_server_script and name in ACTIVATING_ACTIONS:
         surface = surface_for_url(_page_url(page))
@@ -900,7 +969,9 @@ def _run_step(
 
     try:
         # A key can go to a focused element nobody can see; the rest need one in view.
-        locator = _resolve_locator(page, selector, timeout_ms, need_visible=name != "press")
+        locator = _resolve_locator(
+            page, selector, timeout_ms, need_visible=name != "press", notes=notes
+        )
     except _StaleRef as exc:
         raise ActionError(_stale_ref_message(selector), index=index) from exc
     except _OnlyHidden as exc:
@@ -971,7 +1042,10 @@ def _run_step(
                 # the highlighted "Metric" (live, Workflow Studio). The row was
                 # named, so choosing it is a click on it.
                 locator.click(timeout=timeout_ms)
-                return {"clicked_row": f"'{step['key']}' on a list row chooses the highlighted one"}
+                return {
+                    **notes,
+                    "clicked_row": f"'{step['key']}' on a list row chooses the highlighted one",
+                }
             locator.press(step["key"], timeout=timeout_ms)
         elif name == "type":
             locator.press_sequentially(step["value"], timeout=timeout_ms)
@@ -987,7 +1061,7 @@ def _run_step(
             near=near_matches(page, selector) if reason else None,
         ) from exc
 
-    return {}
+    return notes
 
 
 def act(
