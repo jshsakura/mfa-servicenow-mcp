@@ -1423,13 +1423,25 @@ def update_set_context(
         # the write where it is first seen, not on the next wrong capture.
         instance = str(getattr(server.config, "instance_url", "") or "")
         before = _LAST_SEEN_UPDATE_SET.get(instance)
-        _LAST_SEEN_UPDATE_SET[instance] = (us["sys_id"], us_name)
-        # A deliberate pick is the caller's own move, not news.
-        if before and before[0] != us["sys_id"] and tool_name != "manage_session_context":
+        # Every app has its own "Default": a bare name cannot say which one moved
+        # where ('Default' → 'Default' was printed live), so the scope rides along.
+        label = f"'{us_name}' ({ctx['update_set_scope']})"
+        _LAST_SEEN_UPDATE_SET[instance] = (us["sys_id"], us_name, label)
+        # A deliberate pick is the caller's own move, not news — and so is a tool
+        # that switched the session app itself and says so in its own response
+        # (manage_changeset create lands the session in the set's app). Blaming
+        # the debug window or another session for that names a cause never read.
+        moved_by_this_call = isinstance(result, dict) and bool(result.get("session_application"))
+        if (
+            before
+            and before[0] != us["sys_id"]
+            and tool_name != "manage_session_context"
+            and not moved_by_this_call
+        ):
             ctx["changed_from"] = before[1]
             notes.append(
-                f"⚠ Current update set changed since your last write: '{before[1]}' → "
-                f"'{us_name}'. It is per USER, not per session: the debug window (Workflow "
+                f"⚠ Current update set changed since your last write: {before[2]} → "
+                f"{label}. It is per USER, not per session: the debug window (Workflow "
                 "Studio saving in a scoped app switches it) or another session of the same "
                 "user moved it. Switch back with "
                 f"manage_session_context(action='set_update_set', update_set_id='{before[0]}') "
@@ -1452,7 +1464,7 @@ def update_set_context(
 
 
 # instance_url -> (sys_id, name) of the current update set at this process's last write.
-_LAST_SEEN_UPDATE_SET: Dict[str, Tuple[str, str]] = {}
+_LAST_SEEN_UPDATE_SET: Dict[str, Tuple[str, str, str]] = {}
 
 
 # ---------------------------------------------------------------------------

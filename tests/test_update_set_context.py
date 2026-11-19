@@ -41,7 +41,7 @@ def test_a_set_that_moved_between_writes_is_called_out():
     ctx = _stamp(server, {"sys_id": "us-2", "name": "Sprint 13 work"}, tool="act_in_debug_window")
 
     assert ctx["changed_from"] == "Sprint 12 fixes"
-    assert "'Sprint 12 fixes' → 'Sprint 13 work'" in ctx["note"]
+    assert "'Sprint 12 fixes' (unknown) → 'Sprint 13 work' (unknown)" in ctx["note"]
     assert "update_set_id='us-1'" in ctx["note"]
 
 
@@ -80,6 +80,57 @@ def test_a_deliberate_pick_is_not_news():
     after = _stamp(server, {"sys_id": "us-2", "name": "Sprint 13 work"})
 
     assert "changed_from" not in ctx and "changed_from" not in after
+
+
+def test_two_defaults_are_told_apart_by_their_app():
+    # Live: 'Default' → 'Default' — every app has one, the name alone says nothing.
+    server = _browser_server()
+
+    def _scoped(app):
+        return lambda srv, table, query, fields: (
+            {"name": "Default", "application": {"value": app, "display_value": app}}
+            if table == "sys_update_set"
+            else None
+        )
+
+    with patch("servicenow_mcp.policies.write_guards._fetch_one", side_effect=_scoped("Global")):
+        _stamp_with_us(server, {"sys_id": "us-1", "name": "Default"})
+    with patch("servicenow_mcp.policies.write_guards._fetch_one", side_effect=_scoped("My App")):
+        ctx = _stamp_with_us(server, {"sys_id": "us-2", "name": "Default"})
+    assert "'Default' (Global) → 'Default' (My App)" in ctx["note"]
+
+
+def test_a_tool_that_switched_the_app_itself_is_not_blamed_on_someone_else():
+    # manage_changeset create lands the session in the set's app and says so;
+    # calling that "another session moved it" names a cause that was never read.
+    server = _browser_server()
+    _stamp(server, {"sys_id": "us-1", "name": "Default"})
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value={"sys_id": "us-2", "name": "Default"},
+        ),
+        patch("servicenow_mcp.policies.write_guards._fetch_one", return_value=None),
+        patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
+    ):
+        ctx = update_set_context(
+            server,
+            "manage_changeset",
+            {"action": "create"},
+            {"success": True, "session_application": "switched to My App"},
+        )
+    assert "changed_from" not in ctx
+
+
+def _stamp_with_us(server, current):
+    with (
+        patch(
+            "servicenow_mcp.tools.session_context_tools.get_current_update_set",
+            return_value=current,
+        ),
+        patch("servicenow_mcp.policies.write_guards._current_username", return_value="alice"),
+    ):
+        return update_set_context(server, "manage_script_include", {}, {})
 
 
 def _browser_server():
