@@ -88,7 +88,7 @@ def _write_failure(verb: str, changeset_id: str, exc: Exception) -> Dict[str, An
 # filter on it returns all 177 rows, i.e. the condition is dropped, and a write
 # setting it is accepted and ignored. Update sets record their author in
 # sys_created_by, which the server sets.
-_CHANGESET_UPDATE_FIELDS = ("name", "description", "state")
+_CHANGESET_UPDATE_FIELDS = ("name", "description", "state", "application")
 
 # An entry's `payload` is the whole record serialized as XML. Measured on a live
 # set of 100 entries: 13.1 MB read, 89% of it payload, against 37.6 KB for these
@@ -102,6 +102,58 @@ ENTRY_LISTING_FIELDS = (
 ENTRY_LISTING_LIMIT = 100
 
 
+def _looks_like_sys_id(value: str) -> bool:
+    return len(value) == 32 and all(c in "0123456789abcdef" for c in value.lower())
+
+
+def _resolve_application(
+    config: ServerConfig, auth_manager: AuthManager, application: str
+) -> Dict[str, Any]:
+    """sys_scope sys_id for a sys_id, a scope namespace (x_app) or an app name.
+
+    A name the server cannot resolve is not passed through: a reference value it
+    does not recognise is replaced by the field default — the session's app —
+    which is the exact mis-scoped set this guards against.
+    """
+    value = application.strip()
+    if value.lower() == "global":
+        return {"sys_id": "global", "name": "Global"}
+    query = f"sys_id={value}" if _looks_like_sys_id(value) else f"scope={value}^ORname={value}"
+    try:
+        rows, _total = sn_query_page(
+            config,
+            auth_manager,
+            table="sys_scope",
+            query=query,
+            fields="sys_id,scope,name",
+            limit=3,
+            offset=0,
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - an unread lookup is not "no such app"
+        return {
+            "error": "APPLICATION_UNRESOLVED",
+            "message": (
+                f"Could not read sys_scope to resolve application '{application}' ({exc}). "
+                f"Nothing was created; this is not proof the app does not exist."
+            ),
+        }
+    if len(rows) == 1:
+        return {"sys_id": rows[0].get("sys_id", ""), "name": rows[0].get("name", "")}
+    return {
+        "error": "APPLICATION_NOT_FOUND" if not rows else "APPLICATION_AMBIGUOUS",
+        "message": (
+            f"application '{application}' matched {len(rows)} sys_scope records"
+            + (
+                ": " + ", ".join(f"{r.get('name')} ({r.get('sys_id')})" for r in rows)
+                if rows
+                else ""
+            )
+            + ". Nothing was created. Pass the sys_scope sys_id."
+        ),
+    }
+
+
 def create(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -109,11 +161,78 @@ def create(
     name: str,
     application: str,
     description: Optional[str] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Create a new update set. The server records its author in sys_created_by."""
-    data: Dict[str, Any] = {"name": name, "application": application}
+    """Create a new update set IN the requested application, proven by read-back.
+
+    Measured live: the server ignores the ``application`` sent on insert and
+    stores the session's current app (the field default), so a set requested
+    for app X while the session sat in Global came back Global — and this used
+    to answer "created successfully". The session is switched to the app first,
+    and the stored value is checked, never assumed.
+    """
+    from servicenow_mcp.tools.session_context_tools import (
+        _APP_ENDPOINT,
+        _get_current,
+        _is_browser_auth,
+        ensure_current_app,
+    )
+
+    target = _resolve_application(config, auth_manager, application)
+    if target.get("error"):
+        return {"success": False, **target}
+    app_id, app_name = target["sys_id"], target.get("name") or target["sys_id"]
+
+    data: Dict[str, Any] = {"name": name, "application": app_id}
     if description:
         data["description"] = description
+
+    if dry_run:
+        session_app: Dict[str, Any] = {}
+        if _is_browser_auth(config):
+            try:
+                session_app = _get_current(config, auth_manager, _APP_ENDPOINT)
+            except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+                session_app = {"error": str(exc)}
+        steps = []
+        if session_app.get("sys_id") and session_app.get("sys_id") != app_id:
+            steps.append(
+                f"switch the session app from {session_app.get('name') or session_app['sys_id']} "
+                f"to {app_name} (the server stores the session's app, not the one sent)"
+            )
+        elif not session_app.get("sys_id"):
+            steps.append(
+                "session app could not be read (not browser auth, or read failed): the "
+                "stored application is checked after create instead"
+            )
+        steps.append(f"create '{name}' in {app_name}, then read back its application")
+        return {
+            "success": True,
+            "dry_run": True,
+            "would_create": data,
+            "application": {"sys_id": app_id, "name": app_name},
+            "session_application": session_app or None,
+            "steps": steps,
+        }
+
+    # Before the insert: the stored application follows the session, so the
+    # session must already be in the target app. A failed switch on browser auth
+    # stops here — creating anyway is what produced the wrong set.
+    switch = ensure_current_app(config, auth_manager, app_id)
+    if _is_browser_auth(config) and not (switch.get("switched") or switch.get("already_current")):
+        return {
+            "success": False,
+            "error": "APP_SWITCH_FAILED",
+            "message": (
+                f"Could not switch the session to {app_name} before creating '{name}', and the "
+                f"server would store the session's current app instead. Nothing was created."
+            ),
+            "app_switch": switch,
+            "next": [
+                f"manage_session_context(action='set_app', app_id='{app_id}', confirm='approve')"
+            ],
+        }
+
     url = f"{config.api_url}/table/sys_update_set"
     headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
@@ -123,14 +242,57 @@ def create(
         response.raise_for_status()
         result = response.json()
         invalidate_query_cache(table="sys_update_set")
-        return {
-            "success": True,
-            "message": "Changeset created successfully",
-            "changeset": result["result"],
-        }
     except Exception as e:
         logger.error("Error creating changeset: %s", e)
         return {"success": False, "message": f"Error creating changeset: {str(e)}"}
+
+    record = result.get("result") or {}
+    stored = _ref_value(record.get("application"))
+    out: Dict[str, Any] = {
+        "changeset": record,
+        "application": {"requested": app_id, "stored": stored, "name": app_name},
+    }
+    if switch.get("switched"):
+        out["session_application"] = (
+            f"switched to {app_name} so the set lands there; the session stays in it"
+        )
+    if stored == app_id:
+        return {"success": True, "message": f"Changeset created in {app_name}", **out}
+
+    # Wrong app. The set was just created, so it is empty, and an empty set's
+    # application may be changed ("Prevent application inconsistency" only
+    # aborts once it holds updates). Correct it and report what actually stuck.
+    set_id = str(record.get("sys_id") or "")
+    fixed = update(config, auth_manager, changeset_id=set_id, application=app_id) if set_id else {}
+    stored_after = _ref_value((fixed.get("changeset") or {}).get("application"))
+    if stored_after == app_id:
+        return {
+            "success": True,
+            "message": (
+                f"Changeset created; the server stored application '{stored}', so it was "
+                f"corrected to {app_name} while still empty."
+            ),
+            "corrected_application": True,
+            **out,
+            "application": {"requested": app_id, "stored": stored_after, "name": app_name},
+        }
+    return {
+        "success": False,
+        "error": "APPLICATION_NOT_APPLIED",
+        "message": (
+            f"The set '{name}' ({set_id}) was created, but in application '{stored}', not "
+            f"{app_name}, and correcting it did not take. Do not work in it: changes would be "
+            f"captured under the wrong app. Ask the user whether to mark it ignore."
+        ),
+        **out,
+        "correction": fixed,
+        "next": [
+            f"manage_changeset(action='update', changeset_id='{set_id}', state='ignore', "
+            "confirm='approve')",
+            f"manage_session_context(action='set_app', app_id='{app_id}', confirm='approve'), "
+            "then create again",
+        ],
+    }
 
 
 def update(
@@ -141,9 +303,14 @@ def update(
     name: Optional[str] = None,
     description: Optional[str] = None,
     state: Optional[str] = None,
+    application: Optional[str] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Update an existing update set. Supports dry-run preview."""
+    """Update an existing update set. Supports dry-run preview.
+
+    ``application`` is a sys_scope sys_id; the server refuses it once the set
+    holds updates (business rule "Prevent application inconsistency").
+    """
     if state and state.strip().lower() == "complete":
         # Completing goes through commit: it shows what the set holds, whose work
         # is in it, and where the session lands — a bare state PATCH checks none.
@@ -163,6 +330,11 @@ def update(
         data["description"] = description
     if state:
         data["state"] = state
+    if application:
+        target = _resolve_application(config, auth_manager, application)
+        if target.get("error"):
+            return {"success": False, **target}
+        data["application"] = target["sys_id"]
     if not data:
         return {"success": False, "message": "No fields to update"}
 

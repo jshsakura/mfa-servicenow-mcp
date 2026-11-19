@@ -28,33 +28,121 @@ def _auth(response_body=None):
     return auth
 
 
+_APP = "aaaa1111bbbb2222cccc3333dddd4444"
+_SCOPE_ROW = [{"sys_id": _APP, "scope": "x_myapp", "name": "My App"}]
+
+
+def _resp(body):
+    resp = MagicMock()
+    resp.json.return_value = body
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+def _stored(app):
+    return {"link": f"https://test.service-now.com/api/now/table/sys_scope/{app}", "value": app}
+
+
+@patch("servicenow_mcp.services.changeset.sn_query_page", return_value=(_SCOPE_ROW, 1))
+@patch("servicenow_mcp.services.changeset.invalidate_query_cache")
 class TestCreate(unittest.TestCase):
-    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
-    def test_success(self, mock_inv):
-        auth = _auth({"result": {"sys_id": "abc", "name": "My CS", "application": "App1"}})
-        result = cs_svc.create(_config(), auth, name="My CS", application="App1")
+    def test_success_when_the_stored_app_is_the_requested_one(self, mock_inv, _q):
+        auth = _auth({"result": {"sys_id": "abc", "name": "My CS", "application": _stored(_APP)}})
+        result = cs_svc.create(_config(), auth, name="My CS", application="x_myapp")
         self.assertTrue(result["success"])
-        self.assertEqual(result["changeset"]["sys_id"], "abc")
-        mock_inv.assert_called_once_with(table="sys_update_set")
+        self.assertEqual(result["application"]["stored"], _APP)
+        # The scope namespace was resolved; the POST carries the sys_id.
+        self.assertEqual(auth.make_request.call_args.kwargs["json"]["application"], _APP)
+        self.assertNotIn("developer", auth.make_request.call_args.kwargs["json"])
+        mock_inv.assert_called_with(table="sys_update_set")
 
-    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
-    def test_success_with_optional_fields(self, mock_inv):
-        auth = _auth({"result": {"sys_id": "abc", "name": "CS"}})
-        result = cs_svc.create(_config(), auth, name="CS", application="App", description="d")
+    def test_server_storing_the_session_app_is_caught_and_corrected(self, _inv, _q):
+        # Measured live: the server ignores the application sent on insert and
+        # stores the session's current app. This answered "created successfully".
+        auth = MagicMock()
+        auth.get_headers.return_value = {}
+        auth.make_request.side_effect = [
+            _resp({"result": {"sys_id": "abc", "name": "CS", "application": _stored("global")}}),
+            _resp({"result": {"sys_id": "abc", "name": "CS", "application": _stored(_APP)}}),
+        ]
+        result = cs_svc.create(_config(), auth, name="CS", application=_APP)
         self.assertTrue(result["success"])
-        args, kwargs = auth.make_request.call_args
-        self.assertEqual(kwargs["json"]["description"], "d")
-        # sys_update_set has no `developer` column — probed live: a filter on it
-        # returns every row, so the write was being discarded. The server
-        # records the author in sys_created_by.
-        self.assertNotIn("developer", kwargs["json"])
+        self.assertTrue(result["corrected_application"])
+        patch_call = auth.make_request.call_args_list[1]
+        self.assertEqual(patch_call.args[0], "PATCH")
+        self.assertEqual(patch_call.kwargs["json"], {"application": _APP})
 
-    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
-    def test_error(self, mock_inv):
+    def test_a_correction_that_does_not_take_is_a_failure(self, _inv, _q):
+        auth = MagicMock()
+        auth.get_headers.return_value = {}
+        wrong = _resp({"result": {"sys_id": "abc", "name": "CS", "application": _stored("global")}})
+        auth.make_request.side_effect = [wrong, wrong]
+        result = cs_svc.create(_config(), auth, name="CS", application=_APP)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "APPLICATION_NOT_APPLIED")
+        self.assertIn("state='ignore'", result["next"][0])
+
+    def test_unknown_app_creates_nothing(self, _inv, mock_q):
+        mock_q.return_value = ([], 0)
+        auth = _auth({"result": {}})
+        result = cs_svc.create(_config(), auth, name="CS", application="nope")
+        self.assertEqual(result["error"], "APPLICATION_NOT_FOUND")
+        auth.make_request.assert_not_called()
+
+    def test_unreadable_lookup_is_not_reported_as_missing(self, _inv, mock_q):
+        mock_q.side_effect = RuntimeError("403")
+        auth = _auth({"result": {}})
+        result = cs_svc.create(_config(), auth, name="CS", application="x_myapp")
+        self.assertEqual(result["error"], "APPLICATION_UNRESOLVED")
+        self.assertIn("not proof", result["message"])
+        auth.make_request.assert_not_called()
+
+    def test_browser_auth_switches_the_session_app_before_the_insert(self, _inv, _q):
+        auth = _auth({"result": {"sys_id": "abc", "application": _stored(_APP)}})
+        with (
+            patch("servicenow_mcp.tools.session_context_tools._is_browser_auth", return_value=True),
+            patch(
+                "servicenow_mcp.tools.session_context_tools.ensure_current_app",
+                return_value={"switched": True, "success": True},
+            ) as ensure,
+        ):
+            result = cs_svc.create(_config(), auth, name="CS", application=_APP)
+        ensure.assert_called_once()
+        self.assertTrue(result["success"])
+        self.assertIn("switched", result["session_application"])
+
+    def test_a_failed_switch_creates_nothing(self, _inv, _q):
+        auth = _auth({"result": {}})
+        with (
+            patch("servicenow_mcp.tools.session_context_tools._is_browser_auth", return_value=True),
+            patch(
+                "servicenow_mcp.tools.session_context_tools.ensure_current_app",
+                return_value={"switched": False, "error": "not_applied"},
+            ),
+        ):
+            result = cs_svc.create(_config(), auth, name="CS", application=_APP)
+        self.assertEqual(result["error"], "APP_SWITCH_FAILED")
+        auth.make_request.assert_not_called()
+
+    def test_dry_run_writes_nothing_and_names_the_switch(self, _inv, _q):
+        auth = _auth({"result": {}})
+        with (
+            patch("servicenow_mcp.tools.session_context_tools._is_browser_auth", return_value=True),
+            patch(
+                "servicenow_mcp.tools.session_context_tools._get_current",
+                return_value={"sys_id": "global", "name": "Global"},
+            ),
+        ):
+            result = cs_svc.create(_config(), auth, name="CS", application=_APP, dry_run=True)
+        self.assertTrue(result["dry_run"])
+        self.assertIn("switch the session app from Global", result["steps"][0])
+        auth.make_request.assert_not_called()
+
+    def test_error(self, mock_inv, _q):
         auth = MagicMock()
         auth.get_headers.return_value = {}
         auth.make_request.side_effect = Exception("Create failed")
-        result = cs_svc.create(_config(), auth, name="CS", application="App")
+        result = cs_svc.create(_config(), auth, name="CS", application=_APP)
         self.assertFalse(result["success"])
         self.assertIn("Create failed", result["message"])
         mock_inv.assert_not_called()

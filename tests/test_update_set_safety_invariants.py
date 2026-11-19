@@ -22,6 +22,7 @@ blocker, not a flaky test.
 """
 
 import asyncio
+import json
 import pathlib
 from unittest.mock import MagicMock, patch
 
@@ -105,9 +106,27 @@ class TestNoUnconfirmedCreation:
         # With confirm, creation IS allowed — but it must be a deliberate, single
         # POST the caller asked for, not a silent loop.
         server = _server(monkeypatch, tmp_path)
-        with patch.object(server.auth_manager, "make_request") as mr:
-            mr.return_value = _resp({"result": {"sys_id": "us-new", "name": "Stray Set"}})
-            _call(
+        app = "aaaa1111bbbb2222cccc3333dddd4444"
+
+        def _route(method, url, *a, **k):
+            # create resolves the app, aligns the session to it, then inserts once.
+            if "/table/sys_scope" in url:
+                body = {"result": [{"sys_id": app, "scope": "app", "name": "App"}]}
+                r = _resp(body)
+                r.text = r.content = json.dumps(body)
+                r.headers = {"X-Total-Count": "1"}
+                return r
+            return _resp({"result": {"sys_id": "us-new", "name": "Stray Set", "application": app}})
+
+        with (
+            patch.object(server.auth_manager, "make_request") as mr,
+            patch(
+                "servicenow_mcp.tools.session_context_tools.ensure_current_app",
+                return_value={"switched": False, "already_current": True},
+            ),
+        ):
+            mr.side_effect = _route
+            out = _call(
                 server,
                 "manage_changeset",
                 {
@@ -118,7 +137,7 @@ class TestNoUnconfirmedCreation:
                 },
             )
         posts = [c for c in mr.call_args_list if c.args and c.args[0] == "POST"]
-        assert len(posts) == 1, f"expected exactly one POST, got {len(posts)}"
+        assert len(posts) == 1, f"expected exactly one POST, got {len(posts)}: {out[0].text[:600]}"
 
 
 # ---------------------------------------------------------------------------
