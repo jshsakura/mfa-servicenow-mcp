@@ -313,7 +313,6 @@ MUTATING_TOOL_NAMES = frozenset(
     {
         "sn_batch",
         "sn_write",
-        "scaffold_page",
         # Clicks Save in an authenticated browser session. No Table API call is
         # involved, which is exactly why the name-prefix gate would miss it —
         # and why it belongs here: the record gets created either way.

@@ -718,15 +718,18 @@ def test_list_instances_shows_global_env_user_when_inherited(monkeypatch, tmp_pa
 
 
 def test_scaffold_page_treated_as_write_by_dispatch(monkeypatch, tmp_path):
-    # scaffold_page creates a page + rows + widget instances but matches no
-    # mutating prefix — it must still be classified a WRITE: naming a non-active
-    # instance without confirm_instance is rejected, never routed as a read.
+    # Scaffolding creates a page + rows + widget instances. It must be classified
+    # a WRITE: naming a non-active instance without confirm_instance is rejected,
+    # never routed as a read.
     server = _build_multi_server(monkeypatch, tmp_path, test_allow_writes=True)
-    seen = _register_recorder(server, "scaffold_page")
+    seen = _register_recorder(server, "manage_portal_layout")
 
     with pytest.raises(ValueError, match="confirm_instance"):
         asyncio.run(
-            server._call_tool_impl("scaffold_page", {"instance": "test", "confirm": "approve"})
+            server._call_tool_impl(
+                "manage_portal_layout",
+                {"action": "scaffold", "instance": "test", "confirm": "approve"},
+            )
         )
     assert seen == {}  # never executed
 

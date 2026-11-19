@@ -145,13 +145,7 @@ class ScaffoldPageParams(BaseModel):
     )
 
 
-@register_tool(
-    name="scaffold_page",
-    params=ScaffoldPageParams,
-    description="Create a complete portal page with layout (container/rows/columns) and widget placements in one call. Scope is required.",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# Reached through manage_portal_layout(action='scaffold'); not a tool of its own.
 def scaffold_page(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -350,6 +344,7 @@ class ManagePortalLayoutParams(BaseModel):
 
     Required per action:
       create_page:    page_id, title, scope
+      scaffold:       page_id, title, scope, rows (page + container + rows/columns/widgets)
       update_page:    sys_id, at least one field
       add_container:  sp_page
       add_row:        sp_container
@@ -363,6 +358,7 @@ class ManagePortalLayoutParams(BaseModel):
 
     action: Literal[
         "create_page",
+        "scaffold",
         "update_page",
         "add_container",
         "add_row",
@@ -421,15 +417,20 @@ class ManagePortalLayoutParams(BaseModel):
     route_id: Optional[str] = Field(default=None, description="update_route: route sys_id")
     active: Optional[bool] = Field(default=None, description="update_route: false turns it off")
 
+    # Scaffold (whole page in one call)
+    rows: Optional[List[ScaffoldRowDef]] = Field(
+        default=None, description="scaffold: rows of column sizes (sum 12) + optional widgets"
+    )
+
     dry_run: bool = Field(default=False)
 
     @model_validator(mode="after")
     def _validate_per_action(self) -> "ManagePortalLayoutParams":
         a = self.action
-        if a == "create_page":
-            for f in ("page_id", "title", "scope"):
+        if a in ("create_page", "scaffold"):
+            for f in ("page_id", "title", "scope") + (("rows",) if a == "scaffold" else ()):
                 if not getattr(self, f):
-                    raise ValueError(f"{f} is required for action='create_page'")
+                    raise ValueError(f"{f} is required for action='{a}'")
         elif a == "update_page":
             if not self.sys_id:
                 raise ValueError("sys_id is required for action='update_page'")
@@ -472,8 +473,8 @@ class ManagePortalLayoutParams(BaseModel):
     name="manage_portal_layout",
     params=ManagePortalLayoutParams,
     description=(
-        "Portal layout: page CRUD, container/row/column, widget placement, page routes "
-        "(sp_page_route_map)."
+        "Portal layout: page CRUD, scaffold (page+rows+widgets in one call), "
+        "container/row/column, widget placement, page routes (sp_page_route_map)."
     ),
     serialization="raw_dict",
     return_type=Dict[str, Any],
@@ -484,6 +485,35 @@ def manage_portal_layout(
     params: ManagePortalLayoutParams,
 ) -> Dict[str, Any]:
     a = params.action
+    if a == "scaffold":
+        assert params.page_id and params.title and params.scope and params.rows
+        scaffold = ScaffoldPageParams(
+            page_id=params.page_id,
+            title=params.title,
+            description=params.description,
+            css=params.css,
+            public=bool(params.public),
+            container_width=params.width or "container",
+            rows=params.rows,
+            scope=params.scope,
+        )
+        if params.dry_run:
+            return {
+                "success": True,
+                "dry_run": True,
+                "written": False,
+                "would_create": {
+                    "page": params.page_id,
+                    "containers": 1,
+                    "rows": len(params.rows),
+                    "columns": sum(len(r.columns) for r in params.rows),
+                    "widget_instances": sum(
+                        sum(1 for w in (r.widgets or []) if w) for r in params.rows
+                    ),
+                },
+                "message": "Preview only; column sums and duplicates are checked on the real call.",
+            }
+        return scaffold_page(config, auth_manager, scaffold)
     if a == "create_page":
         kw: Dict[str, Any] = {
             "page_id": params.page_id,

@@ -46,8 +46,6 @@ def test_portal_developer_includes_changeset_commit_and_workflow_read_tools():
     assert "trace_portal_route_targets" in portal_tools
     assert "manage_changeset" in portal_tools
     assert "manage_workflow" in portal_tools
-    assert "route_portal_component_edit" in portal_tools
-    assert "analyze_portal_component_update" in portal_tools
     assert "preview_portal_component_update" in portal_tools
     assert "manage_portal_component" in portal_tools
 
@@ -56,8 +54,6 @@ def test_full_package_includes_portal_edit_pipeline_tools():
     pkgs = _load_packages()
     full_tools = pkgs["full"]
 
-    assert "route_portal_component_edit" in full_tools
-    assert "analyze_portal_component_update" in full_tools
     assert "preview_portal_component_update" in full_tools
     assert "manage_portal_component" in full_tools
 

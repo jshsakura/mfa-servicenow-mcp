@@ -41,9 +41,7 @@ PACKAGE_DESCRIPTIONS = {
 
 READ_ONLY_OVERRIDES: set[str] = set()
 
-WRITE_ONLY_OVERRIDES = {
-    "scaffold_page",
-}
+WRITE_ONLY_OVERRIDES: set[str] = set()
 
 MODULE_TITLES = {
     "catalog_tools": "Catalog Tools",

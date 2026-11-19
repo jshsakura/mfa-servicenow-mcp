@@ -164,27 +164,8 @@ class UpdatePortalComponentParams(BaseModel):
     force: bool = Field(default=False, description="Override conflict check and write anyway.")
 
 
-class AnalyzePortalComponentUpdateParams(UpdatePortalComponentParams):
-    """Parameters for analyzing a proposed portal component update."""
-
-
 class PreviewPortalComponentUpdateParams(UpdatePortalComponentParams):
     """Parameters for previewing a proposed portal component update."""
-
-
-class RoutePortalComponentEditParams(BaseModel):
-    """Parameters for shallow natural-language routing into the portal edit pipeline."""
-
-    instruction: str = Field(..., description="Short natural-language instruction")
-    table: str | None = Field(
-        default=None,
-        description="Optional target table (sp_widget, sp_angular_provider, sys_script_include)",
-    )
-    sys_id: str | None = Field(default=None, description="Optional target component sys_id")
-    update_data: Dict[str, str] | None = Field(
-        default=None,
-        description="Optional explicit field updates for analyze/preview/apply routing",
-    )
 
 
 class DownloadPortalSourcesParams(BaseModel):
@@ -502,158 +483,6 @@ def _classify_portal_update_risk(risks: List[str], changed_field_count: int) -> 
     if changed_field_count <= 2 and len(risks) <= 3:
         return "medium"
     return "high"
-
-
-_RE_PREVIEW = re.compile(r"\b(preview|diff|show changes|what would change)\b", re.IGNORECASE)
-_RE_APPLY = re.compile(r"\b(apply|update|modify|change|patch|fix|edit)\b", re.IGNORECASE)
-
-
-def _detect_portal_edit_action(instruction: str) -> str:
-    if _RE_PREVIEW.search(instruction):
-        return "preview"
-    if _RE_APPLY.search(instruction):
-        return "apply"
-    return "analyze"
-
-
-def _detect_portal_edit_fields(instruction: str) -> List[str]:
-    lower = instruction.lower()
-    field_aliases = [
-        ("client_script", ["client script", "client_script"]),
-        ("template", ["template", "html", "markup"]),
-        ("css", ["css", "style", "styles"]),
-        ("link", ["link script", "link"]),
-        ("script", ["server script", "script include script"]),
-    ]
-    detected: List[str] = []
-    for field_name, aliases in field_aliases:
-        if any(alias in lower for alias in aliases):
-            detected.append(field_name)
-    return detected
-
-
-def _build_portal_edit_router_plan(
-    action: str, params: RoutePortalComponentEditParams
-) -> Dict[str, Any]:
-    normalized_table = _normalize_portal_component_table(params.table) if params.table else None
-    normalized_update_data = (
-        _validate_portal_component_update_data(normalized_table, params.update_data)
-        if normalized_table and params.update_data
-        else None
-    )
-
-    tool_name = {
-        "preview": "preview_portal_component_update",
-        "apply": "update_portal_component",
-        "analyze": "analyze_portal_component_update",
-    }[action]
-    missing = [
-        name
-        for name, value in [
-            ("table", normalized_table),
-            ("sys_id", params.sys_id),
-            ("update_data", normalized_update_data),
-        ]
-        if not value
-    ]
-    tool_arguments: Dict[str, Any] = {}
-    if normalized_table:
-        tool_arguments["table"] = normalized_table
-    if params.sys_id:
-        tool_arguments["sys_id"] = params.sys_id
-    if normalized_update_data:
-        tool_arguments["update_data"] = normalized_update_data
-    return {
-        "tool_name": tool_name,
-        "arguments": tool_arguments,
-        "confirmation_required": action == "apply",
-        "missing_requirements": missing,
-    }
-
-
-def _build_portal_edit_next_call_example(plan: Dict[str, Any]) -> Dict[str, Any]:
-    example_arguments = dict(plan.get("arguments") or {})
-    for missing in plan.get("missing_requirements") or []:
-        example_arguments.setdefault(missing, f"<{missing}>")
-    if plan.get("confirmation_required"):
-        example_arguments["confirm"] = "approve"
-
-    return {
-        "tool_name": str(plan.get("tool_name") or ""),
-        "arguments": example_arguments,
-    }
-
-
-def _build_portal_edit_three_stage_flow(
-    *,
-    action: str,
-    params: RoutePortalComponentEditParams,
-    suggested_fields: List[str],
-    final_plan: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    fields = list(suggested_fields or ["template", "client_script"])
-    identify_tool_name = (
-        "trace_portal_route_targets"
-        if any(
-            token in params.instruction.lower()
-            for token in ["route", "page", "url", "redirect", "navigate"]
-        )
-        else "search_portal_regex_matches"
-    )
-    identify_arguments: Dict[str, Any] = {
-        "output_mode": "minimal",
-        "max_widgets": 10,
-    }
-    if params.table == WIDGET_TABLE and params.sys_id:
-        identify_arguments["widget_ids"] = [params.sys_id]
-    elif params.sys_id and params.table == ANGULAR_PROVIDER_TABLE:
-        identify_arguments["provider_ids"] = [params.sys_id]
-    else:
-        identify_arguments["regex"] = params.instruction
-
-    inspect_arguments: Dict[str, Any] = {
-        "table": params.table or "<table>",
-        "sys_id": params.sys_id or "<sys_id>",
-        "fields": fields,
-    }
-
-    stage_one_status = "completed" if params.table and params.sys_id else "required"
-    stage_two_status = "ready" if params.table and params.sys_id else "blocked"
-    stage_three_status = "ready" if not final_plan.get("missing_requirements") else "blocked"
-    if action == "apply":
-        stage_three_goal = "깊은 적용 전에 bounded analyze/preview로 바뀔 내용을 검토"
-    else:
-        stage_three_goal = "필요할 때만 깊은 분석/미리보기/적용 단계로 진입"
-
-    return [
-        {
-            "stage": 1,
-            "name": "identify",
-            "goal": "빠르게 대상 위젯/라우트/컴포넌트를 식별한다",
-            "status": stage_one_status,
-            "tool": {
-                "tool_name": identify_tool_name,
-                "arguments": identify_arguments,
-            },
-        },
-        {
-            "stage": 2,
-            "name": "expand_related",
-            "goal": "대상 한 세트 기준으로 필요한 코드와 연관 컴포넌트만 좁게 확인한다",
-            "status": stage_two_status,
-            "tool": {
-                "tool_name": "get_portal_component_code",
-                "arguments": inspect_arguments,
-            },
-        },
-        {
-            "stage": 3,
-            "name": "deep_apply",
-            "goal": stage_three_goal,
-            "status": stage_three_status,
-            "tool": _build_portal_edit_next_call_example(final_plan),
-        },
-    ]
 
 
 SCRIPT_INCLUDE_REF_RE = re.compile(
@@ -2218,73 +2047,9 @@ def get_portal_component_code(
 
 
 @register_tool(
-    "analyze_portal_component_update",
-    params=AnalyzePortalComponentUpdateParams,
-    description="Analyze a proposed portal component edit and return bounded risk and field-change summaries",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def analyze_portal_component_update(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: AnalyzePortalComponentUpdateParams,
-) -> Dict[str, Any]:
-    normalized_table = _normalize_portal_component_table(params.table)
-    normalized_update_data = _validate_portal_component_update_data(
-        normalized_table, params.update_data
-    )
-    # full=True: change summaries (lengths, line counts, changed?) compare against
-    # the CURRENT body — the default path clips >50k fields (truncate_results) and
-    # would report a false "changed" + wrong delta for a >50KB field.
-    current_record = _fetch_portal_component_record(
-        config,
-        auth_manager,
-        normalized_table,
-        params.sys_id,
-        list(normalized_update_data.keys()),
-        full=True,
-    )
-
-    field_summaries = [
-        _build_field_change_summary(
-            field_name,
-            str(current_record.get(field_name) or ""),
-            proposed_value,
-        )
-        for field_name, proposed_value in normalized_update_data.items()
-    ]
-    changed_field_count = sum(1 for item in field_summaries if item["changed"])
-    risks = _build_portal_update_risks(normalized_table, field_summaries)
-
-    return {
-        "success": True,
-        "component": {
-            "table": normalized_table,
-            "sys_id": params.sys_id,
-            "name": str(current_record.get("name") or params.sys_id),
-        },
-        "edit_scope": {
-            "requested_fields": list(normalized_update_data.keys()),
-            "changed_fields": [item["field"] for item in field_summaries if item["changed"]],
-            "unchanged_fields": [item["field"] for item in field_summaries if not item["changed"]],
-            "changed_field_count": changed_field_count,
-        },
-        "field_analysis": field_summaries,
-        "risk_level": _classify_portal_update_risk(risks, changed_field_count),
-        "risks": risks,
-        "recommended_flow": [
-            "Run preview_portal_component_update to inspect bounded before/after diff.",
-            "Apply with update_portal_component and confirm='approve' only after review.",
-            "Validate the affected widget/page after apply.",
-        ],
-        "safety_notice": "Analysis only. No changes were applied.",
-    }
-
-
-@register_tool(
     "preview_portal_component_update",
     params=PreviewPortalComponentUpdateParams,
-    description="Preview bounded before/after snippets and diff for a proposed portal component edit",
+    description="Before an edit: risk level, changed fields and bounded diff vs the live record. Read-only.",
     serialization="raw_dict",
     return_type=dict,
 )
@@ -2322,6 +2087,8 @@ def preview_portal_component_update(
             }
         )
 
+    changed = [item["field"] for item in preview_items if item["changed"]]
+    risks = _build_portal_update_risks(normalized_table, preview_items)
     return {
         "success": True,
         "component": {
@@ -2329,64 +2096,23 @@ def preview_portal_component_update(
             "sys_id": params.sys_id,
             "name": str(current_record.get("name") or params.sys_id),
         },
+        "edit_scope": {
+            "requested_fields": list(normalized_update_data.keys()),
+            "changed_fields": changed,
+            "unchanged_fields": [item["field"] for item in preview_items if not item["changed"]],
+            "changed_field_count": len(changed),
+        },
+        "risk_level": _classify_portal_update_risk(risks, len(changed)),
+        "risks": risks,
         "preview": preview_items,
         "validation_plan": [
             "Review the bounded diff for each changed field.",
             "Confirm the target table/sys_id still points to the intended component.",
-            "Apply only after review with confirm='approve'.",
+            "Apply after review: manage_portal_component(action='update_code', table, sys_id, "
+            "update_data, confirm='approve'); for a downloaded copy use update_remote_from_local.",
+            "Validate the affected widget/page after apply.",
         ],
         "safety_notice": "Preview only. Large values and diffs are intentionally truncated for context safety.",
-    }
-
-
-@register_tool(
-    "route_portal_component_edit",
-    params=RoutePortalComponentEditParams,
-    description="Route a portal edit instruction to the right analyze/preview/apply tool.",
-    serialization="raw_dict",
-    return_type=dict,
-)
-def route_portal_component_edit(
-    config: ServerConfig,
-    auth_manager: AuthManager,
-    params: RoutePortalComponentEditParams,
-) -> Dict[str, Any]:
-    del config, auth_manager
-
-    instruction = params.instruction.strip()
-    action = _detect_portal_edit_action(instruction)
-    suggested_fields = _detect_portal_edit_fields(instruction)
-    plan = _build_portal_edit_router_plan(action, params)
-    three_stage_flow = _build_portal_edit_three_stage_flow(
-        action=action,
-        params=params,
-        suggested_fields=suggested_fields,
-        final_plan=plan,
-    )
-
-    target: Dict[str, Any] = {}
-    if params.table:
-        try:
-            target["table"] = _normalize_portal_component_table(params.table)
-        except ValueError:
-            target["table"] = params.table
-    if params.sys_id:
-        target["sys_id"] = params.sys_id
-
-    return {
-        "success": True,
-        "instruction": instruction,
-        "detected_action": action,
-        "target": target,
-        "suggested_fields": suggested_fields,
-        "workflow_rule": "Always follow 3 stages: identify quickly, expand only the related set, then deep analyze/preview/apply only when needed.",
-        "three_stage_flow": three_stage_flow,
-        "tool_plan": plan,
-        "recommended_next_call": _build_portal_edit_next_call_example(plan),
-        "safety_notice": (
-            "Routing only. This tool does not fetch, diff, or mutate remote data. "
-            "Apply still requires explicit confirmation and complete arguments."
-        ),
     }
 
 

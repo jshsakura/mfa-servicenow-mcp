@@ -5,23 +5,19 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from servicenow_mcp.tools.portal_tools import (
-    AnalyzePortalComponentUpdateParams,
     DetectAngularImplicitGlobalsParams,
     DownloadPortalSourcesParams,
     GetPortalComponentParams,
     GetWidgetBundleParams,
     PreviewPortalComponentUpdateParams,
-    RoutePortalComponentEditParams,
     SearchPortalRegexMatchesParams,
     TracePortalRouteTargetsParams,
     UpdatePortalComponentParams,
-    analyze_portal_component_update,
     detect_angular_implicit_globals,
     download_portal_sources,
     get_portal_component_code,
     get_widget_bundle,
     preview_portal_component_update,
-    route_portal_component_edit,
     search_portal_regex_matches,
     trace_portal_route_targets,
     update_portal_component,
@@ -217,58 +213,6 @@ def test_get_portal_component_code_minified_fallback(mock_sn_query, mock_config,
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_analyze_portal_component_update_returns_risk_summary(
-    mock_sn_query, mock_config, mock_auth_manager
-):
-    mock_auth_manager.make_request.side_effect = _make_request_get(
-        {
-            "sys_id": "sys-1",
-            "name": "Benefits Widget",
-            "client_script": "function run(){return true;}",
-        }
-    )
-
-    result = analyze_portal_component_update(
-        mock_config,
-        mock_auth_manager,
-        AnalyzePortalComponentUpdateParams(
-            table="sp_widget",
-            sys_id="sys-1",
-            update_data={"client_script": "function run(){return false;}"},
-        ),
-    )
-
-    assert result["success"] is True
-    assert result["risk_level"] in {"low", "medium", "high"}
-    assert result["edit_scope"]["changed_fields"] == ["client_script"]
-    assert result["field_analysis"][0]["changed"] is True
-    assert "Apply with update_portal_component" in result["recommended_flow"][1]
-
-
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
-def test_analyze_portal_component_update_matches_fixture_contract(
-    mock_sn_query, mock_config, mock_auth_manager
-):
-    before_record = _load_portal_edit_fixture("widget_before.json")
-    update_data = _load_portal_edit_fixture("widget_update_data.json")
-    expected = _load_portal_edit_fixture("expected_analyze.json")
-
-    mock_auth_manager.make_request.side_effect = _make_request_get(before_record)
-
-    result = analyze_portal_component_update(
-        mock_config,
-        mock_auth_manager,
-        AnalyzePortalComponentUpdateParams(
-            table="sp_widget",
-            sys_id=before_record["sys_id"],
-            update_data=update_data,
-        ),
-    )
-
-    assert result == expected
-
-
-@patch("servicenow_mcp.tools.portal_tools.sn_query")
 def test_preview_portal_component_update_returns_bounded_diff(
     mock_sn_query, mock_config, mock_auth_manager
 ):
@@ -294,6 +238,10 @@ def test_preview_portal_component_update_returns_bounded_diff(
     assert result["preview"][0]["field"] == "template"
     assert result["preview"][0]["changed"] is True
     assert "--- current" in result["preview"][0]["diff_preview"]
+    assert result["risk_level"] in {"low", "medium", "high"}
+    assert result["edit_scope"]["changed_fields"] == ["template"]
+    # The apply step it names must be a tool that exists.
+    assert "manage_portal_component(action='update_code'" in " ".join(result["validation_plan"])
 
 
 @patch("servicenow_mcp.tools.portal_tools.sn_query")
@@ -492,78 +440,6 @@ def test_update_portal_component_mismatch_matches_fixture_contract(
 
     assert result == expected
     assert mock_auth_manager.make_request.call_count == 2
-
-
-def test_route_portal_component_edit_routes_preview_request():
-    result = route_portal_component_edit(
-        MagicMock(),
-        MagicMock(),
-        RoutePortalComponentEditParams(
-            instruction="preview the widget client script change before applying",
-            table="sp_widget",
-            sys_id="widget-benefits-1",
-            update_data={"client_script": "function next() { return true; }"},
-        ),
-    )
-
-    assert result["detected_action"] == "preview"
-    assert result["suggested_fields"] == ["client_script"]
-    assert result["workflow_rule"].startswith("Always follow 3 stages")
-    assert [stage["name"] for stage in result["three_stage_flow"]] == [
-        "identify",
-        "expand_related",
-        "deep_apply",
-    ]
-    assert result["three_stage_flow"][0]["status"] == "completed"
-    assert result["three_stage_flow"][1]["tool"]["tool_name"] == "get_portal_component_code"
-    assert result["three_stage_flow"][2]["tool"]["tool_name"] == "preview_portal_component_update"
-    assert result["tool_plan"] == {
-        "tool_name": "preview_portal_component_update",
-        "arguments": {
-            "table": "sp_widget",
-            "sys_id": "widget-benefits-1",
-            "update_data": {"client_script": "function next() { return true; }"},
-        },
-        "confirmation_required": False,
-        "missing_requirements": [],
-    }
-    assert result["recommended_next_call"] == {
-        "tool_name": "preview_portal_component_update",
-        "arguments": {
-            "table": "sp_widget",
-            "sys_id": "widget-benefits-1",
-            "update_data": {"client_script": "function next() { return true; }"},
-        },
-    }
-
-
-def test_route_portal_component_edit_reports_missing_apply_inputs():
-    result = route_portal_component_edit(
-        MagicMock(),
-        MagicMock(),
-        RoutePortalComponentEditParams(
-            instruction="apply this widget template fix",
-            table="sp_widget",
-        ),
-    )
-
-    assert result["detected_action"] == "apply"
-    assert result["suggested_fields"] == ["template"]
-    assert result["three_stage_flow"][0]["status"] == "required"
-    assert result["three_stage_flow"][1]["status"] == "blocked"
-    assert result["three_stage_flow"][2]["status"] == "blocked"
-    assert result["tool_plan"]["tool_name"] == "update_portal_component"
-    assert result["tool_plan"]["confirmation_required"] is True
-    assert result["tool_plan"]["missing_requirements"] == ["sys_id", "update_data"]
-    assert result["recommended_next_call"] == {
-        "tool_name": "update_portal_component",
-        "arguments": {
-            "table": "sp_widget",
-            "sys_id": "<sys_id>",
-            "update_data": "<update_data>",
-            "confirm": "approve",
-        },
-    }
 
 
 def test_update_portal_component_unsupported_field_matches_fixture_contract(

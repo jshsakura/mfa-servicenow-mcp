@@ -6,7 +6,6 @@ A CI test verifies this file matches the live AST scan of the tools/ package.
 
 TOOL_MODULE_INDEX = {
     "act_in_debug_window": "browser_debug_tools",
-    "analyze_portal_component_update": "portal_tools",
     "analyze_widget_performance": "performance_tools",
     "audit_local_sources": "source_audit_tools",
     "audit_pending_changes": "audit_tools",
@@ -80,8 +79,6 @@ TOOL_MODULE_INDEX = {
     "open_debug_window": "browser_debug_tools",
     "preview_portal_component_update": "portal_tools",
     "query_local_graph": "local_graph_tools",
-    "route_portal_component_edit": "portal_tools",
-    "scaffold_page": "portal_crud_tools",
     "search_portal_regex_matches": "portal_tools",
     "search_server_code": "source_tools",
     "sn_aggregate": "sn_api",

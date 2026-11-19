@@ -17,7 +17,7 @@
 ("Security hardening", CLOSED v1.18.13-17)이 6-angle 리뷰로 이미 상당 부분 처리했다.
 중복을 피하려면 아래를 "완료된 선행 작업"으로 간주한다:
 
-- **write-classification**: `scaffold_page` confirm/allow_writes 우회 차단, 분류 테이블을 `write_guards.py` 단일 소스화 + 스냅샷 테스트로 신규 쓰기툴 누락 CI 차단.
+- **write-classification**: 페이지 스캐폴드(현 `manage_portal_layout(action='scaffold')`)의 confirm/allow_writes 우회 차단, 분류 테이블을 `write_guards.py` 단일 소스화 + 스냅샷 테스트로 신규 쓰기툴 누락 CI 차단.
 - **per-instance 크리덴셜**: `${ENV}` 간접참조로 평문 시크릿 제거, 부분참조 거부, 미해결 참조가 타 인스턴스 시크릿으로 폴백 금지.
 - **fail-safe 방향**: 깨진 인스턴스는 startup 비치명화(config_error), 깨진 ACTIVE alias는 `allow_writes=false`로 **fail-CLOSED**.
 - **파일 위생**: 캐시/프로파일 디렉토리 `0700` 강제(Chromium 쿠키 DB = replayable SSO).

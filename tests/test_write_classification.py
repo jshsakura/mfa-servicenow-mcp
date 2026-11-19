@@ -16,11 +16,13 @@ from servicenow_mcp.tools.sync_tools import _target_qualifier_fields
 
 
 class TestScaffoldPageIsMutating:
-    def test_server_classifies_scaffold_page_as_write(self):
-        assert "scaffold_page" in server_module.MUTATING_TOOL_NAMES
+    # Scaffolding now lives under manage_portal_layout(action='scaffold'), so the
+    # manage_ prefix classifies it; this pins that it never reads as read-only.
+    def test_server_classifies_scaffold_as_write(self):
+        assert server_module.ServiceNowMCP._is_blocked_mutating_tool("manage_portal_layout")
 
-    def test_write_guards_classify_scaffold_page_as_write(self):
-        assert write_guards._is_read_only("scaffold_page", {}) is False
+    def test_write_guards_classify_scaffold_as_write(self):
+        assert write_guards._is_read_only("manage_portal_layout", {"action": "scaffold"}) is False
 
 
 class TestClassificationSingleSource:
@@ -88,7 +90,6 @@ class TestQualifierMapDerived:
 # ServiceNow data.
 _READ_ONLY_TOOL_SNAPSHOT = frozenset(
     {
-        "analyze_portal_component_update",
         "analyze_widget_performance",
         "audit_local_sources",
         "audit_pending_changes",
@@ -134,7 +135,6 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "open_debug_window",
         "preview_portal_component_update",
         "query_local_graph",
-        "route_portal_component_edit",
         "search_portal_regex_matches",
         "search_server_code",
         "sn_aggregate",

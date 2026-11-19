@@ -652,48 +652,6 @@ class TestTupleCacheKeys:
 
 
 # ============================================================================
-# 8. Pre-compiled portal regex patterns
-# ============================================================================
-
-
-class TestPrecompiledPortalRegex:
-    """Verify portal edit action regexes are pre-compiled at module level."""
-
-    def test_regex_patterns_are_compiled(self):
-        """Module-level regex patterns must be compiled re.Pattern objects."""
-        import re as _re
-
-        from servicenow_mcp.tools.portal_tools import _RE_APPLY, _RE_PREVIEW
-
-        assert isinstance(_RE_PREVIEW, _re.Pattern)
-        assert isinstance(_RE_APPLY, _re.Pattern)
-
-    def test_detect_action_preview(self):
-        from servicenow_mcp.tools.portal_tools import _detect_portal_edit_action
-
-        assert _detect_portal_edit_action("preview changes") == "preview"
-        assert _detect_portal_edit_action("show diff") == "preview"
-
-    def test_detect_action_apply(self):
-        from servicenow_mcp.tools.portal_tools import _detect_portal_edit_action
-
-        assert _detect_portal_edit_action("apply the update") == "apply"
-        assert _detect_portal_edit_action("Fix the script") == "apply"
-
-    def test_detect_action_default_analyze(self):
-        from servicenow_mcp.tools.portal_tools import _detect_portal_edit_action
-
-        assert _detect_portal_edit_action("what does this widget do") == "analyze"
-
-    def test_case_insensitive(self):
-        """Patterns must match regardless of case."""
-        from servicenow_mcp.tools.portal_tools import _detect_portal_edit_action
-
-        assert _detect_portal_edit_action("Preview Changes") == "preview"
-        assert _detect_portal_edit_action("APPLY THE FIX") == "apply"
-
-
-# ============================================================================
 # 9. Basic auth header caching
 # ============================================================================
 

@@ -5,6 +5,24 @@
     "sys_id": "widget-benefits-1",
     "name": "Benefits Widget"
   },
+  "edit_scope": {
+    "requested_fields": [
+      "client_script",
+      "template"
+    ],
+    "changed_fields": [
+      "client_script",
+      "template"
+    ],
+    "unchanged_fields": [],
+    "changed_field_count": 2
+  },
+  "risk_level": "medium",
+  "risks": [
+    "Multiple fields will be modified in one write; validate widget behavior after apply.",
+    "Widget script changes can affect runtime behavior immediately; validate client/server execution paths.",
+    "Template changes should be checked for route bindings and Angular expression regressions."
+  ],
   "preview": [
     {
       "field": "client_script",
@@ -34,7 +52,8 @@
   "validation_plan": [
     "Review the bounded diff for each changed field.",
     "Confirm the target table/sys_id still points to the intended component.",
-    "Apply only after review with confirm='approve'."
+    "Apply after review: manage_portal_component(action='update_code', table, sys_id, update_data, confirm='approve'); for a downloaded copy use update_remote_from_local.",
+    "Validate the affected widget/page after apply."
   ],
   "safety_notice": "Preview only. Large values and diffs are intentionally truncated for context safety."
 }

@@ -14,8 +14,6 @@ def _build_server(monkeypatch: pytest.MonkeyPatch, tmp_path) -> ServiceNowMCP:
             [
                 "portal_developer:",
                 "  - get_widget_bundle",
-                "  - route_portal_component_edit",
-                "  - analyze_portal_component_update",
                 "  - preview_portal_component_update",
                 "  - manage_portal_component",
             ]
@@ -46,8 +44,6 @@ def test_server_loads_portal_tools(monkeypatch: pytest.MonkeyPatch, tmp_path):
     names = {tool.name for tool in tools}
 
     assert "get_widget_bundle" in names
-    assert "route_portal_component_edit" in names
-    assert "analyze_portal_component_update" in names
     assert "preview_portal_component_update" in names
     assert "manage_portal_component" in names
 
