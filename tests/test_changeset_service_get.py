@@ -34,7 +34,7 @@ def test_update_sends_only_columns_that_exist(mock_config, auth):
         captured["json"] = kwargs.get("json")
         r = MagicMock()
         r.status_code = 200
-        r.json.return_value = {"result": {"sys_id": "us_001"}}
+        r.json.return_value = {"result": {"sys_id": "us_001", **(kwargs.get("json") or {})}}
         r.raise_for_status = MagicMock()
         return r
 

@@ -88,7 +88,7 @@ def _write_failure(verb: str, changeset_id: str, exc: Exception) -> Dict[str, An
 # filter on it returns all 177 rows, i.e. the condition is dropped, and a write
 # setting it is accepted and ignored. Update sets record their author in
 # sys_created_by, which the server sets.
-_CHANGESET_UPDATE_FIELDS = ("name", "description", "state", "application")
+_CHANGESET_UPDATE_FIELDS = ("name", "description", "state")
 
 # An entry's `payload` is the whole record serialized as XML. Measured on a live
 # set of 100 entries: 13.1 MB read, 89% of it payload, against 37.6 KB for these
@@ -259,33 +259,21 @@ def create(
     if stored == app_id:
         return {"success": True, "message": f"Changeset created in {app_name}", **out}
 
-    # Wrong app. The set was just created, so it is empty, and an empty set's
-    # application may be changed ("Prevent application inconsistency" only
-    # aborts once it holds updates). Correct it and report what actually stuck.
+    # Wrong app, and it cannot be fixed in place — measured live: a PATCH of an
+    # existing set's application is silently ignored from a Global session and
+    # refused (403, cross-scope) from the target app's session. The only route
+    # is a new set made while the session is in the right app.
     set_id = str(record.get("sys_id") or "")
-    fixed = update(config, auth_manager, changeset_id=set_id, application=app_id) if set_id else {}
-    stored_after = _ref_value((fixed.get("changeset") or {}).get("application"))
-    if stored_after == app_id:
-        return {
-            "success": True,
-            "message": (
-                f"Changeset created; the server stored application '{stored}', so it was "
-                f"corrected to {app_name} while still empty."
-            ),
-            "corrected_application": True,
-            **out,
-            "application": {"requested": app_id, "stored": stored_after, "name": app_name},
-        }
     return {
         "success": False,
         "error": "APPLICATION_NOT_APPLIED",
         "message": (
-            f"The set '{name}' ({set_id}) was created, but in application '{stored}', not "
-            f"{app_name}, and correcting it did not take. Do not work in it: changes would be "
-            f"captured under the wrong app. Ask the user whether to mark it ignore."
+            f"The set '{name}' ({set_id}) was created, but the server stored application "
+            f"'{stored}', not {app_name}, and an existing set's application cannot be changed. "
+            f"Do not work in it: changes would be captured under the wrong app. Ask the user "
+            f"whether to mark it ignore, then create again from the right app."
         ),
         **out,
-        "correction": fixed,
         "next": [
             f"manage_changeset(action='update', changeset_id='{set_id}', state='ignore', "
             "confirm='approve')",
@@ -303,13 +291,13 @@ def update(
     name: Optional[str] = None,
     description: Optional[str] = None,
     state: Optional[str] = None,
-    application: Optional[str] = None,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Update an existing update set. Supports dry-run preview.
 
-    ``application`` is a sys_scope sys_id; the server refuses it once the set
-    holds updates (business rule "Prevent application inconsistency").
+    No ``application``: measured live, the server ignores it from a Global
+    session and refuses it (403) from the target app's — a mis-scoped set is
+    replaced, not re-scoped.
     """
     if state and state.strip().lower() == "complete":
         # Completing goes through commit: it shows what the set holds, whose work
@@ -330,11 +318,6 @@ def update(
         data["description"] = description
     if state:
         data["state"] = state
-    if application:
-        target = _resolve_application(config, auth_manager, application)
-        if target.get("error"):
-            return {"success": False, **target}
-        data["application"] = target["sys_id"]
     if not data:
         return {"success": False, "message": "No fields to update"}
 
@@ -357,14 +340,39 @@ def update(
         response.raise_for_status()
         result = response.json()
         invalidate_query_cache(table="sys_update_set")
-        return {
-            "success": True,
-            "message": "Changeset updated successfully",
-            "changeset": result["result"],
-        }
     except Exception as e:
         logger.error("Error updating changeset: %s", e)
         return _write_failure("updating", changeset_id, e)
+    # A 200 is not the write: this table drops a field it will not take and
+    # still answers 200 (seen live on application). Compare what was sent with
+    # what the server stored before calling it updated.
+    record = (result or {}).get("result") or {}
+
+    def _norm(value: Any) -> str:
+        # "in_progress" and "in progress" name the same choice.
+        return str(value or "").strip().lower().replace("_", " ")
+
+    not_applied = {
+        field: {"sent": sent, "stored": _ref_value(record.get(field))}
+        for field, sent in data.items()
+        if _norm(_ref_value(record.get(field))) != _norm(sent)
+    }
+    if not_applied:
+        return {
+            "success": False,
+            "error": "NOT_APPLIED",
+            "message": (
+                f"The server answered 200 but did not store: {', '.join(not_applied)}. "
+                f"Nothing about those fields changed."
+            ),
+            "not_applied": not_applied,
+            "changeset": record,
+        }
+    return {
+        "success": True,
+        "message": "Changeset updated successfully",
+        "changeset": record,
+    }
 
 
 def _commit_preflight(

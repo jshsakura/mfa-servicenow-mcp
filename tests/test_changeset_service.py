@@ -56,31 +56,20 @@ class TestCreate(unittest.TestCase):
         self.assertNotIn("developer", auth.make_request.call_args.kwargs["json"])
         mock_inv.assert_called_with(table="sys_update_set")
 
-    def test_server_storing_the_session_app_is_caught_and_corrected(self, _inv, _q):
+    def test_server_storing_the_session_app_is_a_failure_not_a_success(self, _inv, _q):
         # Measured live: the server ignores the application sent on insert and
-        # stores the session's current app. This answered "created successfully".
-        auth = MagicMock()
-        auth.get_headers.return_value = {}
-        auth.make_request.side_effect = [
-            _resp({"result": {"sys_id": "abc", "name": "CS", "application": _stored("global")}}),
-            _resp({"result": {"sys_id": "abc", "name": "CS", "application": _stored(_APP)}}),
-        ]
-        result = cs_svc.create(_config(), auth, name="CS", application=_APP)
-        self.assertTrue(result["success"])
-        self.assertTrue(result["corrected_application"])
-        patch_call = auth.make_request.call_args_list[1]
-        self.assertEqual(patch_call.args[0], "PATCH")
-        self.assertEqual(patch_call.kwargs["json"], {"application": _APP})
-
-    def test_a_correction_that_does_not_take_is_a_failure(self, _inv, _q):
-        auth = MagicMock()
-        auth.get_headers.return_value = {}
-        wrong = _resp({"result": {"sys_id": "abc", "name": "CS", "application": _stored("global")}})
-        auth.make_request.side_effect = [wrong, wrong]
+        # stores the session's current app; this answered "created successfully".
+        # An existing set cannot be re-scoped (PATCH ignored from Global, 403 from
+        # the app), so the answer is ignore + create again — and no PATCH is tried.
+        auth = _auth({"result": {"sys_id": "abc", "name": "CS", "application": _stored("global")}})
         result = cs_svc.create(_config(), auth, name="CS", application=_APP)
         self.assertFalse(result["success"])
         self.assertEqual(result["error"], "APPLICATION_NOT_APPLIED")
+        self.assertEqual(result["application"]["stored"], "global")
         self.assertIn("state='ignore'", result["next"][0])
+        self.assertIn("set_app", result["next"][1])
+        methods = [c.args[0] for c in auth.make_request.call_args_list]
+        self.assertEqual(methods, ["POST"])
 
     def test_unknown_app_creates_nothing(self, _inv, mock_q):
         mock_q.return_value = ([], 0)
@@ -149,6 +138,21 @@ class TestCreate(unittest.TestCase):
 
 
 class TestUpdate(unittest.TestCase):
+    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
+    def test_a_200_that_did_not_store_the_field_is_not_a_success(self, _inv):
+        # Seen live: sys_update_set answers 200 and drops a field it will not take.
+        auth = _auth({"result": {"sys_id": "123", "name": "Old", "state": "in progress"}})
+        result = cs_svc.update(_config(), auth, changeset_id="123", name="New")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "NOT_APPLIED")
+        self.assertEqual(result["not_applied"]["name"], {"sent": "New", "stored": "Old"})
+
+    @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
+    def test_state_spelling_does_not_read_as_not_applied(self, _inv):
+        auth = _auth({"result": {"sys_id": "123", "state": "in progress"}})
+        result = cs_svc.update(_config(), auth, changeset_id="123", state="in_progress")
+        self.assertTrue(result["success"])
+
     @patch("servicenow_mcp.services.changeset.invalidate_query_cache")
     def test_success(self, mock_inv):
         auth = _auth({"result": {"sys_id": "123", "name": "Updated", "state": "in_progress"}})

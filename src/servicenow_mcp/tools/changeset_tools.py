@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # manage_changeset — bundled CRUD + lifecycle for sys_update_set
 # ---------------------------------------------------------------------------
 
-_CHANGESET_UPDATE_FIELDS = ("name", "description", "state", "application")
+_CHANGESET_UPDATE_FIELDS = ("name", "description", "state")
 _SYS_ID_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
 # add_file was inherited from the project this one started from, which modelled
@@ -101,7 +101,7 @@ class ManageChangesetParams(BaseModel):
     description: Optional[str] = Field(default=None)
     application: Optional[str] = Field(
         default=None,
-        description="App sys_id, x_scope or name. create: required; update: fix an empty set; get filter",
+        description="App sys_id, x_scope or name. Required for create; filter for get",
     )
     state: Optional[str] = Field(
         default=None,
@@ -217,7 +217,6 @@ def manage_changeset(
             name=params.name,
             description=params.description,
             state=params.state,
-            application=params.application,
             dry_run=params.dry_run,
         )
     if params.action == "commit":
