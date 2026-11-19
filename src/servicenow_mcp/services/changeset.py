@@ -154,6 +154,177 @@ def _resolve_application(
     }
 
 
+def _enter_set_app(
+    config: ServerConfig, auth_manager: AuthManager, changeset_id: str, set_app: Optional[str]
+) -> Dict[str, Any]:
+    """Put the session in the set's own app before writing to the set.
+
+    Measured live: PATCH state=ignore on a Standard Ticket set from a Global
+    session was refused (403, cross-scope ACL); the same PATCH after set_app to
+    that app succeeded. Returns ``{"switched": bool, ...}`` with what to restore,
+    or ``{"refusal": ...}`` when the switch was tried and failed — nothing is
+    written then. A session or set app that cannot be read is not a refusal:
+    the write goes ahead unswitched and the server decides (read-back follows).
+    """
+    from servicenow_mcp.tools.session_context_tools import (
+        _APP_ENDPOINT,
+        _UPDATESET_ENDPOINT,
+        _get_current,
+        _is_browser_auth,
+        ensure_current_app,
+    )
+
+    if not _is_browser_auth(config):
+        return {"switched": False}
+    if set_app is None:
+        try:
+            set_app = _ref_value(_read_set(config, auth_manager, changeset_id).get("application"))
+        except Exception as exc:  # noqa: BLE001 - reported, the server still decides
+            return {"switched": False, "note": f"the set's app could not be read: {exc}"}
+    if not set_app:
+        return {"switched": False}
+    try:
+        session_app = _get_current(config, auth_manager, _APP_ENDPOINT)
+    except Exception as exc:  # noqa: BLE001 - reported, the server still decides
+        return {"switched": False, "note": f"session app could not be read: {exc}"}
+    if not session_app.get("sys_id") or session_app.get("sys_id") == set_app:
+        return {"switched": False}
+    try:
+        prev_set: Optional[Dict[str, Any]] = _get_current(config, auth_manager, _UPDATESET_ENDPOINT)
+    except Exception:  # noqa: BLE001 - restore then covers the app only, and says so
+        prev_set = None
+    switch = ensure_current_app(config, auth_manager, set_app)
+    if not (switch.get("switched") or switch.get("already_current")):
+        return {
+            "refusal": {
+                "success": False,
+                "written": False,
+                "error": "APP_SWITCH_FAILED",
+                "message": (
+                    f"The set belongs to app {set_app}, the session is in "
+                    f"{session_app.get('name') or session_app['sys_id']}, and switching failed. "
+                    "The server refuses a cross-app write to a set, so nothing was written."
+                ),
+                "app_switch": switch,
+                "next": [
+                    f"manage_session_context(action='set_app', app_id='{set_app}', "
+                    "confirm='approve'), then retry"
+                ],
+            }
+        }
+    return {"switched": True, "prev_app": session_app, "prev_update_set": prev_set}
+
+
+def _leave_set_app(
+    config: ServerConfig, auth_manager: AuthManager, entered: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Put the session back where it was; report what was proven restored."""
+    from servicenow_mcp.tools.session_context_tools import (
+        _UPDATESET_ENDPOINT,
+        _get_current,
+        ensure_current_app,
+        ensure_current_update_set,
+    )
+
+    app = entered["prev_app"]
+    app_label = app.get("name") or app["sys_id"]
+    back = ensure_current_app(config, auth_manager, app["sys_id"])
+    if not (back.get("switched") or back.get("already_current")):
+        return {
+            "restored": False,
+            "message": (
+                f"The session was switched to the set's app for this write and could NOT be "
+                f"switched back to {app_label}. The next change lands in the set's app."
+            ),
+            "next": [
+                f"manage_session_context(action='set_app', app_id='{app['sys_id']}', "
+                "confirm='approve')"
+            ],
+        }
+    prev_set = entered.get("prev_update_set") or {}
+    if not prev_set.get("sys_id"):
+        return {
+            "restored": "application_only",
+            "message": (
+                f"Session app is back to {app_label}; the update set it had before could not "
+                "be read, so check the current update set before the next change."
+            ),
+        }
+    try:
+        now = _get_current(config, auth_manager, _UPDATESET_ENDPOINT)
+    except Exception:  # noqa: BLE001 - unknown is not "same": set it explicitly
+        now = {}
+    if now.get("sys_id") != prev_set["sys_id"]:
+        res = ensure_current_update_set(config, auth_manager, prev_set["sys_id"])
+        if not (res.get("switched") or res.get("already_current")):
+            return {
+                "restored": "application_only",
+                "message": (
+                    f"Session app is back to {app_label}, but the update set could not be "
+                    f"switched back to {prev_set.get('name') or prev_set['sys_id']}."
+                ),
+                "next": [
+                    f"manage_session_context(action='set_update_set', "
+                    f"update_set_id='{prev_set['sys_id']}', confirm='approve')"
+                ],
+            }
+    return {
+        "restored": True,
+        "message": (
+            f"Switched to the set's app for this write, then back to {app_label} / "
+            f"{prev_set.get('name') or prev_set['sys_id']}."
+        ),
+    }
+
+
+def _session_switch_step(
+    config: ServerConfig, auth_manager: AuthManager, changeset_id: str
+) -> Optional[str]:
+    """For a preview: say so when the write will hop the session into the set's app."""
+    from servicenow_mcp.tools.session_context_tools import (
+        _APP_ENDPOINT,
+        _get_current,
+        _is_browser_auth,
+    )
+
+    if not _is_browser_auth(config):
+        return None
+    try:
+        set_app = _ref_value(_read_set(config, auth_manager, changeset_id).get("application"))
+        session_app = _get_current(config, auth_manager, _APP_ENDPOINT)
+    except Exception:  # noqa: BLE001 - a preview note, the write re-reads both
+        return None
+    if set_app and session_app.get("sys_id") and session_app["sys_id"] != set_app:
+        return (
+            f"the set is in app {set_app}, the session in "
+            f"{session_app.get('name') or session_app['sys_id']}: the write switches to the "
+            "set's app (cross-app writes are refused), then switches back"
+        )
+    return None
+
+
+def _write_in_set_app(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    changeset_id: str,
+    write: Any,
+    set_app: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Run *write* (returns the response dict) inside the set's app, then restore.
+
+    *set_app* is read from the set when not passed (browser auth only).
+    """
+    entered = _enter_set_app(config, auth_manager, changeset_id, set_app)
+    if "refusal" in entered:
+        return entered["refusal"]
+    out = write()
+    if entered.get("switched"):
+        out["session_application"] = _leave_set_app(config, auth_manager, entered)
+    elif entered.get("note") and not out.get("success"):
+        out["session_application"] = {"switched": False, "message": entered["note"]}
+    return out
+
+
 def create(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -336,7 +507,7 @@ def update(
         return {"success": False, "message": "No fields to update"}
 
     if dry_run:
-        return build_update_preview(
+        preview = build_update_preview(
             config,
             auth_manager,
             table="sys_update_set",
@@ -344,7 +515,22 @@ def update(
             proposed=data,
             identifier_fields=["name", "state", "application"],
         )
+        step = _session_switch_step(config, auth_manager, changeset_id)
+        if step:
+            preview["session_switch"] = step
+        return preview
 
+    return _write_in_set_app(
+        config,
+        auth_manager,
+        changeset_id,
+        lambda: _patch_set(config, auth_manager, changeset_id, data),
+    )
+
+
+def _patch_set(
+    config: ServerConfig, auth_manager: AuthManager, changeset_id: str, data: Dict[str, Any]
+) -> Dict[str, Any]:
     url = f"{config.api_url}/table/sys_update_set/{changeset_id}"
     headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
@@ -554,6 +740,22 @@ def commit(
         prior = str(info.get("description") or "").rstrip()
         data["description"] = f"{prior}\n\n{commit_message}" if prior else commit_message
 
+    return _write_in_set_app(
+        config,
+        auth_manager,
+        changeset_id,
+        lambda: _commit_patch(config, auth_manager, changeset_id, data, info),
+        set_app=str(info["set"].get("application") or ""),
+    )
+
+
+def _commit_patch(
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    changeset_id: str,
+    data: Dict[str, Any],
+    info: Dict[str, Any],
+) -> Dict[str, Any]:
     url = f"{config.api_url}/table/sys_update_set/{changeset_id}"
     headers = auth_manager.get_headers()
     headers["Content-Type"] = "application/json"
