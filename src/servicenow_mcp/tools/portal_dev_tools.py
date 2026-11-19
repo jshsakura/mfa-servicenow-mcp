@@ -439,13 +439,7 @@ class GetUncommittedChangesParams(BaseModel):
     )
 
 
-@register_tool(
-    name="get_uncommitted_changes",
-    params=GetUncommittedChangesParams,
-    description="List uncommitted update set entries for a developer. Returns entry type and target. Use count_only=true first.",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# Not a tool: no package ever exposed it (superseded or unused); kept as a helper.
 def get_uncommitted_changes(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -1061,13 +1055,7 @@ class GetDeveloperDailySummaryParams(BaseModel):
     )
 
 
-@register_tool(
-    name="get_developer_daily_summary",
-    params=GetDeveloperDailySummaryParams,
-    description="Generate developer daily work summary. Supports jira/plain/structured output formats.",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# Not a tool: no package ever exposed it (superseded or unused); kept as a helper.
 def get_developer_daily_summary(
     config: ServerConfig,
     auth_manager: AuthManager,

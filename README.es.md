@@ -194,7 +194,7 @@ Los proxies con inspección TLS (Zscaler y compañía) y el acceso bloqueado a P
 
 - **Autenticación por navegador** para entornos MFA/SSO (Okta, Entra ID, SAML, MFA)
 - **4 modos de autenticación**: Browser, Basic, OAuth, API Key
-- **86 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
+- **79 herramientas registradas** con **6 perfiles de paquete activos** más el `none` deshabilitado — desde el mínimo de solo lectura hasta CRUD agrupado de amplio alcance
 - **5 skills de flujo de trabajo** con compuertas de seguridad, delegación a sub-agentes y pipelines verificados
 - **Transporte Streamable HTTP** — mantén stdio como predeterminado, o expón `/mcp` para clientes y puentes con capacidad HTTP
 - **Auditoría de fuentes locales** con informe HTML, grafo de referencias cruzadas, detección de código muerto y conocimiento de dominio autogenerado

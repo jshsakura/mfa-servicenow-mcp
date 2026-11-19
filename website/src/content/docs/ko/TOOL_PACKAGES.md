@@ -101,4 +101,4 @@ Enable package 'portal_developer' or higher to use this tool.
 
 ## 전체 도구 목록
 
-카테고리와 패키지별 전체 86개 도구 목록은 [도구 목록](../TOOL_INVENTORY/)에서 확인하세요.
+카테고리와 패키지별 전체 79개 도구 목록은 [도구 목록](../TOOL_INVENTORY/)에서 확인하세요.

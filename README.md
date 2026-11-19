@@ -194,7 +194,7 @@ TLS-inspecting proxies (Zscaler and friends) and blocked PyPI access have their 
 
 - **Browser authentication** for MFA/SSO environments (Okta, Entra ID, SAML, MFA)
 - **4 auth modes**: Browser, Basic, OAuth, API Key
-- **86 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
+- **79 registered tools** with **6 active package profiles** plus disabled `none` — from minimal read-only to broad bundled CRUD
 - **4 workflow skills** with safety gates, sub-agent delegation, and verified pipelines
 - **Streamable HTTP transport** — keep stdio as the default, or expose `/mcp` for HTTP-capable clients and bridges
 - **Local source audit** with HTML report, cross-reference graph, dead code detection, and auto-generated domain knowledge

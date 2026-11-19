@@ -6,9 +6,9 @@ slug: es/TOOL_INVENTORY
 
 Para evitar el coste de mantener un inventario traducido fila por fila, este archivo es un **resumen** de la superficie de herramientas actual. Las cifras las actualiza `scripts/regenerate_doc_counts.py`.
 
-Herramientas registradas en el registro activo: **86**
+Herramientas registradas en el registro activo: **79**
 Recuento de herramientas empaquetadas en `full`: **72**
-Herramientas registradas pero actualmente sin empaquetar: **11**
+Herramientas registradas pero actualmente sin empaquetar: **4**
 
 - Listado completo herramienta por herramienta: [TOOL_INVENTORY.md en inglés](../../TOOL_INVENTORY/)
 

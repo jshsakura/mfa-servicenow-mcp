@@ -175,13 +175,7 @@ def _latest_commit_by_file(commits: List[Dict[str, Any]]) -> Dict[str, Dict[str,
     return latest
 
 
-@register_tool(
-    "get_repo_working_tree_status",
-    params=GetRepoWorkingTreeStatusParams,
-    description="Inspect working tree status including staged, unstaged, and untracked files",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# Not a tool: no package ever exposed it (superseded or unused); kept as a helper.
 def get_repo_working_tree_status(params: GetRepoWorkingTreeStatusParams) -> Dict[str, Any]:
     try:
         repo_path, branch, head = _resolve_repo(params.repo_path)
@@ -220,13 +214,7 @@ def get_repo_working_tree_status(params: GetRepoWorkingTreeStatusParams) -> Dict
     }
 
 
-@register_tool(
-    "get_repo_recent_commits",
-    params=GetRepoRecentCommitsParams,
-    description="List recent commits with author and optional changed file lists",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# Not a tool: no package ever exposed it (superseded or unused); kept as a helper.
 def get_repo_recent_commits(params: GetRepoRecentCommitsParams) -> Dict[str, Any]:
     try:
         repo_path, branch, head = _resolve_repo(params.repo_path)
@@ -262,13 +250,7 @@ def get_repo_recent_commits(params: GetRepoRecentCommitsParams) -> Dict[str, Any
     }
 
 
-@register_tool(
-    "get_repo_file_last_modifier",
-    params=GetRepoFileLastModifierParams,
-    description="Lookup per-file last modifier and commit metadata with optional uncommitted status",
-    serialization="raw_dict",
-    return_type=dict,
-)
+# Not a tool: no package ever exposed it (superseded or unused); kept as a helper.
 def get_repo_file_last_modifier(params: GetRepoFileLastModifierParams) -> Dict[str, Any]:
     try:
         repo_path, branch, head = _resolve_repo(params.repo_path)

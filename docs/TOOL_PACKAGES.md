@@ -100,4 +100,4 @@ No silent failures — the LLM knows exactly which package to request.
 
 ## Full tool list
 
-For the complete list of all 86 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).
+For the complete list of all 79 tools by category and package membership, see [Tool Inventory](TOOL_INVENTORY.md).

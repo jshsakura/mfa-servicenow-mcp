@@ -105,7 +105,6 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "export_record_xml",
         "extract_table_dependencies",
         "get_developer_changes",
-        "get_developer_daily_summary",
         "get_logs",
         "get_metadata_source",
         "get_page",
@@ -114,10 +113,6 @@ _READ_ONLY_TOOL_SNAPSHOT = frozenset(
         "get_portal",
         "get_portal_component_code",
         "get_repo_change_report",
-        "get_repo_file_last_modifier",
-        "get_repo_recent_commits",
-        "get_repo_working_tree_status",
-        "get_uncommitted_changes",
         "get_widget_bundle",
         "get_widget_instance",
         # Shared debug window. Neither of THESE two calls a ServiceNow write

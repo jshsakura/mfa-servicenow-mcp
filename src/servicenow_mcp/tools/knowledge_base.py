@@ -110,13 +110,7 @@ class ListCategoriesParams(BaseModel):
     query: Optional[str] = Field(default=None, description="Search query for categories")
 
 
-@register_tool(
-    "create_knowledge_base",
-    params=CreateKnowledgeBaseParams,
-    description="Create a knowledge base (kb_knowledge_base). Requires title. Returns sys_id.",
-    serialization="json_dict",
-    return_type=str,
-)
+# Not a tool: no package ever exposed it (superseded or unused); kept as a helper.
 def create_knowledge_base(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -288,13 +282,7 @@ def list_knowledge_bases(
         }
 
 
-@register_tool(
-    "create_category",
-    params=CreateCategoryParams,
-    description="Create a KB category under a knowledge base. Requires kb_id and label.",
-    serialization="json_dict",
-    return_type=str,
-)
+# Not a tool: no package ever exposed it (superseded or unused); kept as a helper.
 def create_category(
     config: ServerConfig,
     auth_manager: AuthManager,
