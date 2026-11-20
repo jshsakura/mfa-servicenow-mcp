@@ -657,8 +657,13 @@ def test_copy_item_does_not_leave_actions_the_instance_would_not_link():
     assert [w[0] for w in posted] == ["POST", "DELETE"]
     assert "catalog_ui_policy_action" not in out["created"]
     assert out["complete"] is False and "2 UI policy action(s) not copied" in out["message"]
-    assert any("2 UI policy action(s) NOT copied" in n and "nobody" not in n for n in out["notes"])
-    assert any("related list" in n for n in out["notes"])
+    note = next(n for n in out["notes"] if "UI policy action(s) NOT copied" in n)
+    # Says where to stop and what the user does, so the caller does not go looking.
+    assert "Do not retry" in note and "related list" in note and "Copy on the source" in note
+    assert out["not_copied_count"] == 2
+    first = out["not_copied_actions"][0]
+    assert first["policy"] == out["created"]["catalog_ui_policy"][0]["new"]
+    assert (first["variable"], first["visible"]) == ("b", "true")
 
 
 def test_copy_item_resends_through_jsonv2_what_the_table_api_dropped():

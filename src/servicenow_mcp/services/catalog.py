@@ -2162,6 +2162,7 @@ def copy_item(
     link_refusal: Optional[Dict[str, Any]] = None
     not_linked: List[str] = []
     unremoved: List[str] = []
+    pol_map: Dict[str, str] = {}
     try:
         new_item = post(item_table, item_id, item_body)
         # A child pointing at the source item points at the copy.
@@ -2197,7 +2198,6 @@ def copy_item(
             if _rv(ln.get("order")) != "":
                 body["order"] = _rv(ln.get("order"))
             post("io_set_item", _rv(ln.get("sys_id")), body)
-        pol_map: Dict[str, str] = {}
         for p in policies:
             old = _rv(p.get("sys_id"))
             pol_map[old] = post(
@@ -2259,13 +2259,36 @@ def copy_item(
             "IO: references to variables outside this item (kept as-is, e.g. set variables): "
             + ", ".join(sorted(unmapped))
         )
+    missing_actions: List[Dict[str, str]] = []
     if not_linked:
         notes.append(
-            f"{len(not_linked)} UI policy action(s) NOT copied: "
-            + (POLICY_LINK_BLOCKED if link_refusal else "their policy was not copied.")
-            + " The policies were copied; their actions must be added in the UI, or copy the "
-            "item with the platform's own Copy button, which links them."
+            f"{len(not_linked)} UI policy action(s) NOT copied; the policies were. "
+            + (POLICY_LINK_BLOCKED if link_refusal else "Their policy was not copied.")
+            + " Simplest for the user: delete this copy and press Copy on the source item's "
+            "form, which links every action (that copy comes out active, named 'Copy of …'). "
+            "Otherwise add each action in not_copied_actions from its policy."
         )
+        var_name = {_rv(v.get("sys_id")): str(_rv(v.get("name")) or "") for v in variables}
+        by_id = {_rv(a.get("sys_id")): a for a in actions}
+        pol_name = {
+            _rv(p.get("sys_id")): str(_rv(p.get("short_description")) or "") for p in policies
+        }
+        for old_id in not_linked[:_MAX_COPY_DIFFERENCES]:
+            a = by_id.get(old_id, {})
+            target = str(_rv(a.get("catalog_variable")) or "")
+            old_pol = _rv(a.get("ui_policy"))
+            missing_actions.append(
+                {
+                    "policy": pol_map.get(old_pol, ""),
+                    "policy_name": pol_name.get(old_pol, "")[:80],
+                    "variable": var_name.get(target[3:], target),
+                    **{
+                        f: str(_rv(a.get(f)))
+                        for f in ("visible", "mandatory", "disabled")
+                        if _rv(a.get(f)) not in ("", None)
+                    },
+                }
+            )
     if unremoved:
         notes.append(f"Unlinked action(s) left behind, delete them: {', '.join(unremoved)}")
     # The Table API drops or changes some values with a 200 (an onChange target, an
@@ -2311,6 +2334,11 @@ def copy_item(
         "copy_check": check,
         "skipped": skipped,
         "notes": notes,
+        **(
+            {"not_copied_actions": missing_actions, "not_copied_count": len(not_linked)}
+            if not_linked
+            else {}
+        ),
     }
 
 

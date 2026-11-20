@@ -27,10 +27,10 @@ from servicenow_mcp.utils.config import ServerConfig
 logger = logging.getLogger(__name__)
 
 POLICY_LINK_BLOCKED = (
-    "This instance does not let any API link a UI policy action to its policy "
-    "(sys_ui_policy_action.ui_policy is denied on create and write, admin included), "
-    "so the action would do nothing. Add it from the policy's 'UI Policy Actions' "
-    "related list in the platform UI."
+    "No API can link a UI policy action to its policy on this instance "
+    "(sys_ui_policy_action.ui_policy is denied on create and write, admin included). "
+    "Do not retry through another API or the debug window: tell the user to add it "
+    "from the policy's 'UI Policy Actions' related list in the platform UI."
 )
 
 
