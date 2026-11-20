@@ -72,7 +72,8 @@ class ManageUiPolicyParams(BaseModel):
       get:           ui_policy
       create:        form: table, short_description | catalog: short_description + catalog_item OR variable_set
       update:        ui_policy + at least one policy field
-      add_action:    form: ui_policy, field | catalog: ui_policy, variable (name)
+      add_action:    form: ui_policy, field | catalog: ui_policy, variable (name);
+                     refused, never left unlinked, where the instance denies ui_policy
       update_action: action_id + at least one action field
       remove_action: action_id
     """

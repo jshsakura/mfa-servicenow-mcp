@@ -6,6 +6,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services.dropped_writes import unlinked_action_removed
 from servicenow_mcp.tools.sn_api import invalidate_query_cache, sn_query_page
 from servicenow_mcp.utils.config import ServerConfig
 
@@ -144,6 +145,11 @@ def add_action(
 
         result = data["result"]
         invalidate_query_cache(table="sys_ui_policy_action")
+        refused = unlinked_action_removed(
+            config, auth_manager, "sys_ui_policy_action", result.get("sys_id", ""), ui_policy
+        )
+        if refused is not None:
+            return refused
         return {
             "success": True,
             "message": f"Created UI policy action for field '{field}'",

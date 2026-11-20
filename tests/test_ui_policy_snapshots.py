@@ -82,7 +82,13 @@ def test_snap_manage_ui_policy_add_action(mock_config, auth):
                 }
             }
         )
-        with patch("servicenow_mcp.services.ui_policy.invalidate_query_cache"):
+        with (
+            patch("servicenow_mcp.services.ui_policy.invalidate_query_cache"),
+            patch(
+                "servicenow_mcp.services.dropped_writes.stored_values",
+                return_value={"sys_id": "act_001", "ui_policy": "uip_001"},
+            ),
+        ):
             result = manage_ui_policy(
                 mock_config,
                 auth,

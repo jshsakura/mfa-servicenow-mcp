@@ -18,6 +18,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from servicenow_mcp.auth.auth_manager import AuthManager
+from servicenow_mcp.services.dropped_writes import rewrite_dropped, unlinked_action_removed
 from servicenow_mcp.tools._preview import (
     build_create_preview,
     build_delete_preview,
@@ -568,6 +569,24 @@ def add_catalog_action(
     if not sent["success"]:
         return sent
     res = sent["result"]
+    action_id = res.get("sys_id", "")
+    refused = unlinked_action_removed(config, auth, TABLES["catalog"][1], action_id, p["ui_policy"])
+    if refused is not None:
+        return refused
+    target = rewrite_dropped(
+        config,
+        auth,
+        TABLES["catalog"][1],
+        action_id,
+        {"catalog_variable": body["catalog_variable"]},
+    )
+    if not target["stored"]:
+        return _fail(
+            f"Created action {action_id} on the policy, but its variable was not stored "
+            f"({target.get('error') or 'stored empty'}): it controls nothing. Set the variable "
+            "on the action in the platform UI, or remove it.",
+            action_id=action_id,
+        )
     return {
         "success": True,
         "message": f"Created catalog UI policy action for variable '{p['variable']}'",

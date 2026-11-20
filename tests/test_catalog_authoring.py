@@ -28,37 +28,77 @@ def _config():
 class Fake:
     """Tiny in-memory instance: reads by (table, query-substring), records writes."""
 
-    def __init__(self, data=None, fail_on=None):
+    def __init__(self, data=None, fail_on=None, drops=None):
         self.data = data or {}
         self.writes = []
         self.fail_on = fail_on  # (table, nth) -> raise on that POST
+        # {(table, field)}: the Table API answers 200 and stores the field empty
+        # (measured: an action's ui_policy, a script's cat_variable). JSONv2 stores it,
+        # except ("*jsonv2", field): dropped there too.
+        self.drops = set(drops or ())
         self.counts = {}
+        self.store = {}  # (table, sys_id) -> stored row, served to sys_id reads
         self.auth = MagicMock(spec=AuthManager)
         self.auth.get_headers.return_value = {}
         self.auth.make_request.side_effect = self._request
 
     def _request(self, method, url, **kw):
+        body = kw.get("json")
+        r = MagicMock()
+        if ".do?JSONv2" in url:
+            table = url.split("/")[-1].split(".do")[0]
+            sys_id = url.split("sys_id=")[1]
+            self.writes.append(("JSONV2", table, body, url))
+            row = self.store.setdefault((table, sys_id), {"sys_id": sys_id})
+            for k, v in body.items():
+                row[k] = "" if ("*jsonv2", k) in self.drops else v
+            return r
         table = url.split("/table/")[1].split("/")[0]
+        if method == "DELETE":
+            self.writes.append((method, table, None, url))
+            self.store.pop((table, url.rsplit("/", 1)[1]), None)
+            return r
         n = self.counts[table] = self.counts.get(table, 0) + 1
         if self.fail_on == (table, n):
             raise RuntimeError("boom")
-        self.writes.append((method, table, kw.get("json"), url))
-        r = MagicMock()
-        r.json.return_value = {"result": {"sys_id": f"new{table[:6]}{n:02d}".ljust(32, "0")}}
+        self.writes.append((method, table, body, url))
+        sys_id = f"new{table[:6]}{n:02d}".ljust(32, "0")
+        stored = {k: ("" if (table, k) in self.drops else v) for k, v in (body or {}).items()}
+        self.store[(table, sys_id)] = {"sys_id": sys_id, **stored}
+        r.json.return_value = {"result": {"sys_id": sys_id}}
         return r
 
     def read(self, config, auth, *, table, query, **kw):
         for (t, needle), rows in self.data.items():
             if t == table and needle in query:
+                if isinstance(rows, Exception):
+                    raise rows
                 return rows, None
+        if query.startswith("sys_id=") or query.startswith("sys_idIN"):
+            ids = query.split("=", 1)[1] if query.startswith("sys_id=") else query[8:]
+            rows = [self.store[(table, i)] for i in ids.split(",") if (table, i) in self.store]
+            return [dict(r) for r in rows], None
         return [], None
 
 
 def _fake(data=None, **kw):
     f = Fake(data, **kw)
     p = patch.object(svc, "sn_query_page", side_effect=f.read)
-    p.start()
-    return f, p
+    p2 = patch("servicenow_mcp.services.dropped_writes.sn_query_page", side_effect=f.read)
+    p3 = patch("servicenow_mcp.services.dropped_writes.invalidate_query_cache")
+    p4 = patch("servicenow_mcp.services.ui_policy_manage.sn_query_page", side_effect=f.read)
+    for x in (p, p2, p3, p4):
+        x.start()
+    return f, _Stops(p, p2, p3, p4)
+
+
+class _Stops:
+    def __init__(self, *patches):
+        self.patches = patches
+
+    def stop(self):
+        for x in self.patches:
+            x.stop()
 
 
 @pytest.fixture(autouse=True)
@@ -470,7 +510,12 @@ def test_set_choices_refuses_ootb_parent_and_bad_input():
 
 
 def test_create_client_script_rules():
-    f, p = _fake({("sc_cat_item", f"sys_id={ITEM}"): [_own(ITEM)]})
+    f, p = _fake(
+        {
+            ("sc_cat_item", f"sys_id={ITEM}"): [_own(ITEM)],
+            ("item_option_new", f"cat_item={ITEM}"): [{"sys_id": VAR_A, "name": "a"}],
+        }
+    )
     try:
         ok = svc.create_client_script(
             _config(),
@@ -558,6 +603,7 @@ def test_child_rows_copy_every_field_their_table_has_and_point_at_the_copy():
             "cat_item": "x",
         }
     ]
+    data[("catalog_script_client", "sys_idIN")] = RuntimeError("403")
     f, p = _fake(data)
     try:
         out = svc.copy_item(_config(), f.auth, item_id=ITEM, name="Copy")
@@ -580,5 +626,112 @@ def test_child_rows_copy_every_field_their_table_has_and_point_at_the_copy():
         "sent": "true",
         "stored": "false",
     }.items() <= next(d for d in check["listed"] if d["field"] == "show_help").items()
-    # Tables the fake cannot read back are named, never counted as matching.
-    assert check["checked"] is False and check["unread"]
+    # A table that cannot be read back is named, never counted as matching.
+    assert check["checked"] is False and check["unread"] == ["catalog_script_client"]
+    assert out["complete"] is False and "INCOMPLETE" in out["message"]
+
+
+# --- values the Table API answers 200 for and does not store ------------------
+# Measured live: an action's ui_policy (deny ACL, role nobody), a script's
+# cat_variable and an action's catalog_variable come back empty; JSONv2 stores
+# the last two. A copy that reported them as copied was the bug.
+
+
+def _two_actions():
+    data = _copy_data()
+    data[("catalog_ui_policy_action", "ui_policyIN")] = [
+        {"sys_id": "pa1", "ui_policy": POL, "catalog_variable": f"IO:{VAR_B}", "visible": "true"},
+        {"sys_id": "pa2", "ui_policy": POL, "catalog_variable": f"IO:{VAR_A}", "visible": "false"},
+    ]
+    return data
+
+
+def test_copy_item_does_not_leave_actions_the_instance_would_not_link():
+    f, p = _fake(_two_actions(), drops={("catalog_ui_policy_action", "ui_policy")})
+    try:
+        out = svc.copy_item(_config(), f.auth, item_id=ITEM, name="Copy")
+    finally:
+        p.stop()
+    posted = [w for w in f.writes if w[1] == "catalog_ui_policy_action"]
+    # One probe, removed again; the second is never written.
+    assert [w[0] for w in posted] == ["POST", "DELETE"]
+    assert "catalog_ui_policy_action" not in out["created"]
+    assert out["complete"] is False and "2 UI policy action(s) not copied" in out["message"]
+    assert any("2 UI policy action(s) NOT copied" in n and "nobody" not in n for n in out["notes"])
+    assert any("related list" in n for n in out["notes"])
+
+
+def test_copy_item_resends_through_jsonv2_what_the_table_api_dropped():
+    f, p = _fake(
+        _copy_data(),
+        drops={("catalog_script_client", "cat_variable"), ("item_option_new", "type")},
+    )
+    try:
+        out = svc.copy_item(_config(), f.auth, item_id=ITEM, name="Copy")
+    finally:
+        p.stop()
+    jsonv2 = {(w[1], tuple(sorted(w[2]))) for w in f.writes if w[0] == "JSONV2"}
+    assert ("catalog_script_client", ("cat_variable",)) in jsonv2
+    assert ("item_option_new", ("type",)) in jsonv2
+    check = out["copy_check"]
+    assert check["differences"] == 0 and check["rewritten_via_jsonv2"] == 3
+    assert out["complete"] is True and "INCOMPLETE" not in out["message"]
+
+
+def test_copy_item_reports_what_neither_api_stored():
+    f, p = _fake(
+        _copy_data(),
+        drops={("catalog_script_client", "cat_variable"), ("*jsonv2", "cat_variable")},
+    )
+    try:
+        out = svc.copy_item(_config(), f.auth, item_id=ITEM, name="Copy")
+    finally:
+        p.stop()
+    check = out["copy_check"]
+    assert check["differences"] == 1 and "rewritten_via_jsonv2" not in check
+    assert check["listed"][0]["field"] == "cat_variable" and check["listed"][0]["stored"] == ""
+    assert out["complete"] is False
+
+
+def _script(f, **kw):
+    return svc.create_client_script(
+        _config(),
+        f.auth,
+        name="n",
+        script_type="onChange",
+        script="s",
+        catalog_item_id=ITEM,
+        **kw,
+    )
+
+
+_SCRIPT_DATA = {
+    ("sc_cat_item", f"sys_id={ITEM}"): [_own(ITEM)],
+    ("item_option_new", f"cat_item={ITEM}"): [{"sys_id": VAR_A, "name": "a"}],
+}
+
+
+def test_create_client_script_stores_the_variable_by_name_as_io_reference():
+    f, p = _fake(_SCRIPT_DATA, drops={("catalog_script_client", "cat_variable")})
+    try:
+        out = _script(f, cat_variable="a")
+    finally:
+        p.stop()
+    assert f.writes[0][2]["cat_variable"] == f"IO:{VAR_A}"
+    assert f.writes[1][0] == "JSONV2" and f.writes[1][2] == {"cat_variable": f"IO:{VAR_A}"}
+    assert out["success"] and out["record"]["cat_variable"] == f"IO:{VAR_A}"
+
+
+def test_create_client_script_never_reports_a_script_with_no_variable_as_created():
+    f, p = _fake(
+        _SCRIPT_DATA,
+        drops={("catalog_script_client", "cat_variable"), ("*jsonv2", "cat_variable")},
+    )
+    try:
+        out = _script(f, cat_variable="a")
+        unknown = _script(f, cat_variable="zzz")
+    finally:
+        p.stop()
+    assert out["success"] is False and out["error"] == "TARGET_VARIABLE_NOT_STORED"
+    assert f.writes[-1][0] == "DELETE" and "was removed" in out["message"]
+    assert unknown["success"] is False and "unknown variable" in unknown["message"]

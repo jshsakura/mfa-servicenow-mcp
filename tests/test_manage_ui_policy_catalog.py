@@ -183,10 +183,17 @@ class TestCatalogCreate:
         assert VAR_A in out["message"] and VAR_B in out["message"]
 
 
+STORED = "servicenow_mcp.services.dropped_writes.stored_values"
+
+
 class TestCatalogAction:
     def test_add_action_writes_io_reference(self):
         auth = _auth()
-        with patch(f"{SVC}.sn_query_page", side_effect=_fake_reads()):
+        stored = {"sys_id": "a1", "ui_policy": POLICY, "catalog_variable": f"IO:{VAR_B}"}
+        with (
+            patch(f"{SVC}.sn_query_page", side_effect=_fake_reads()),
+            patch(STORED, return_value=stored),
+        ):
             out = call(
                 auth,
                 action="add_action",
@@ -201,6 +208,19 @@ class TestCatalogAction:
         assert body["catalog_variable"] == f"IO:{VAR_B}"
         assert (body["visible"], body["mandatory"]) == ("true", "ignore")
         assert body["catalog_item"] == ITEM
+
+    def test_add_action_the_instance_left_unlinked_is_refused(self):
+        auth = _auth()
+        with (
+            patch(f"{SVC}.sn_query_page", side_effect=_fake_reads()),
+            patch(STORED, return_value={"sys_id": "a1", "ui_policy": "", "catalog_variable": ""}),
+            patch("servicenow_mcp.services.dropped_writes.invalidate_query_cache"),
+        ):
+            out = call(
+                auth, action="add_action", kind="catalog", ui_policy=POLICY, variable="model"
+            )
+        assert out["success"] is False and out["error"] == "POLICY_LINK_NOT_STORED"
+        assert auth.make_request.call_args_list[-1][0][0] == "DELETE"
 
     def test_add_action_unknown_variable_refused(self):
         auth = _auth()

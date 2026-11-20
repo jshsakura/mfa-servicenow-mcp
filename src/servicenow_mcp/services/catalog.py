@@ -14,6 +14,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services.choices import resolve_choice
+from servicenow_mcp.services.dropped_writes import (
+    POLICY_LINK_BLOCKED,
+    rewrite_dropped,
+    unlinked_action_removed,
+)
+from servicenow_mcp.services.ui_policy_manage import load_variables, resolve_variable
 from servicenow_mcp.tools._preview import build_create_preview, build_update_preview
 from servicenow_mcp.tools.sn_api import (
     SYS_ID_IN_CHUNK,
@@ -1937,7 +1943,10 @@ def _remap_ids(body: Dict[str, Any], idmap: Dict[str, str], unmapped: set) -> Di
 
 
 def _compare_copy(
-    config: ServerConfig, auth_manager: AuthManager, sent: Dict[str, List[Tuple[str, Dict]]]
+    config: ServerConfig,
+    auth_manager: AuthManager,
+    sent: Dict[str, List[Tuple[str, Dict]]],
+    every: Optional[List[Tuple[str, str, str, str]]] = None,
 ) -> Dict[str, Any]:
     """What the server KEPT of what was sent, read back table by table.
 
@@ -1974,6 +1983,8 @@ def _compare_copy(
                 kept = str(_rv(back.get(field)))
                 if kept != str(value):
                     total += 1
+                    if every is not None:
+                        every.append((table, new_id, field, str(value)))
                     if len(differences) < _MAX_COPY_DIFFERENCES:
                         differences.append(
                             {
@@ -2148,6 +2159,9 @@ def copy_item(
         return body
 
     new_item = ""
+    link_refusal: Optional[Dict[str, Any]] = None
+    not_linked: List[str] = []
+    unremoved: List[str] = []
     try:
         new_item = post(item_table, item_id, item_body)
         # A child pointing at the source item points at the copy.
@@ -2191,20 +2205,27 @@ def copy_item(
             )
         for a in actions:
             pol = _rv(a.get("ui_policy"))
-            if pol not in pol_map:
-                skipped.append(
-                    {
-                        "table": "catalog_ui_policy_action",
-                        "id": _rv(a.get("sys_id")),
-                        "reason": "ui policy not copied",
-                    }
-                )
+            if pol not in pol_map or link_refusal:
+                not_linked.append(_rv(a.get("sys_id")))
                 continue
-            post(
+            new_action = post(
                 "catalog_ui_policy_action",
                 _rv(a.get("sys_id")),
                 child("catalog_ui_policy_action", a, ui_policy=pol_map[pol], catalog_item=new_item),
             )
+            if len(created["catalog_ui_policy_action"]) == 1:
+                # The first one tells whether this instance lets an API link an action at all.
+                link_refusal = unlinked_action_removed(
+                    config, auth_manager, "catalog_ui_policy_action", new_action, pol_map[pol]
+                )
+                if link_refusal:
+                    created["catalog_ui_policy_action"].pop()
+                    sent["catalog_ui_policy_action"].pop()
+                    if not created["catalog_ui_policy_action"]:
+                        del created["catalog_ui_policy_action"], sent["catalog_ui_policy_action"]
+                    if link_refusal.get("action_id"):
+                        unremoved.append(new_action)
+                    not_linked.append(_rv(a.get("sys_id")))
         for sc in scripts:
             post(
                 "catalog_script_client",
@@ -2238,7 +2259,29 @@ def copy_item(
             "IO: references to variables outside this item (kept as-is, e.g. set variables): "
             + ", ".join(sorted(unmapped))
         )
+    if not_linked:
+        notes.append(
+            f"{len(not_linked)} UI policy action(s) NOT copied: "
+            + (POLICY_LINK_BLOCKED if link_refusal else "their policy was not copied.")
+            + " The policies were copied; their actions must be added in the UI, or copy the "
+            "item with the platform's own Copy button, which links them."
+        )
+    if unremoved:
+        notes.append(f"Unlinked action(s) left behind, delete them: {', '.join(unremoved)}")
+    # The Table API drops or changes some values with a 200 (an onChange target, an
+    # inactive variable type); JSONv2 stores them. Re-send exactly those, then compare again.
+    dropped: List[Tuple[str, str, str, str]] = []
+    _compare_copy(config, auth_manager, sent, dropped)
+    rewritten = 0
+    by_row: Dict[Tuple[str, str], Dict[str, str]] = {}
+    for table, new_id, field, value in dropped:
+        by_row.setdefault((table, new_id), {})[field] = value
+    for (table, new_id), wanted in by_row.items():
+        if rewrite_dropped(config, auth_manager, table, new_id, wanted)["stored"]:
+            rewritten += len(wanted)
     check = _compare_copy(config, auth_manager, sent)
+    if rewritten:
+        check["rewritten_via_jsonv2"] = rewritten
     if check["differences"]:
         notes.append(
             f"{check['differences']} sent value(s) were not stored as sent (derived or "
@@ -2249,9 +2292,18 @@ def copy_item(
     proof = _reread(
         config, auth_manager, item_table, new_item, "sys_id,name,active,roles,taxonomy_topic"
     )
+    gaps = []
+    if not_linked:
+        gaps.append(f"{len(not_linked)} UI policy action(s) not copied")
+    if check["differences"]:
+        gaps.append(f"{check['differences']} value(s) not stored as sent")
+    if not check["checked"]:
+        gaps.append("part of the copy unread")
     return {
         "success": True,
-        "message": f"Copied item {item_id} to {new_item} (active=false)",
+        "complete": not gaps,
+        "message": f"Copied item {item_id} to {new_item} (active=false)"
+        + (f" — INCOMPLETE: {'; '.join(gaps)}. See notes." if gaps else ""),
         "new_item_id": new_item,
         "verified": proof is not None,
         "record": proof,
@@ -2940,6 +2992,22 @@ def create_client_script(
     refusal = _writable_target(config, auth_manager, p_table, p_id)
     if refusal is not None:
         return refusal
+    target_ref = None
+    if cat_variable:
+        # The column holds IO:<sys_id>; a bare name stored there matches no variable.
+        try:
+            known, truncated = load_variables(
+                config,
+                auth_manager,
+                catalog_item=catalog_item_id or None,
+                variable_set=variable_set or None,
+            )
+        except Exception as e:
+            return _fail("Could not read the variables to resolve cat_variable", e)
+        sid, err = resolve_variable(cat_variable, known, truncated)
+        if err:
+            return {"success": False, "message": f"Refused: {err}"}
+        target_ref = f"IO:{sid}"
     body: Dict[str, Any] = {
         "name": name,
         "type": script_type,
@@ -2948,7 +3016,7 @@ def create_client_script(
         "active": "true",
     }
     for k, v in (
-        ("cat_variable", cat_variable),
+        ("cat_variable", target_ref),
         ("ui_type", ui_type),
         ("applies_catalog", applies_catalog),
         ("applies_req_item", applies_req_item),
@@ -2963,6 +3031,31 @@ def create_client_script(
     except Exception as e:
         return _fail("Error creating catalog client script", e)
     sys_id = result.get("sys_id", "")
+    if target_ref:
+        target = rewrite_dropped(
+            config, auth_manager, "catalog_script_client", sys_id, {"cat_variable": target_ref}
+        )
+        if not target["stored"]:
+            # An onChange script with no variable never runs; it is not left behind as created.
+            removed = True
+            try:
+                _table_write(config, auth_manager, "DELETE", "catalog_script_client", sys_id=sys_id)
+            except Exception:  # noqa: BLE001 - named below
+                removed = False
+            return {
+                "success": False,
+                "error": "TARGET_VARIABLE_NOT_STORED",
+                "message": (
+                    f"The instance did not store the script's variable ({cat_variable}): "
+                    f"{target.get('error') or 'stored empty'}. "
+                    + (
+                        f"The script {sys_id} was removed."
+                        if removed
+                        else f"The script {sys_id} could NOT be removed; delete it."
+                    )
+                ),
+                "sys_id": None if removed else sys_id,
+            }
     proof = _reread(
         config,
         auth_manager,

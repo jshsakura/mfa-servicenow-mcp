@@ -77,10 +77,14 @@ class TestCreate(unittest.TestCase):
         self.assertFalse(result["success"])
 
 
+LINKED = "servicenow_mcp.services.dropped_writes.stored_values"
+
+
 class TestAddAction(unittest.TestCase):
+    @patch(LINKED, return_value={"sys_id": "a1", "ui_policy": "p1"})
     @patch("servicenow_mcp.services.ui_policy.sn_query_page")
     @patch("servicenow_mcp.services.ui_policy.invalidate_query_cache")
-    def test_happy_path(self, mock_inv, mock_qp):
+    def test_happy_path(self, mock_inv, mock_qp, _linked):
         mock_qp.return_value = ([{"sys_id": "p1", "table": "incident"}], 1)
         auth = _auth()
         auth.make_request.return_value = _resp({"result": {"sys_id": "a1"}})
@@ -125,6 +129,37 @@ class TestAddAction(unittest.TestCase):
         auth.make_request.side_effect = Exception("post fail")
         result = svc.add_action(_config(), auth, ui_policy="p1", field="f")
         self.assertFalse(result["success"])
+
+    @patch("servicenow_mcp.services.dropped_writes.invalidate_query_cache")
+    @patch(LINKED, return_value={"sys_id": "a1", "ui_policy": ""})
+    @patch("servicenow_mcp.services.ui_policy.sn_query_page")
+    @patch("servicenow_mcp.services.ui_policy.invalidate_query_cache")
+    def test_an_action_the_instance_left_unlinked_is_removed_not_reported(self, _i, mock_qp, *_):
+        # Live: sys_ui_policy_action.ui_policy is denied on create (role nobody);
+        # the POST answers 200 and stores the action attached to nothing.
+        mock_qp.return_value = ([{"sys_id": "p1", "table": "incident"}], 1)
+        auth = _auth()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "a1"}})
+        result = svc.add_action(_config(), auth, ui_policy="p1", field="priority")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "POLICY_LINK_NOT_STORED")
+        self.assertIn("related list", result["message"])
+        self.assertIn("was removed", result["message"])
+        method, url = auth.make_request.call_args_list[-1][0]
+        self.assertEqual((method, url.rsplit("/", 1)[1]), ("DELETE", "a1"))
+
+    @patch(LINKED, return_value=None)
+    @patch("servicenow_mcp.services.ui_policy.sn_query_page")
+    @patch("servicenow_mcp.services.ui_policy.invalidate_query_cache")
+    def test_an_unread_action_is_kept_and_not_called_linked(self, _i, mock_qp, _l):
+        mock_qp.return_value = ([{"sys_id": "p1", "table": "incident"}], 1)
+        auth = _auth()
+        auth.make_request.return_value = _resp({"result": {"sys_id": "a1"}})
+        result = svc.add_action(_config(), auth, ui_policy="p1", field="priority")
+        self.assertFalse(result["success"])
+        self.assertEqual(result["error"], "POLICY_LINK_UNCONFIRMED")
+        self.assertEqual(result["action_id"], "a1")
+        self.assertEqual(auth.make_request.call_count, 1)
 
 
 if __name__ == "__main__":
