@@ -117,6 +117,15 @@ logger = logging.getLogger(__name__)
 
 SCREENSHOT_MODES = ("none", "viewport", "full", "element")
 
+
+def _screenshot_mode(value: str) -> str:
+    """'true'/'false' read as viewport/none: callers sent screenshot='true' in real use."""
+    low = str(value or "none").strip().lower()
+    return {"true": "viewport", "yes": "viewport", "false": "none", "no": "none", "": "none"}.get(
+        low, low
+    )
+
+
 # The second approval for the eval action. Same shape as the publish-class
 # double confirm in write_guards: one flag for "this is a write", a separate
 # one for "this specific write is the dangerous kind".
@@ -819,6 +828,7 @@ def inspect_debug_window(
     if choice is not None:
         return choice
     claim_window_slot(auth_manager)
+    params.screenshot = _screenshot_mode(params.screenshot)
     if params.screenshot not in SCREENSHOT_MODES:
         return {
             "success": False,
@@ -1014,6 +1024,7 @@ def act_in_debug_window(
     if choice is not None:
         return choice
     claim_window_slot(auth_manager)
+    params.screenshot = _screenshot_mode(params.screenshot)
     if params.screenshot not in SCREENSHOT_MODES:
         return {
             "success": False,

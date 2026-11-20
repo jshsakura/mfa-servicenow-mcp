@@ -409,8 +409,16 @@ def test_any_still_reads_everything():
 
 
 def test_an_unknown_category_is_named_not_dropped():
-    out, _ = run({}, categories=["ui_action"])
+    out, _ = run({}, categories=["ui_widgets"])
     assert out["error"] == "unknown_categories" and "ui_actions" in out["valid_categories"]
+
+
+def test_everyday_category_names_are_read_as_the_real_key_and_said():
+    # Real use sent categories=['business_rules', 'flows', 'workflows'].
+    out, _ = run({"sys_ui_action": _actions(2)}, operation="any", categories=["ui_action", "flows"])
+    assert out["success"] is True
+    assert out["categories_read_as"] == {"ui_action": "ui_actions", "flows": "flow_triggers"}
+    assert set(out["summary"]) == {"ui_actions", "flow_triggers"}
 
 
 def test_an_oversized_answer_withholds_rows_and_says_how_to_ask():

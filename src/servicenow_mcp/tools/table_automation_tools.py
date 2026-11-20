@@ -269,6 +269,13 @@ def _action_entry(row: Dict[str, Any], _f: Dict[str, str]) -> Dict[str, Any]:
 
 # name -> (sn table, column naming the target table, fields, extra query, builder, order column,
 #          flag columns usable as an operation filter or None)
+# Everyday names for a category, read as the real key and reported back.
+_CATEGORY_ALIASES = {
+    "flows": "flow_triggers",
+    "flow": "flow_triggers",
+    "workflows": "legacy_workflows",
+    "workflow": "legacy_workflows",
+}
 _CATEGORIES: Dict[str, Dict[str, Any]] = {
     "business_rules": {
         "table": "sys_script",
@@ -675,8 +682,21 @@ def get_table_automation(
     tables = [table] + parents
     names = _CATEGORY_ORDER + (_CHANGE_ONLY if _CHANGE_TABLE in tables else ())
     skipped: Dict[str, Dict[str, Any]] = {}
+    read_as: Dict[str, str] = {}
     if params.categories:
-        wanted = {c.strip() for c in params.categories if c and c.strip()}
+        wanted = set()
+        for raw in params.categories:
+            name = (raw or "").strip().lower()
+            if not name:
+                continue
+            # Callers guess the everyday word ("flows" was sent 4 times in one
+            # day of real use); map it, and say so in the answer.
+            meant = _CATEGORY_ALIASES.get(name) or (
+                name + "s" if name + "s" in names and name not in names else name
+            )
+            if meant != name:
+                read_as[name] = meant
+            wanted.add(meant)
         unknown = sorted(wanted - set(names))
         if unknown:
             return {
@@ -738,6 +758,8 @@ def get_table_automation(
     }
     if chain_note:
         out["parent_chain"] = chain_note
+    if read_as:
+        out["categories_read_as"] = read_as
     out.update({name: results[name] for name in names})
     if skipped:
         out["form_side_not_read"] = (

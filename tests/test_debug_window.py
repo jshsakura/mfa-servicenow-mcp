@@ -1404,6 +1404,13 @@ def test_inspect_rejects_an_unknown_screenshot_mode():
     assert "viewport" in result["error"]
 
 
+def test_a_true_or_false_screenshot_reads_as_viewport_or_none():
+    # Real use sent screenshot='true' three times and got an error each time.
+    assert tools._screenshot_mode("true") == "viewport"
+    assert tools._screenshot_mode("False") == "none"
+    assert tools._screenshot_mode("full") == "full" and tools._screenshot_mode("pdf") == "pdf"
+
+
 def test_element_screenshot_requires_a_selector():
     result = tools.inspect_debug_window(
         MagicMock(), MagicMock(), tools.InspectDebugWindowParams(screenshot="element")
@@ -2285,6 +2292,15 @@ def test_an_unknown_action_is_rejected_with_the_supported_list():
 
     assert "swipe" in str(excinfo.value)
     assert "click" in str(excinfo.value)
+
+
+def test_expect_with_only_a_selector_waits_for_that_element():
+    # Sent as expect(selector='text=Edit flow', state='any') with no value.
+    step = actions.normalize([{"action": "expect", "selector": "text=Edit flow"}])[0]
+    assert step["action"] == "wait_for" and step["state"] == "visible"
+    assert step["timeout_ms"] == actions.EXPECT_DEFAULT_TIMEOUT_MS
+    gone = actions.normalize([{"action": "expect", "selector": "#x", "state": "gone"}])[0]
+    assert gone["action"] == "wait_for" and gone["state"] == "hidden"
 
 
 def test_an_empty_batch_is_rejected():

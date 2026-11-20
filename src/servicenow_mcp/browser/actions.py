@@ -632,6 +632,18 @@ def normalize(raw_actions: Sequence[Any]) -> List[Dict[str, Any]]:
         selector = raw.get("selector")
         if name in ACTIONS_NEEDING_SELECTOR and not selector:
             raise ValueError(f"Action {index} ('{name}') needs a selector.")
+        if name == "expect" and raw.get("value") is None and selector:
+            # Sent as expect(selector='text=Edit flow') with no value in real
+            # use: "this element is there". expect reads interaction state
+            # (focus, popups, dialogs), not the page, so it is run as wait_for.
+            gone = str(raw.get("state") or "").strip().lower() == "gone"
+            name = "wait_for"
+            raw = {
+                **raw,
+                "action": name,
+                "state": "hidden" if gone else "visible",
+                "timeout_ms": raw.get("timeout_ms") or EXPECT_DEFAULT_TIMEOUT_MS,
+            }
         if name in ACTIONS_NEEDING_VALUE and raw.get("value") is None:
             raise ValueError(f"Action {index} ('{name}') needs a value.")
         if name == "press" and not raw.get("key"):
