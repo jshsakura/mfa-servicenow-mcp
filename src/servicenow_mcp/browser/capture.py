@@ -28,6 +28,7 @@ from .badge import (
 )
 from .evaluate import run_in_frames
 from .probe import PROBE_SCRIPT, dirty_script, drain_script, presence_script
+from .quiet_tab import open_tab, show_if_watched
 from .session import read_effective_user
 from .snapshot import take as take_snapshot
 from .tab_owner import claimed_by_others, drop_pin, write_pin
@@ -1011,9 +1012,12 @@ def navigate(
                 # is also what makes its unsaved-input record trustworthy
                 # later (see _dirty_fields).
                 _install_probe_scripts(context, state, profile, account)
-                page = context.new_page()
+                # Behind the current tab, and forward only if the person is
+                # already looking at the window: a new tab must not take their
+                # keyboard and mouse (quiet_tab.py).
+                page = open_tab(browser, context)
                 page.goto(url, wait_until="domcontentloaded")
-                page.bring_to_front()
+                shown = show_if_watched(page, state.pid)
                 # This tab exists because this session asked for it, so it is
                 # this session's from here on. Pinned only on tabs we created or
                 # already held: pinning a tab we merely landed on would turn a
@@ -1026,6 +1030,16 @@ def navigate(
                     "tab_is_mine": True,
                     "previous_url": (str(existing.url) if existing else None),
                     "tabs": len(context.pages),
+                    **(
+                        {}
+                        if shown
+                        else {
+                            "opened_behind": (
+                                "The tab opened behind the one on screen, so the window "
+                                "did not take the user's keyboard; click it to watch."
+                            )
+                        }
+                    ),
                     **stepped_aside,
                     **_trim_tabs(context, keep=page, instance_host=state.instance_host),
                 }

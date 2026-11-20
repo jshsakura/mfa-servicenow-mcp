@@ -48,6 +48,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from ._offload import cdp_browser, require_playwright, run_off_loop
 from .capture import _dirty_fields, _on_instance
+from .quiet_tab import open_tab, show_if_watched
 from .window import WindowState
 
 logger = logging.getLogger(__name__)
@@ -215,7 +216,7 @@ def reset_session(
             # A tab on the origin has to outlive the cookie clear to wipe
             # storage, so the blank one is opened FIRST and everything else
             # closed around it.
-            landing = context.new_page()
+            landing = open_tab(browser, context)
             try:
                 landing.goto(landing_url, wait_until="domcontentloaded")
             except Exception as exc:  # noqa: BLE001 - a signed-out redirect is normal
@@ -242,10 +243,7 @@ def reset_session(
                 landing.goto(landing_url, wait_until="domcontentloaded")
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Could not reload the landing tab after reset: %s", exc)
-            try:
-                landing.bring_to_front()
-            except Exception:  # noqa: BLE001 - cosmetic
-                pass
+            show_if_watched(landing, state.pid)
             result["url"] = str(landing.url)
             return result
 

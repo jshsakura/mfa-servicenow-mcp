@@ -676,7 +676,7 @@ def open_debug_window(
             )
         # Said, never silent: a tab disappearing from the user's screen is
         # their tab, and a cap that gave up must not look like one that worked.
-        for key in ("closed_tabs_note", "tabs_note"):
+        for key in ("closed_tabs_note", "tabs_note", "opened_behind"):
             if moved.get(key):
                 result[key] = moved[key]
         if moved.get("kept_input"):
