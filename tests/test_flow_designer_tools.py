@@ -224,6 +224,27 @@ class TestFlowDesignerTools(unittest.TestCase):
         self.assertNotIn("flow", result)
 
     @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
+    def test_get_flow_details_on_a_snapshot_id_names_its_flow(self, mock_qp):
+        # Measured: get_detail on a published snapshot's sys_id said only
+        # "No flow has sys_id", which reads as a typo.
+        snap = "aaaa1111bbbb2222cccc3333dddd5555"
+        flow = "aaaa1111bbbb2222cccc3333dddd4444"
+
+        def answer(config, auth_manager, *, table, **kwargs):
+            if table == "sys_hub_flow_snapshot":
+                return ([{"sys_id": snap, "parent_flow": flow, "status": "published"}], 1)
+            return ([], 0)
+
+        mock_qp.side_effect = answer
+        result = get_flow_details(
+            self.config, self.auth_manager, GetFlowDetailsParams(flow_id=snap)
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("SNAPSHOT", result["error"])
+        self.assertEqual(result["flow_sys_id"], flow)
+
+    @patch("servicenow_mcp.tools.flow_designer_tools.sn_query_page")
     def test_get_flow_details_error(self, mock_qp):
         mock_qp.side_effect = RuntimeError("API error")
 

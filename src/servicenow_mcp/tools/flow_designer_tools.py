@@ -24,7 +24,7 @@ from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.utils.config import AuthType, ServerConfig
 
 from ..utils.response_budget import byte_len
-from .sn_api import sn_count, sn_count_by_group, sn_query_page
+from .sn_api import invalidate_query_cache, sn_count, sn_count_by_group, sn_query_page
 from .sn_batch import batch_get, batch_rows, table_query_url
 
 logger = logging.getLogger(__name__)
@@ -2434,49 +2434,254 @@ def _flow_runtime_status(
     """Authoritative, directly-usable publish state — so a caller NEVER has to dig
     the sys_hub_flow snapshot columns by hand.
 
-    The Flow engine runs the MASTER snapshot. A LATEST snapshot that differs from
-    MASTER is an unpublished draft sitting *ahead* of what actually runs — which is
-    exactly why the processflow ``status`` field ("draft") is misleading on its
-    own: a flow can read ``status: draft`` yet be fully live with the current
-    content (master == latest). This resolves that into one plain answer.
+    The Flow engine runs the MASTER snapshot. Measured on a PDI by saving an
+    edit in Workflow Studio without publishing it (2026-11-23):
+
+    - the edit lands on the DESIGN flow itself (this sys_hub_flow row and its
+      ``*_instance_v2`` rows), and the row's ``status`` turns ``draft``;
+    - ``master_snapshot`` AND ``latest_snapshot`` do not move — both still name
+      the last published snapshot;
+    - Publish writes a new snapshot and points both at it (status ``published``);
+    - Test writes a snapshot of its own that neither column names.
+
+    So ``status == 'draft'`` with a master snapshot is the unpublished-edit
+    signal, and ``latest_snapshot != master_snapshot`` is not. The old check used
+    the latter: it said "published IS the latest" over a saved, unpublished step,
+    and on another instance it reported a draft (an id no row answered) on a flow
+    whose design copy matched what runs.
+
+    A sys_id that is not a flow but one of its snapshots (processflow serves
+    those too) is named as such, with the flow it belongs to, instead of coming
+    back as an empty runtime that reads like "nothing to report".
     """
+    # A Workflow Studio save does not go through this server, so nothing clears
+    # the query cache for it: a read within the TTL served the pre-save row
+    # (status published, mod_count 3) while the live row said draft, mod_count 5.
+    invalidate_query_cache(table=FLOW_TABLE)
     try:
         rows, _ = sn_query_page(
             config,
             auth_manager,
             table=FLOW_TABLE,
             query=f"sys_id={flow_id}",
-            fields="active,master_snapshot,latest_snapshot",
+            fields="sys_id,active,status,master_snapshot,latest_snapshot,sys_updated_on",
             limit=1,
             offset=0,
             display_value=False,
-            fail_silently=True,
+            fail_silently=False,
         )
     except Exception as exc:  # noqa: BLE001 — advisory only, never break get_detail
         logger.warning("runtime status lookup failed for flow %s: %s", flow_id, exc)
-        return {}
+        return {"determined": False, "note": f"Publish state not read: {_first_line_of(exc)}"}
+    rows = [r for r in rows if str(r.get("sys_id") or flow_id) == flow_id]
     if not rows:
-        return {}
+        return _runtime_status_of_non_flow(config, auth_manager, flow_id)
     row = rows[0]
     active = str(row.get("active") or "").strip().lower() in ("true", "1")
-    master = str(row.get("master_snapshot") or "").strip()
-    latest = str(row.get("latest_snapshot") or "").strip()
-    unpublished = bool(latest and master and latest != master)
+    status = str(row.get("status") or "").strip().lower()
+    master = _display_of(row.get("master_snapshot")).strip()
     live = active and bool(master)
+    base = {
+        "status": status,
+        "master_snapshot": master,
+        "latest_snapshot": _display_of(row.get("latest_snapshot")).strip(),
+        "design_updated_on": str(row.get("sys_updated_on") or ""),
+    }
     if not live:
-        note = "NOT LIVE — flow is inactive or was never published; it will not run."
-    elif unpublished:
-        note = (
-            "LIVE, but there are UNPUBLISHED draft edits AHEAD — the runtime still "
-            "runs the last published version, NOT your draft. Publish to make them live."
-        )
-    else:
-        note = "LIVE — the published version IS the latest; the current content runs at runtime."
+        return {
+            "live": False,
+            "published_is_current": False,
+            "has_unpublished_edits": status == "draft" if status else None,
+            "determined": bool(status),
+            **base,
+            "note": "NOT LIVE — flow is inactive or was never published; it will not run.",
+        }
+    if status == "draft":
+        return {
+            "live": True,
+            "published_is_current": False,
+            "has_unpublished_edits": True,
+            "determined": True,
+            **base,
+            "edits_since_publish": _edits_since_publish(config, auth_manager, flow_id),
+            "note": (
+                "LIVE, but this flow holds SAVED, UNPUBLISHED edits (status draft). "
+                f"get_detail on this sys_id shows the DRAFT; what runs is snapshot {master} "
+                f"(get_detail flow_id={master}). Publish to make the draft live."
+            ),
+        }
+    if status == "published":
+        return {
+            "live": True,
+            "published_is_current": True,
+            "has_unpublished_edits": False,
+            "determined": True,
+            **base,
+            "note": "LIVE — no unpublished edits; this content is what runs.",
+        }
     return {
-        "live": live,
-        "published_is_current": live and not unpublished,
-        "has_unpublished_edits": unpublished,
-        "note": note,
+        "live": True,
+        "published_is_current": None,
+        "has_unpublished_edits": None,
+        "determined": False,
+        **base,
+        "note": (
+            f"LIVE (runs snapshot {master}), but status '{status or '<empty>'}' is not one "
+            "this check knows — whether unpublished edits exist is NOT determined. "
+            f"Compare get_detail flow_id={master} with flow_id={flow_id}."
+        ),
+    }
+
+
+FLOW_VERSION_TABLE = "sys_hub_flow_version"
+_VERSION_PAGE = 50
+
+
+def _edits_since_publish(
+    config: ServerConfig, auth_manager: AuthManager, flow_id: str
+) -> Dict[str, Any]:
+    """Who saved the unpublished edits, and when — from Workflow Studio's own
+    version history.
+
+    Measured: every autosave writes a ``sys_hub_flow_version`` row of type
+    ``Autosave`` and every publish one of type ``Activate/Publish``, keyed by
+    ``flow``. The autosaves newer than the last publish are the draft's
+    history. The read is capped newest-first, so a page of autosaves that never
+    reaches a publish row is ``complete: False`` — older editors may be
+    missing — rather than a full list.
+    """
+    try:
+        rows, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_VERSION_TABLE,
+            query=f"flow={flow_id}^ORDERBYDESCsys_created_on",
+            fields="sys_id,type,sys_created_on,sys_created_by",
+            limit=_VERSION_PAGE,
+            offset=0,
+            display_value=False,
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001 — advisory only
+        return {"checked": False, "note": f"{FLOW_VERSION_TABLE} not read: {_first_line_of(exc)}"}
+    saves: List[Dict[str, Any]] = []
+    published_at = ""
+    for row in rows:
+        kind = str(row.get("type") or "").strip().lower()
+        if "publish" in kind:
+            published_at = str(row.get("sys_created_on") or "")
+            break
+        saves.append(row)
+    complete = bool(published_at) or len(rows) < _VERSION_PAGE
+    out: Dict[str, Any] = {
+        "checked": True,
+        "complete": complete,
+        "saves": len(saves),
+        "by": sorted({str(r.get("sys_created_by") or "") for r in saves} - {""}),
+        "last_saved_on": str(saves[0].get("sys_created_on") or "") if saves else "",
+        "last_published_on": published_at,
+    }
+    if not rows:
+        out["note"] = (
+            f"No {FLOW_VERSION_TABLE} rows for this flow (versioning off, or hidden by ACL) "
+            "— who saved the draft is unknown."
+        )
+    elif not complete:
+        out["note"] = (
+            f"Newest {_VERSION_PAGE} versions are all saves; the last publish was not reached, "
+            "so earlier editors may be missing from 'by'."
+        )
+    return out
+
+
+def _first_line_of(exc: BaseException) -> str:
+    """One line of a lookup failure, for a note a caller reads."""
+    return str(exc).strip().splitlines()[0][:200] if str(exc).strip() else type(exc).__name__
+
+
+def _runtime_status_of_non_flow(
+    config: ServerConfig, auth_manager: AuthManager, flow_id: str
+) -> Dict[str, Any]:
+    """No sys_hub_flow row: say what the sys_id IS, or that it was not found."""
+    try:
+        snaps, _ = sn_query_page(
+            config,
+            auth_manager,
+            table=FLOW_SNAPSHOT_TABLE,
+            query=f"sys_id={flow_id}",
+            fields="sys_id,name,status,parent_flow,master_flow,sys_created_on",
+            limit=1,
+            offset=0,
+            display_value=False,
+            fail_silently=False,
+        )
+    except Exception as exc:  # noqa: BLE001 — advisory only
+        return {
+            "determined": False,
+            "note": (
+                f"No sys_hub_flow row has sys_id {flow_id}, and {FLOW_SNAPSHOT_TABLE} "
+                f"could not be read ({_first_line_of(exc)}) — publish state unknown."
+            ),
+        }
+    snap = next((s for s in snaps if s.get("sys_id") == flow_id), None)
+    if snap is None:
+        return {
+            "determined": False,
+            "note": (
+                f"No sys_hub_flow or {FLOW_SNAPSHOT_TABLE} row answered sys_id {flow_id} "
+                "(absent, or hidden by ACL) — publish state unknown."
+            ),
+        }
+    parent = _display_of(snap.get("parent_flow")) or _display_of(snap.get("master_flow"))
+    return {
+        "is_snapshot": True,
+        "flow_sys_id": parent,
+        "snapshot_status": str(snap.get("status") or ""),
+        "snapshot_created_on": str(snap.get("sys_created_on") or ""),
+        "determined": False,
+        "note": (
+            "This sys_id is a SNAPSHOT (a compiled version), not the flow. Whether it is "
+            "the one that runs, and whether unpublished edits exist, is answered on "
+            f"the flow: get_detail flow_id={parent or '<parent flow>'}."
+        ),
+    }
+
+
+def _draft_changes(
+    draft_tree: List[Dict[str, Any]], published_tree: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Step-level difference between the draft and what runs, keyed by ui_id.
+
+    ui_id is kept across publish (measured: the published snapshot's step
+    carried the design step's ui_id), so it identifies "the same step" on both
+    sides; order alone would call every step after an insertion "changed".
+    """
+
+    def index(tree: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        return {str(n.get("ui_id")): n for n in tree if isinstance(n, dict) and n.get("ui_id")}
+
+    def label(node: Dict[str, Any]) -> str:
+        name = node.get("label") or node.get("name") or ""
+        kind = node.get("type") or node.get("kind") or ""
+        return f"[{node.get('order', '?')}] {kind}" + (f": {name}" if name and name != kind else "")
+
+    draft, published = index(draft_tree), index(published_tree)
+    added = [label(draft[u]) for u in draft if u not in published]
+    removed = [label(published[u]) for u in published if u not in draft]
+    changed = []
+    for uid in draft:
+        if uid not in published:
+            continue
+        before = {k: v for k, v in published[uid].items() if k != "ui_id"}
+        after = {k: v for k, v in draft[uid].items() if k != "ui_id"}
+        fields = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
+        if fields:
+            changed.append({"step": label(draft[uid]), "fields": fields})
+    return {
+        "identical": not (added or removed or changed),
+        "added": added,
+        "removed": removed,
+        "changed": changed,
     }
 
 
@@ -2744,6 +2949,50 @@ def _attach_stages_and_signature(
     return structure
 
 
+def _attach_draft_changes(
+    result: Dict[str, Any],
+    draft_tree: Any,
+    config: ServerConfig,
+    auth_manager: AuthManager,
+) -> None:
+    """On a flow holding unpublished edits, say what they ARE, not just that
+    they exist: read the published snapshot the same way and diff the steps.
+
+    The tree in ``structure`` is the DRAFT (processflow serves the design flow,
+    measured). Without this the caller holds one tree and a sentence saying it
+    is not what runs, and has to fetch and compare the other by hand.
+    """
+    runtime = result.get("runtime") or {}
+    master = runtime.get("master_snapshot")
+    if runtime.get("has_unpublished_edits") is not True or not master:
+        return
+    if not isinstance(draft_tree, list):
+        return
+    pf = _try_processflow_api(config, auth_manager, master)
+    if not pf or not pf.get("result"):
+        runtime["draft_changes"] = {
+            "determined": False,
+            "note": (
+                f"Published snapshot {master} could not be read "
+                f"({(pf or {}).get('_error', 'no response')}); the draft's changes are not "
+                f"listed. get_detail flow_id={master} shows what runs."
+            ),
+        }
+        return
+    pf_data = pf["result"]
+    published = _build_flow_summary(
+        _build_processflow_detail(pf_data),
+        label_map=_build_label_map(pf_data),
+        known_pills=_label_cache_names(pf_data),
+        choice_resolver=_make_choice_resolver(config, auth_manager),
+    )
+    runtime["draft_changes"] = {
+        "determined": True,
+        "compared_with": master,
+        **_draft_changes(draft_tree, published.get("tree") or []),
+    }
+
+
 def get_flow_details(
     config: ServerConfig,
     auth_manager: AuthManager,
@@ -2796,7 +3045,7 @@ def get_flow_details(
                     "runtime": _flow_runtime_status(config, auth_manager, flow_id),
                 }
                 if params.include_structure:
-                    result["structure"] = _bound_structure(
+                    summary = (
                         _build_flow_summary(
                             detail,
                             label_map=_build_label_map(pf_data),
@@ -2806,6 +3055,11 @@ def get_flow_details(
                         if params.summary_format
                         else detail
                     )
+                    # Diffed on the WHOLE tree, before bounding: a skeleton without
+                    # bindings would read every changed input as unchanged.
+                    if params.summary_format:
+                        _attach_draft_changes(result, summary.get("tree"), config, auth_manager)
+                    result["structure"] = _bound_structure(summary)
                     if params.summary_format:
                         _attach_stages_and_signature(
                             result["structure"], config, auth_manager, flow_id
@@ -2859,6 +3113,12 @@ def get_flow_details(
             }
             if pf_error:
                 missing["processflow_note"] = pf_error
+            # A snapshot sys_id is the commonest "not a flow" — say which flow it
+            # belongs to rather than leaving the caller to guess it was a typo.
+            what = _runtime_status_of_non_flow(config, auth_manager, flow_id)
+            if what.get("is_snapshot"):
+                missing["error"] = what["note"]
+                missing["flow_sys_id"] = what.get("flow_sys_id", "")
             return missing
         flow = flows[0]
         # label_cache is ~95% of a flow record (measured: 17.5 KB average, up to
