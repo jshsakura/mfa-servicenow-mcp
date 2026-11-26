@@ -83,7 +83,7 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `manage_catalog` | R/W | Catalog categories, items, variables, sets and user criteria (sc_category, sc_cat_item, item_option_new, user_criteria). | portal_developer, service_desk (collect_structure, get_item, list_categories, list_item_variables, list_items), itsm_developer, full |
+| `manage_catalog` | R/W | Catalog categories, items, variables, sets and user criteria (sc_category, sc_cat_item, item_option_new, user_criteri... | portal_developer, service_desk (collect_structure, get_item, list_categories, list_item_variables, list_items), itsm_developer, full |
 
 ### Change Tools (1)
 
@@ -393,4 +393,4 @@ The **R/W** column is the tool's full capability when unrestricted. A package sh
 
 | Tool | R/W | Description | Packages |
 |------|-----|-------------|----------|
-| `export_record_xml` | R | Build deploy XML from the LIVE server — the only legal source. Issues an origin cert. Read saved_path. | standard, portal_developer, platform_developer, service_desk, itsm_developer, scripting, full |
+| `export_record_xml` | R | Build deploy XML from the LIVE server — the only legal source. Issues an origin cert. Read saved_path. A catalog: nam... | standard, portal_developer, platform_developer, service_desk, itsm_developer, scripting, full |

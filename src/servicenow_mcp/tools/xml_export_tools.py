@@ -254,7 +254,10 @@ def _fetch_current(
 @register_tool(
     "export_record_xml",
     params=ExportRecordXmlParams,
-    description="Build deploy XML from the LIVE server — the only legal source. Issues an origin cert. Read saved_path.",
+    description=(
+        "Build deploy XML from the LIVE server — the only legal source. Issues an origin cert. "
+        "Read saved_path. A catalog: names from manage_catalog collect_structure."
+    ),
     serialization="raw_dict",
     return_type=dict,
 )

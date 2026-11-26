@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 _PAGE = 500
 _MAX_PAGES = 20  # 10 000 rows per query before a table is called truncated
 _MAX_CATEGORY_DEPTH = 10
+# never-versioned records listed by name; the rest are counted per table
+# (a baseline catalog is hundreds of them, and bulk never enters context)
+_NO_VERSION_LISTED = 30
 
 # Import order: a parent before what points at it.
 _TABLE_ORDER = (
@@ -401,7 +404,13 @@ def _result(
     if rd.truncated:
         out["truncated"] = sorted(set(rd.truncated))
     if no_version:
-        out["no_version"] = no_version
+        out["no_version"] = no_version[:_NO_VERSION_LISTED]
+        if len(no_version) > _NO_VERSION_LISTED:
+            out["no_version_more"] = len(no_version) - _NO_VERSION_LISTED
+            out["no_version_note"] = (
+                f"First {_NO_VERSION_LISTED} of {len(no_version)} listed; tables.*.no_version "
+                "counts them all. Narrow the root (category_id / item_id) to list the rest."
+            )
     if referenced:
         out["referenced"] = list(referenced.values())
     if outside_links:

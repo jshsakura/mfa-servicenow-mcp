@@ -539,7 +539,7 @@ class ManageCatalogParams(BaseModel):
     params=ManageCatalogParams,
     description=(
         "Catalog categories, items, variables, sets and user criteria (sc_category, "
-        "sc_cat_item, item_option_new, user_criteria)."
+        "sc_cat_item, item_option_new, user_criteria). collect_structure: names for XML export."
     ),
     serialization="raw_dict",
     return_type=Dict[str, Any],

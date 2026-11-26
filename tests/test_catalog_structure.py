@@ -332,3 +332,17 @@ def test_the_action_is_routed(monkeypatch, config):
     )
 
     assert res["success"] is True and res["root"]["label"] == "Test"
+
+
+def test_a_large_never_versioned_set_is_counted_not_dumped(monkeypatch, config):
+    tables = _instance()
+    tables["item_option_new"] += [
+        {"sys_id": f"eeee1111{i:024x}", "name": f"v{i}", "cat_item": ITEM, "variable_set": ""}
+        for i in range(80)
+    ]
+
+    res = _run(monkeypatch, config, FakeServer(tables), catalog_id=CAT)
+
+    assert len(res["no_version"]) == cs._NO_VERSION_LISTED
+    total = sum(t.get("no_version", 0) for t in res["tables"].values())
+    assert res["no_version_more"] == total - cs._NO_VERSION_LISTED
