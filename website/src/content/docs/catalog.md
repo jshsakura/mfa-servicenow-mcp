@@ -22,6 +22,7 @@ Write actions need `confirm='approve'`, like every write in this server.
 | `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | items |
 | `action="get_item"` | `item_id` | the item and its variables |
 | `action="list_item_variables"` | `catalog_item_id` | variables: name, label, type code, mandatory, default, order |
+| `action="collect_structure"` | one of `catalog_id`, `category_id`, `item_id` | every record under it as update names for `export_record_xml(names=...)`: categories, items, link rows, sets, variables, choices, UI policies and actions, client scripts. Never-customized records (no update version) are listed apart; shared records (user criteria, flows) and links to other catalogs are reported, not exported |
 
 The two list actions return:
 

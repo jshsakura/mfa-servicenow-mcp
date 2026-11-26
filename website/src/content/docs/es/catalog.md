@@ -21,6 +21,7 @@ Las acciones de escritura necesitan `confirm='approve'`, como cualquier escritur
 | `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | los artículos |
 | `action="get_item"` | `item_id` | el artículo y sus variables |
 | `action="list_item_variables"` | `catalog_item_id` | las variables: nombre, etiqueta, código de tipo, obligatoria, valor por defecto, orden |
+| `action="collect_structure"` | uno de `catalog_id`, `category_id`, `item_id` | todos los registros que cuelgan de él, como nombres de update para `export_record_xml(names=...)`: categorías, elementos, filas de enlace, conjuntos, variables, opciones, políticas de UI y sus acciones, client scripts. Los registros nunca personalizados (sin versión de update) se listan aparte; los compartidos (user criteria, flujos) y los enlaces a otros catálogos se informan, no se exportan |
 
 Las dos acciones de listado devuelven:
 

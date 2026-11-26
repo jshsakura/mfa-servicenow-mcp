@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from servicenow_mcp.auth.auth_manager import AuthManager
 from servicenow_mcp.services import catalog as _cat_svc
+from servicenow_mcp.services import catalog_structure as _structure_svc
 from servicenow_mcp.utils.config import ServerConfig
 from servicenow_mcp.utils.registry import register_tool
 
@@ -105,6 +106,8 @@ class ManageCatalogParams(BaseModel):
     """Manage service catalog — categories, items, and item variables.
 
     Required per action:
+      collect_structure: ONE of catalog_id / category_id / item_id (read-only; update
+                        names for export_record_xml, never-versioned records split out)
       create_category:  title
       update_category:  category_id, at least one field
       update_item:      item_id, at least one field (item_options: portal flags, request_method, roles)
@@ -131,6 +134,7 @@ class ManageCatalogParams(BaseModel):
         "get_item",
         "list_categories",
         "list_item_variables",
+        "collect_structure",
         "create_category",
         "update_category",
         "update_item",
@@ -163,6 +167,9 @@ class ManageCatalogParams(BaseModel):
 
     # category create + update
     category_id: Optional[str] = Field(default=None)
+    catalog_id: Optional[str] = Field(
+        default=None, description="collect_structure: sc_catalog sys_id to walk"
+    )
     title: Optional[str] = Field(default=None)
     description: Optional[str] = Field(default=None)
     parent: Optional[str] = Field(default=None)
@@ -260,6 +267,7 @@ class ManageCatalogParams(BaseModel):
         "get_item": frozenset({"item_id", "detail"}),
         "list_categories": frozenset({"limit", "offset", "query", "count_only", "active"}),
         "list_item_variables": frozenset({"catalog_item_id"}),
+        "collect_structure": frozenset({"catalog_id", "category_id", "item_id"}),
         "create_category": frozenset(
             {"title", "description", "parent", "icon", "active", "order", "dry_run"}
         ),
@@ -423,6 +431,11 @@ class ManageCatalogParams(BaseModel):
         a = self.action
         if a in ("list_items", "get_item", "list_categories", "list_item_variables"):
             pass
+        elif a == "collect_structure":
+            if sum(bool(x) for x in (self.catalog_id, self.category_id, self.item_id)) != 1:
+                raise ValueError(
+                    "collect_structure takes exactly one of catalog_id, category_id, item_id"
+                )
         elif a == "create_category":
             if not self.title:
                 raise ValueError("title is required for action='create_category'")
@@ -552,6 +565,14 @@ def manage_catalog(
         if not params.item_id:
             return {"success": False, "message": "item_id is required for action='get_item'"}
         return _cat_svc.get_item(config, auth_manager, item_id=params.item_id, detail=params.detail)
+    if a == "collect_structure":
+        return _structure_svc.collect_structure(
+            config,
+            auth_manager,
+            catalog_id=params.catalog_id,
+            category_id=params.category_id,
+            item_id=params.item_id,
+        )
     if a == "list_categories":
         return _cat_svc.list_categories(
             config,

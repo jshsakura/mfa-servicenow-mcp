@@ -225,3 +225,68 @@ def test_http_error_status_surfaced(config):
 def test_payload_to_inner_strips_wrapper():
     inner = _payload_to_inner(_payload("sp_widget", "<id>x</id>"))
     assert inner == '<sp_widget action="INSERT_OR_UPDATE"><id>x</id></sp_widget>'
+
+
+# --- batching: the instance refuses an export URL past ~8 KB (414) -----------
+
+
+def _routing_auth(store: dict, fail_on_call: int = -1) -> MagicMock:
+    """Answers each export GET with only the names that URL asked for."""
+    from urllib.parse import parse_qs, urlparse
+
+    auth = MagicMock()
+    calls: list = []
+
+    def make_request(method, url, timeout=None):
+        calls.append(url)
+        if len(calls) - 1 == fail_on_call:
+            return FakeResp(500, b"")
+        query = parse_qs(urlparse(url).query)["sysparm_query"][0]
+        asked = query.split("nameIN", 1)[1].split(",")
+        return FakeResp(200, _version_dump([(n, store[n]) for n in asked if n in store]))
+
+    auth.make_request.side_effect = make_request
+    auth.calls = calls
+    return auth
+
+
+def _many(n: int) -> dict:
+    return {
+        f"item_option_new_aaaa{i:028x}": _payload("item_option_new", f"<name>v{i}</name>")
+        for i in range(n)
+    }
+
+
+def test_hundreds_of_names_are_split_under_the_url_limit_into_one_file(config, tmp_path):
+    from servicenow_mcp.tools.xml_export_tools import _URL_BUDGET
+
+    store = _many(400)
+    auth = _routing_auth(store)
+    out = tmp_path / "big.xml"
+
+    res = export_record_xml(
+        config, auth, ExportRecordXmlParams(names=list(store), output_path=str(out))
+    )
+
+    assert res["success"] and res["record_count"] == 400
+    assert len(auth.calls) > 1
+    assert all(len(u) <= _URL_BUDGET for u in auth.calls)
+    root = ET.parse(out).getroot()
+    assert root.tag == "unload" and len(root) == 400
+    # Requested order survives the split.
+    assert [el.findtext("name") for el in root][:3] == ["v0", "v1", "v2"]
+
+
+def test_a_failed_batch_fails_the_export_never_a_partial_file(config, tmp_path):
+    store = _many(400)
+    out = tmp_path / "big.xml"
+
+    res = export_record_xml(
+        config,
+        _routing_auth(store, fail_on_call=1),
+        ExportRecordXmlParams(names=list(store), output_path=str(out)),
+    )
+
+    assert res["success"] is False
+    assert "batch" in res["message"]
+    assert not out.exists()

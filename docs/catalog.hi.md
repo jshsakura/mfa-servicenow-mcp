@@ -17,6 +17,7 @@
 | `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | items |
 | `action="get_item"` | `item_id` | item और उसके variables |
 | `action="list_item_variables"` | `catalog_item_id` | variables: name, label, type code, mandatory, default, order |
+| `action="collect_structure"` | `catalog_id`, `category_id`, `item_id` में से एक | उसके नीचे का हर रिकॉर्ड, `export_record_xml(names=...)` के लिए update नामों के रूप में: categories, items, link rows, sets, variables, choices, UI policies और actions, client scripts. जिन रिकॉर्ड का कोई update version नहीं है वे अलग दिखाए जाते हैं; साझा रिकॉर्ड (user criteria, flows) और दूसरे catalogs के links बताए जाते हैं, export नहीं होते |
 
 दोनों list actions ये लौटाते हैं:
 

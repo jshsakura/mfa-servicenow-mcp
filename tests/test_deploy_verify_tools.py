@@ -23,6 +23,7 @@ from servicenow_mcp.tools.deploy_verify_tools import (
     LIVE_NEWER,
     MATCH,
     MISSING,
+    UNKNOWN,
     VerifyDeploymentXmlParams,
     verify_deployment_xml,
 )
@@ -513,3 +514,106 @@ def test_exported_xml_bytes_carry_no_provenance_comment(config, tmp_path):
     assert "<!--" not in text
     root = ET.parse(out).getroot()
     assert root.tag == "unload" and [c.tag for c in root] == ["sys_script"]
+
+
+def _query_honoring_live(monkeypatch, store):
+    calls = []
+
+    def fake_query_page(config, auth_manager, *, table, query, limit, **kwargs):
+        wanted = query.split("sys_idIN", 1)[1].split(",")
+        calls.append(len(wanted))
+        return [store[s] for s in wanted if s in store][:limit], None
+
+    monkeypatch.setattr("servicenow_mcp.tools.sn_api.sn_query_page", fake_query_page)
+    return calls
+
+
+def test_a_catalog_sized_file_is_verified_whole(config, tmp_path, monkeypatch):
+    """A catalog move is hundreds of records. The old 50-record cap made such a
+    file 'not deployable' before anything was compared, and one live read per
+    table was capped at 200 rows (past ~230 ids the URL is refused) — records
+    past it would read as MISSING, 'not on this instance', while they are."""
+    ids = [f"aaaa{i:028x}" for i in range(250)]
+    store = {s: {"sys_id": s, "script": "x", "sys_updated_on": XML_VERSION} for s in ids}
+    calls = _query_honoring_live(monkeypatch, store)
+    path = _certify(
+        _write_unload(tmp_path / "big.xml", *[_block("sys_script", s, script="x") for s in ids]),
+        records=[{"name": f"sys_script_{s}"} for s in ids],
+    )
+
+    res = _verify(config, path)
+
+    assert res["counts"] == {MATCH: 250}
+    assert res["deployable"] is True
+    assert "records_not_checked" not in res
+    assert max(calls) <= 100
+    # Bulk stays out of context: matches are counted, not listed.
+    assert res["records"] == []
+
+
+def test_a_large_file_still_lists_every_record_that_needs_attention(config, tmp_path, monkeypatch):
+    ids = [f"bbbb{i:028x}" for i in range(120)]
+    store = {s: {"sys_id": s, "script": "x", "sys_updated_on": XML_VERSION} for s in ids}
+    store[ids[7]] = {"sys_id": ids[7], "script": "EDITED", "sys_updated_on": "2026-12-01 00:00:00"}
+    del store[ids[90]]
+    _query_honoring_live(monkeypatch, store)
+    path = _certify(
+        _write_unload(tmp_path / "big.xml", *[_block("sys_script", s, script="x") for s in ids]),
+        records=[{"name": f"sys_script_{s}"} for s in ids],
+    )
+
+    res = _verify(config, path)
+
+    assert res["deployable"] is False
+    assert {(r["sys_id"], r["verdict"]) for r in res["records"]} == {
+        (ids[7], LIVE_NEWER),
+        (ids[90], MISSING),
+    }
+
+
+def _directive(table, query):
+    return f'<{table} action="delete_multiple" query="{query}"/>'
+
+
+def test_delete_multiple_directives_are_named_not_unknown(config, tmp_path, live):
+    """A real export carries child-row clean-up instructions (measured: one
+    sys_translated_text and one fx_price per catalog item and variable). They
+    are not records; they used to land in 'unknown'."""
+    path = _certify(
+        _write_unload(
+            tmp_path / "d.xml",
+            _block("sys_script", SID, script="SAME"),
+            _directive("sys_translated_text", f"documentkey={SID}"),
+            _directive("fx_price", f"id={SID}"),
+        )
+    )
+    live["sys_script"] = [{"sys_id": SID, "script": "SAME", "sys_updated_on": XML_VERSION}]
+
+    res = _verify(config, path)
+
+    assert res["counts"] == {MATCH: 1}
+    assert res["directives"]["delete_multiple"] == {"sys_translated_text": 1, "fx_price": 1}
+    assert res["deployable"] is True
+
+
+def test_a_record_that_could_not_be_compared_blocks_the_preflight(config, tmp_path, live):
+    """'All N match' over an uncompared block is a clearance nobody read."""
+    no_id = '<sys_script action="INSERT_OR_UPDATE"><script>x</script></sys_script>'
+    path = _certify(
+        _write_unload(tmp_path / "d.xml", _block("sys_script", SID, script="SAME"), no_id)
+    )
+    live["sys_script"] = [{"sys_id": SID, "script": "SAME", "sys_updated_on": XML_VERSION}]
+
+    res = _verify(config, path)
+
+    assert res["counts"] == {MATCH: 1, UNKNOWN: 1}
+    assert res["deployable"] is False
+    assert res["message"].startswith("NOT VERIFIED")
+
+
+def test_a_file_of_only_directives_is_not_an_all_clear(config, tmp_path, live):
+    path = _certify(_write_unload(tmp_path / "d.xml", _directive("fx_price", f"id={SID}")))
+
+    res = _verify(config, path)
+
+    assert res["success"] is False

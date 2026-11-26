@@ -164,6 +164,93 @@ def _record_stamp(name: str, inner: str) -> Dict[str, Any]:
     return stamp
 
 
+# Below the measured ~8 KB request-line limit, with room for the host part.
+_URL_BUDGET = 6000
+
+
+def _export_url(instance_url: str, names: List[str]) -> str:
+    query = "state=current^nameIN" + ",".join(names)
+    return (
+        f"{instance_url}/sys_update_version_list.do?XML" f"&sysparm_query={quote(query, safe='')}"
+    )
+
+
+def _batches(instance_url: str, names: List[str]) -> List[List[str]]:
+    """Split names so every export URL stays under ``_URL_BUDGET``."""
+    out: List[List[str]] = []
+    cur: List[str] = []
+    for n in names:
+        if cur and len(_export_url(instance_url, cur + [n])) > _URL_BUDGET:
+            out.append(cur)
+            cur = []
+        cur.append(n)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _fetch_current(
+    config: ServerConfig, auth_manager: AuthManager, names: List[str]
+) -> Dict[str, Any]:
+    """``{"found": {name: inner}}`` for one batch, or ``{"failure": result}``."""
+    url = _export_url(config.instance_url, names)
+    try:
+        resp = auth_manager.make_request("GET", url, timeout=180)
+    except Exception as exc:  # noqa: BLE001 — surfaced in the result
+        return {"failure": {"success": False, "message": f"XML export request failed: {exc}"}}
+
+    if resp.status_code >= 400:
+        return {
+            "failure": {
+                "success": False,
+                "status_code": resp.status_code,
+                "message": f"XML export failed ({resp.status_code}).",
+            }
+        }
+
+    content = resp.content or b""
+    head = content[:240].decode("utf-8", errors="replace")
+    looks_html = "<html" in head.lower() or "<!doctype html" in head.lower()
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError:
+        hint = " (looks like an HTML/login page — re-auth and retry.)" if looks_html else ""
+        return {
+            "failure": {
+                "success": False,
+                "message": f"Response was not parseable XML{hint}.",
+                "preview": head,
+            }
+        }
+    # Parsed, but the export dump must be rooted at <xml>. An <html> root (or any
+    # other) means an auth/login redirect or an error page slipped through.
+    if root.tag.lower() != "xml":
+        hint = (
+            " — looks like an HTML/login page; re-auth and retry."
+            if looks_html or root.tag.lower() == "html"
+            else ""
+        )
+        return {
+            "failure": {
+                "success": False,
+                "message": f"Unexpected response root <{root.tag}>{hint}",
+                "preview": head,
+            }
+        }
+
+    # Collect current payloads, keyed by name (state=current is unique per name).
+    found: Dict[str, str] = {}
+    for row in root.iter("sys_update_version"):
+        nm = (row.findtext("name") or "").strip()
+        payload = row.findtext("payload")  # already entity-decoded once by ET
+        if not nm or nm in found or payload is None:
+            continue
+        inner = _payload_to_inner(payload)
+        if inner:
+            found[nm] = inner
+    return {"found": found}
+
+
 @register_tool(
     "export_record_xml",
     params=ExportRecordXmlParams,
@@ -178,59 +265,20 @@ def export_record_xml(
     if err:
         return {"success": False, "message": err}
 
-    query = "state=current^nameIN" + ",".join(names)
-    url = (
-        f"{config.instance_url}/sys_update_version_list.do?XML"
-        f"&sysparm_query={quote(query, safe='')}"
-    )
-    try:
-        resp = auth_manager.make_request("GET", url, timeout=180)
-    except Exception as exc:  # noqa: BLE001 — surfaced in the result
-        return {"success": False, "message": f"XML export request failed: {exc}"}
-
-    if resp.status_code >= 400:
-        return {
-            "success": False,
-            "status_code": resp.status_code,
-            "message": f"XML export failed ({resp.status_code}).",
-        }
-
-    content = resp.content or b""
-    head = content[:240].decode("utf-8", errors="replace")
-    looks_html = "<html" in head.lower() or "<!doctype html" in head.lower()
-    try:
-        root = ET.fromstring(content)
-    except ET.ParseError:
-        hint = " (looks like an HTML/login page — re-auth and retry.)" if looks_html else ""
-        return {
-            "success": False,
-            "message": f"Response was not parseable XML{hint}.",
-            "preview": head,
-        }
-    # Parsed, but the export dump must be rooted at <xml>. An <html> root (or any
-    # other) means an auth/login redirect or an error page slipped through.
-    if root.tag.lower() != "xml":
-        hint = (
-            " — looks like an HTML/login page; re-auth and retry."
-            if looks_html or root.tag.lower() == "html"
-            else ""
-        )
-        return {
-            "success": False,
-            "message": f"Unexpected response root <{root.tag}>{hint}",
-            "preview": head,
-        }
-
-    # Collect current payloads, keyed by name (state=current is unique per name).
+    # One GET per batch: the instance answers 414 URI Too Long past ~8 KB of
+    # URL (measured: 7746 chars OK, 8256 refused), i.e. ~150 names. A catalog
+    # move is hundreds, so the names are split and the payloads merged into ONE
+    # <unload>; a batch that fails fails the whole export, never a partial file.
     found: Dict[str, str] = {}
-    for row in root.iter("sys_update_version"):
-        nm = (row.findtext("name") or "").strip()
-        payload = row.findtext("payload")  # already entity-decoded once by ET
-        if not nm or nm in found or payload is None:
-            continue
-        inner = _payload_to_inner(payload)
-        if inner:
-            found[nm] = inner
+    for batch in _batches(config.instance_url, names):
+        got = _fetch_current(config, auth_manager, batch)
+        if "failure" in got:
+            failure = got["failure"]
+            if len(names) > len(batch):
+                failure["message"] += f" (batch of {len(batch)} of {len(names)} names)"
+            return failure
+        for nm, inner in got["found"].items():
+            found.setdefault(nm, inner)
 
     missing = [n for n in names if n not in found]
     if not found:

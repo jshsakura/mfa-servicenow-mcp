@@ -200,7 +200,7 @@ service_desk:
     - get_record_context
     # Catalog browsing is part of service desk surface
     - manage_catalog:
-        actions: [list_items, get_item, list_categories, list_item_variables]
+        actions: [list_items, get_item, list_categories, list_item_variables, collect_structure]
 
 # --- ITSM developer: Incident, Problem, Change, Request on OOTB tables ---
 # Standalone on purpose: one profile must be enough to do the job through an LLM

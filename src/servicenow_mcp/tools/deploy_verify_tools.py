@@ -69,7 +69,15 @@ _AUDIT_FIELDS = ("sys_updated_on", "sys_updated_by", "sys_mod_count")
 
 # Work ceilings. Both are reported when they bite — a silent cap on a
 # verification tool would read as "all clear" while covering only part of a file.
-_MAX_RECORDS = 50
+# 1000, not 50: a catalog move is a few hundred records, and a cap below that
+# made every such file "not deployable" before a single record was compared.
+_MAX_RECORDS = 1000
+# Past this many records only the ones that need attention are listed; the
+# matches are still counted (bulk never enters context).
+_LIST_ALL_UP_TO = 50
+# Live reads per request: one read was capped at 200 rows and past ~230 ids the
+# URL itself is refused (414, measured), so ids are read in chunks.
+_LIVE_CHUNK = 100
 _MAX_FIELDS_PER_RECORD = 120
 
 # Verdicts (one neutral vocabulary for both modes; the mode picks the wording).
@@ -140,6 +148,12 @@ def _parse_unload(path: Path) -> Tuple[List[Dict[str, Any]], Optional[str]]:
             if inner is None:
                 continue
             block = inner
+        if (block.get("action") or "").lower() == "delete_multiple":
+            # A real export carries these: "clear this record's child rows
+            # (translations, prices) before the insert". An instruction, not a
+            # record, so there is nothing on the server to compare it with.
+            records.append({"directive": True, "table": block.tag})
+            continue
         fields: Dict[str, str] = {}
         truncated = 0
         for child in block:
@@ -181,23 +195,25 @@ def _fetch_live(
 
     invalidate_query_cache(table=table)
     wanted = list(dict.fromkeys(["sys_id", *fields, *_AUDIT_FIELDS]))
-    rows, _total = sn_query_page(
-        config,
-        auth_manager,
-        table=table,
-        query="sys_idIN" + ",".join(sys_ids),
-        fields=",".join(wanted),
-        limit=min(max(len(sys_ids), 1), 200),
-        offset=0,
-        display_value=False,
-        no_count=True,
-        fail_silently=False,
-    )
     out: Dict[str, Dict[str, Any]] = {}
-    for row in rows:
-        key = str(row.get("sys_id") or "").strip()
-        if key:
-            out[key] = row
+    for start in range(0, len(sys_ids), _LIVE_CHUNK):
+        chunk = sys_ids[start : start + _LIVE_CHUNK]
+        rows, _total = sn_query_page(
+            config,
+            auth_manager,
+            table=table,
+            query="sys_idIN" + ",".join(chunk),
+            fields=",".join(wanted),
+            limit=max(len(chunk), 1),
+            offset=0,
+            display_value=False,
+            no_count=True,
+            fail_silently=False,
+        )
+        for row in rows:
+            key = str(row.get("sys_id") or "").strip()
+            if key:
+                out[key] = row
     return out
 
 
@@ -276,6 +292,17 @@ def verify_deployment_xml(
     records, err = _parse_unload(path)
     if err:
         return {"success": False, "xml_path": str(path), "message": err}
+    directives: Dict[str, int] = {}
+    for r in records:
+        if r.get("directive"):
+            directives[r["table"]] = directives.get(r["table"], 0) + 1
+    records = [r for r in records if not r.get("directive")]
+    if not records:
+        return {
+            "success": False,
+            "xml_path": str(path),
+            "message": f"No record blocks in {path}: only delete_multiple directives.",
+        }
 
     dropped = max(0, len(records) - _MAX_RECORDS)
     records = records[:_MAX_RECORDS]
@@ -322,6 +349,14 @@ def verify_deployment_xml(
         "counts": counts,
         "records": results,
     }
+    if directives:
+        out["directives"] = {
+            "delete_multiple": directives,
+            "note": "Child-row clean-up instructions the export carries; not records, not compared.",
+        }
+    if len(results) > _LIST_ALL_UP_TO:
+        out["records"] = [r for r in results if r["verdict"] != MATCH]
+        out["records_listed"] = "non-matching only; matches are in counts"
     if origin:
         out["origin"] = {
             "source_instance": origin.get("source_instance"),
@@ -349,7 +384,10 @@ def verify_deployment_xml(
 
     if params.mode == "preflight":
         blocking = counts.get(LIVE_NEWER, 0)
-        out["deployable"] = blocking == 0 and not dropped
+        uncompared = counts.get(UNKNOWN, 0)
+        # An uncompared record cannot be cleared of reverting newer work, so it
+        # blocks like one that does — never an "all match" over it.
+        out["deployable"] = blocking == 0 and uncompared == 0 and not dropped
         if blocking:
             out["message"] = (
                 f"DO NOT IMPORT. {blocking} record(s) moved on '{instance}' after "
@@ -362,6 +400,12 @@ def verify_deployment_xml(
                 f"{counts.get(DIFFERS, 0)} differ and {counts.get(MISSING, 0)} are "
                 "absent here. Expected against a target that lags — verify against "
                 "the SOURCE instance to test the file's freshness."
+            )
+        elif uncompared:
+            out["message"] = (
+                f"NOT VERIFIED: {uncompared} record block(s) could not be compared "
+                f"(see records, verdict '{UNKNOWN}'); {matched} match. Fix or re-export "
+                "before importing."
             )
         else:
             out["message"] = f"All {matched} record(s) match the live server on '{instance}'."

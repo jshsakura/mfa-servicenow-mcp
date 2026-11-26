@@ -367,7 +367,7 @@ MANAGE_READ_ACTIONS: Dict[str, frozenset] = {
     "manage_rest_message": frozenset({"list", "get", "get_method"}),
     "manage_scheduled_job": frozenset({"list", "get"}),
     "manage_catalog": frozenset(
-        {"list_items", "get_item", "list_categories", "list_item_variables"}
+        {"list_items", "get_item", "list_categories", "list_item_variables", "collect_structure"}
     ),
     "manage_kb_article": frozenset({"list_kbs", "list_articles", "get_article", "list_categories"}),
     "manage_flow_designer": frozenset(

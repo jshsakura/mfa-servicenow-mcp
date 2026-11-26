@@ -176,7 +176,13 @@ class TestServerPackageLoading:
         # with a read-only allowlist for catalog browsing.
         s = _server_with_package("service_desk")
         assert s._active_action_allowlists.get("manage_catalog") == frozenset(
-            {"list_items", "get_item", "list_categories", "list_item_variables"}
+            {
+                "list_items",
+                "get_item",
+                "list_categories",
+                "list_item_variables",
+                "collect_structure",
+            }
         )
 
     def test_full_package_has_no_restrictions(self):

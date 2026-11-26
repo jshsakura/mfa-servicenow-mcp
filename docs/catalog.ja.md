@@ -17,6 +17,7 @@
 | `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | アイテム一覧 |
 | `action="get_item"` | `item_id` | アイテムとその変数 |
 | `action="list_item_variables"` | `catalog_item_id` | 変数一覧：名前、ラベル、タイプコード、必須、既定値、順序 |
+| `action="collect_structure"` | `catalog_id`、`category_id`、`item_id` のいずれか一つ | その配下の全レコードを `export_record_xml(names=...)` に渡す update 名として：カテゴリ、アイテム、リンク行、変数セット、変数、選択肢、UI ポリシーとアクション、クライアントスクリプト。一度もカスタマイズされていないレコード（update バージョンなし）は別に示し、共有レコード（user criteria、フロー）と他カタログへのリンクは報告のみでエクスポートしません |
 
 2 つの一覧アクションは次の値を返します。
 

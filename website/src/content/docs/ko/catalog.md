@@ -21,6 +21,7 @@ slug: ko/catalog
 | `action="list_items"` | `limit`, `offset`, `query`, `category`, `active`, `count_only` | 항목 목록 |
 | `action="get_item"` | `item_id` | 항목과 그 변수 |
 | `action="list_item_variables"` | `catalog_item_id` | 변수 목록: 이름, 라벨, 타입 코드, 필수 여부, 기본값, 순서 |
+| `action="collect_structure"` | `catalog_id`, `category_id`, `item_id` 중 하나 | 그 아래 모든 레코드를 `export_record_xml(names=...)`에 넘길 update 이름으로: 카테고리, 항목, 연결 행, 변수 세트, 변수, 선택지, UI 정책과 액션, 클라이언트 스크립트. 한 번도 수정되지 않은 레코드(update 버전 없음)는 따로 표시하고, 공유 레코드(user criteria, flow)와 다른 카탈로그로 가는 연결은 내보내지 않고 알려 줍니다 |
 
 두 목록 액션이 돌려주는 값:
 

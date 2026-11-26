@@ -17,6 +17,7 @@
 | `action="list_items"` | `limit`、`offset`、`query`、`category`、`active`、`count_only` | 目录项列表 |
 | `action="get_item"` | `item_id` | 目录项及其变量 |
 | `action="list_item_variables"` | `catalog_item_id` | 变量列表：名称、标签、类型代码、是否必填、默认值、顺序 |
+| `action="collect_structure"` | `catalog_id`、`category_id`、`item_id` 三选一 | 其下的所有记录，作为 `export_record_xml(names=...)` 的 update 名称：类别、条目、关联行、变量集、变量、选项、UI 策略及其动作、客户端脚本。从未定制过的记录（没有 update 版本）单独列出；共享记录（user criteria、flow）和指向其他目录的关联只报告，不导出 |
 
 两个列表操作返回以下字段：
 
