@@ -12,6 +12,7 @@ fake origin — no instance, no user window. CI does not install a browser, so
 they skip there; run locally after touching ``browser/probe.py``.
 """
 
+import types
 from typing import Any, Dict, Iterator
 
 import pytest
@@ -51,6 +52,10 @@ def _top(frame_src: str) -> str:
 @pytest.fixture(scope="module")
 def browser() -> Iterator[Any]:
     sync_api = pytest.importorskip("playwright.sync_api")
+    # Another test may have left a MagicMock in sys.modules (CI has no
+    # Playwright); importorskip returns it, and the "browser" is then a mock.
+    if not isinstance(sync_api, types.ModuleType) or not getattr(sync_api, "__file__", None):
+        pytest.skip("playwright.sync_api is a test stub, not the real package")
     with sync_api.sync_playwright() as p:
         try:
             launched = p.chromium.launch(headless=True)

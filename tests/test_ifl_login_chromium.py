@@ -14,6 +14,7 @@ window. CI has no browser, so these skip there.
 
 import socket
 import threading
+import types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Iterator, List
 from urllib.parse import parse_qs, urlparse
@@ -107,6 +108,10 @@ class _Site:
 @pytest.fixture()
 def window(tmp_path: Any) -> Iterator[Any]:
     sync_api = pytest.importorskip("playwright.sync_api")
+    # Another test may have left a MagicMock in sys.modules (CI has no
+    # Playwright); importorskip returns it, and the "browser" is then a mock.
+    if not isinstance(sync_api, types.ModuleType) or not getattr(sync_api, "__file__", None):
+        pytest.skip("playwright.sync_api is a test stub, not the real package")
     port = _free_port()
     with sync_api.sync_playwright() as p:
         try:
