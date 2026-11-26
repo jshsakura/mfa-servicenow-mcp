@@ -612,6 +612,92 @@ class TestLoginWithBrowserSync:
 
         assert mgr._browser_cookie_header is not None
 
+    def test_identifier_first_login_types_the_password_on_step_two(self):
+        """ServiceNow's IFL login: step 1 has no password field, only "Next".
+
+        Filling both fields and clicking the first submit stopped after Next, so
+        the password page waited for a person (measured on a PDI). Pins the
+        bug fix: after Next, the password step is filled and submitted.
+        """
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(
+            username="admin",
+            password="secret",
+            timeout_seconds=10,
+            headless=True,
+            session_ttl_minutes=30,
+        )
+        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks()
+        step = {"n": 1}
+
+        def _counting(present):
+            loc = MagicMock()
+            loc.count.side_effect = lambda: 1 if present() else 0
+            return loc
+
+        def _mock_locator(selector):
+            if selector in ("input#user_name", "button#sysverb_ifl_login"):
+                return _counting(lambda: step["n"] == 1)
+            if selector == "button[type='submit']":
+                return _counting(lambda: True)
+            if selector == "input#user_password":
+                return _counting(lambda: step["n"] == 2)
+            return _counting(lambda: False)
+
+        def _click(selector):
+            if step["n"] == 1:
+                step["n"] = 2  # Next lands on ifl_password_login.do
+
+        mock_page.locator = _mock_locator
+        mock_page.click.side_effect = _click
+        mock_page.frames = []
+
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_probe):
+                with patch.object(mgr, "_save_session_to_disk"):
+                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                        mgr._login_with_browser_sync(browser_cfg)
+
+        fills = [c.args for c in mock_page.fill.call_args_list]
+        assert fills[0] == ("input#user_name", "admin")
+        assert ("input#user_password", "secret") in fills
+        assert mock_page.click.call_count >= 2, "Next, then Log In"
+
+    def test_a_single_step_login_never_waits_for_a_password_step(self):
+        """No IFL Next button on the page: the new branch must not run."""
+        mgr = _make_browser_manager()
+        browser_cfg = BrowserAuthConfig(
+            username="admin", password="secret", timeout_seconds=10, headless=True
+        )
+        mock_sync, mock_page, mock_context, mock_probe = self._make_playwright_mocks()
+        present = {"input#user_name", "input#user_password", "button#sysverb_login"}
+
+        def _mock_locator(selector):
+            loc = MagicMock()
+            loc.count.return_value = 1 if selector in present else 0
+            return loc
+
+        mock_page.locator = _mock_locator
+        mock_page.frames = []
+        mock_spw = MagicMock(return_value=mock_sync)
+        with patch.dict(
+            "sys.modules",
+            {"playwright.sync_api": MagicMock(sync_playwright=mock_spw)},
+        ):
+            with patch.object(mgr, "_probe_browser_api_with_cookie", return_value=mock_probe):
+                with patch.object(mgr, "_save_session_to_disk"):
+                    with patch("servicenow_mcp.auth.auth_manager.time.sleep"):
+                        with patch(
+                            "servicenow_mcp.auth.auth_manager._await_ifl_password_step"
+                        ) as awaited:
+                            mgr._login_with_browser_sync(browser_cfg)
+
+        awaited.assert_not_called()
+
     def test_login_with_credentials_enter_submit(self):
         """When no submit button found, Enter key on password field submits."""
         mgr = _make_browser_manager()

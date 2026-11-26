@@ -21,9 +21,11 @@ from ._browser_dom import (  # noqa: F401
     PASSWORD_SELECTORS,
     SUBMIT_SELECTORS,
     USERNAME_SELECTORS,
+    _await_ifl_password_step,
     _click_first_matching,
     _ensure_private_dir,
     _fill_first_matching,
+    _ifl_identifier_step,
     _is_debug_mode,
     _launch_persistent_with_retry,
     _selector_exists,
@@ -3151,6 +3153,8 @@ class AuthManager:
                 matched_any_selector = False
                 submitted_login = False
                 matched_locations: list[str] = []
+                # Identifier-first login: the submit below is "Next" (bug fix).
+                ifl_step = _ifl_identifier_step(targets)
 
                 for index, target in enumerate(targets):
                     label = _target_label(target, index)
@@ -3193,6 +3197,13 @@ class AuthManager:
                             break
                         except Exception:
                             pass
+
+                if ifl_step is not None and submitted_login:
+                    ifl_state = _await_ifl_password_step(page, instance_host)
+                    logger.info("Browser auth IFL password step: %s", ifl_state)
+                    if ifl_state == "ready":
+                        _fill_first_matching(page, PASSWORD_SELECTORS, password)
+                        _click_first_matching(page, SUBMIT_SELECTORS)
 
                 if force_interactive and submitted_login:
                     logger.info(

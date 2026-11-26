@@ -94,12 +94,15 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlparse
 
 from ..auth._browser_dom import (
+    IFL_NEXT_SELECTOR,
     PASSWORD_SELECTORS,
     SUBMIT_SELECTORS,
     USERNAME_SELECTORS,
+    _await_ifl_password_step,
     _click_first_matching,
-    _fill_first_matching,
+    _ifl_identifier_step,
     _selector_exists,
+    _submit_ifl_identifier,
     _target_label,
 )
 from ..utils.instances import SSO_LOCATOR_PATH
@@ -127,6 +130,9 @@ _VERDICT_STABLE_READS = 3
 # CSS unions of the shared selector tuples — one wait_for_selector instead of
 # one per candidate, which would multiply the timeout above by six.
 _PASSWORD_UNION = ", ".join(PASSWORD_SELECTORS)
+# What "a login form is showing" means: a password field, or step 1 of the
+# identifier-first login, which has none yet (see _browser_dom.IFL_*).
+_LOGIN_FORM_UNION = f"{_PASSWORD_UNION}, {IFL_NEXT_SELECTOR}"
 
 # The multi-provider SSO locator page (login_locate_sso.do). Read from the page
 # itself: one text input, and a Submit button whose onclick runs locateSSO().
@@ -297,16 +303,39 @@ def _wait_for_login_form(page: Any) -> bool:
     """Is there a password field to fill, now or within a few seconds?
 
     A password input is the signal, not the URL: instances redirect to wildly
-    different IdPs, and every one of them ends at a field of this shape.
+    different IdPs, and every one of them ends at a field of this shape. The one
+    exception is ServiceNow's own identifier-first page, whose step 1 asks only
+    for the username — recognised by its Next button, never by a bare text box.
     """
     for target in _login_targets(page):
-        if _selector_exists(target, _PASSWORD_UNION):
+        if _selector_exists(target, _LOGIN_FORM_UNION):
             return True
     try:
-        page.wait_for_selector(_PASSWORD_UNION, timeout=int(LOGIN_FORM_WAIT_S * 1000))
+        page.wait_for_selector(_LOGIN_FORM_UNION, timeout=int(LOGIN_FORM_WAIT_S * 1000))
         return True
     except Exception:  # noqa: BLE001 - not a login page, or already signed in
         return False
+
+
+# Per-field cap. Playwright's fill waits for an element to become editable, and
+# a field that never will — the HIDDEN input#user_name on the identifier-first
+# password page — cost its full 30 s default, twice (two selectors), on every
+# sign-in. Measured: 60 s for a login that otherwise takes two.
+_FILL_TIMEOUT_MS = 3_000
+
+
+def _fill_visible(target: Any, selectors: Sequence[str], value: str) -> Optional[str]:
+    """Fill the first VISIBLE match; a hidden field is not a field anyone types in."""
+    for selector in selectors:
+        visible = f"{selector} >> visible=true"
+        if not _selector_exists(target, visible):
+            continue
+        try:
+            target.locator(visible).first.fill(value, timeout=_FILL_TIMEOUT_MS)
+            return selector
+        except Exception as exc:  # noqa: BLE001 - try the next candidate
+            logger.debug("Could not fill %s: %s", selector, exc)
+    return None
 
 
 def _fill_and_submit(page: Any, username: str, password: str) -> Dict[str, Any]:
@@ -318,8 +347,8 @@ def _fill_and_submit(page: Any, username: str, password: str) -> Dict[str, Any]:
     """
     for index, target in enumerate(_login_targets(page)):
         label = _target_label(target, index)
-        filled_user = _fill_first_matching(target, USERNAME_SELECTORS, username)
-        filled_password = _fill_first_matching(target, PASSWORD_SELECTORS, password)
+        filled_user = _fill_visible(target, USERNAME_SELECTORS, username)
+        filled_password = _fill_visible(target, PASSWORD_SELECTORS, password)
         if not (filled_user or filled_password):
             continue
 
@@ -368,7 +397,12 @@ def _credentials_accepted(page: Any) -> Optional[bool]:
         except Exception as exc:  # noqa: BLE001 - an unreadable page proves nothing
             logger.debug("Could not read the page after submitting the login: %s", exc)
             return None
-        standing = any(_selector_exists(target, _PASSWORD_UNION) for target in _login_targets(page))
+        # Step 1 of the identifier-first login counts as the form standing: a
+        # refusal that sends the window back to "enter your username" must not
+        # read as the form having gone away.
+        standing = any(
+            _selector_exists(target, _LOGIN_FORM_UNION) for target in _login_targets(page)
+        )
         clear_reads = 0 if standing else clear_reads + 1
         if clear_reads >= _VERDICT_STABLE_READS:
             return True
@@ -577,6 +611,18 @@ def auto_login(
             # click and the response, the next one must not try again.
             record_attempt(marker_path, state)
 
+            step_one = _ifl_identifier_step(_login_targets(page))
+            if step_one is not None:
+                if not _submit_ifl_identifier(step_one, username):
+                    release_attempt(marker_path)
+                    return {"status": "fields_not_found", "url": str(page.url)}
+                step = _await_ifl_password_step(page, state.instance_host)
+                if step != "ready":
+                    # Only the username went anywhere: nothing was refused, so
+                    # the attempt is handed back.
+                    release_attempt(marker_path)
+                    return {"status": f"identifier_{step}", "user": username, "url": str(page.url)}
+
             outcome = _fill_and_submit(page, username, password)
             if not outcome["filled"]:
                 return {"status": "fields_not_found", "url": str(page.url)}
@@ -686,6 +732,17 @@ def describe(result: Dict[str, Any]) -> Optional[str]:
             f"Submitted the credentials for '{result.get('user')}' but could not read whether "
             "the instance accepted them — look at the window. The attempt is held as spent "
             "until a new window; closing this one and reopening frees it."
+        )
+    if status == "identifier_redirected":
+        return (
+            f"Sent username '{result.get('user')}' on the instance's sign-in page and it "
+            f"handed the window to another site ({result.get('url')}) — sign in there. "
+            "The instance password is never typed on another site."
+        )
+    if status == "identifier_absent":
+        return (
+            f"Sent username '{result.get('user')}' and pressed Next, but no password step "
+            "appeared — look at the window. Not counted as a refused login."
         )
     if status == "fields_not_found":
         return "A login form is showing but its fields were not recognized — sign in manually."

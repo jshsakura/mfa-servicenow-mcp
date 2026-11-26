@@ -8,7 +8,8 @@ every symbol so its namespace stays byte-identical for callers and tests.
 import logging
 import os
 import time
-from typing import Optional
+from typing import Any, Optional, Sequence
+from urllib.parse import urlparse
 
 from ._process import _is_pid_alive
 
@@ -167,6 +168,7 @@ PASSWORD_SELECTORS = (
 )
 
 SUBMIT_SELECTORS = (
+    "button#sysverb_ifl_password_login",
     "button#sysverb_login",
     "input#sysverb_login",
     "button[type='submit']",
@@ -176,6 +178,62 @@ SUBMIT_SELECTORS = (
     "input#idSIButton9",
     "button[data-type='save']",
 )
+
+
+# ServiceNow's own identifier-first ("IFL") login, measured on a PDI:
+#   step 1 (navpage.do / login.do): input#user_name + button#sysverb_ifl_login
+#     ("Next"), and NO password field;
+#   step 2 (ifl_password_login.do): input#user_password, a HIDDEN
+#     input#user_name, and button#sysverb_ifl_password_login ("Log In").
+# A form-filler that waits for a password field never sees step 1 as a login
+# at all; one that fills both and clicks "submit" stops after Next. Recognised
+# by the Next button's id only — never by a generic username/email selector,
+# which matches ordinary form fields on a page that is already signed in.
+IFL_USERNAME_SELECTOR = "input#user_name"
+IFL_NEXT_SELECTOR = "button#sysverb_ifl_login"
+IFL_PASSWORD_STEP_WAIT_MS = 10_000
+
+
+def _ifl_identifier_step(targets: Sequence[Any]) -> Optional[Any]:
+    """The page or frame showing step 1 of the IFL login, or None."""
+    for target in targets:
+        if (
+            _selector_exists(target, IFL_NEXT_SELECTOR)
+            and _selector_exists(target, IFL_USERNAME_SELECTOR)
+            and not any(_selector_exists(target, sel) for sel in PASSWORD_SELECTORS)
+        ):
+            return target
+    return None
+
+
+def _submit_ifl_identifier(target: Any, username: str) -> bool:
+    """Type the username on IFL step 1 and press Next. False if either failed."""
+    try:
+        target.fill(IFL_USERNAME_SELECTOR, username)
+        target.click(IFL_NEXT_SELECTOR)
+        return True
+    except Exception as exc:  # noqa: BLE001 - a form that changed under us
+        logger.debug("IFL step 1 could not be submitted: %s", exc)
+        return False
+
+
+def _await_ifl_password_step(page: Any, instance_host: str) -> str:
+    """After Next: "ready" (password field, on the instance), "redirected" or "absent".
+
+    "redirected" is the instance deciding this user signs in somewhere else
+    (identifier-first is how SSO users are routed): that page's password is not
+    the instance password, so nothing may be typed there.
+    """
+    union = ", ".join(PASSWORD_SELECTORS)
+    try:
+        page.wait_for_selector(union, timeout=IFL_PASSWORD_STEP_WAIT_MS, state="visible")
+    except Exception:  # noqa: BLE001 - no password step appeared
+        host = (urlparse(str(page.url)).hostname or "").lower()
+        return "redirected" if instance_host and host != instance_host.lower() else "absent"
+    host = (urlparse(str(page.url)).hostname or "").lower()
+    if instance_host and host != instance_host.lower():
+        return "redirected"
+    return "ready"
 
 
 def _selector_exists(target, selector: str) -> bool:
