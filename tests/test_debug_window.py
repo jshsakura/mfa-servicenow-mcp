@@ -242,7 +242,94 @@ def test_clean_page_gets_an_explicit_all_clear():
         report.summarize_console([]), report.summarize_network([]), watched=30
     )
 
-    assert "No errors" in verdict and "30s" in verdict
+    assert "No browser errors" in verdict and "30s" in verdict
+    assert "Server log not read" in verdict
+
+
+def test_an_unobserved_frame_is_never_an_all_clear(tmp_path):
+    # Zero events, zero failures — and one frame nobody read. "No errors" here
+    # would be a claim about errors raised where no drain reaches.
+    raw = {
+        "url": "https://x/nav_to.do",
+        "seq": 0,
+        "events": [],
+        "frames": {"observed": 0, "unobserved": [{"url": "https://x/f.do", "reason": "no_probe"}]},
+    }
+
+    result = report.compact(raw, artifacts_dir=str(tmp_path))
+
+    assert "No browser errors" not in result["verdict"]
+    assert "NOT observed" in result["verdict"] and "no_probe" in result["verdict"]
+    assert result["frames_unobserved"] == [{"url": "https://x/f.do", "reason": "no_probe"}]
+    assert "console" in result and "network" in result
+
+
+def test_a_clean_verdict_says_which_child_frames_it_covered(tmp_path):
+    raw = {"url": "u", "seq": 0, "events": [], "frames": {"observed": 1, "unobserved": []}}
+
+    result = report.compact(raw, artifacts_dir=str(tmp_path))
+
+    assert result["verdict"].startswith("No browser errors")
+    assert "1 child frame(s) included" in result["verdict"]
+    assert "frames_unobserved" not in result
+
+
+def test_the_server_log_call_is_named_once_and_again_on_a_failed_request(tmp_path):
+    clean = {"url": "u", "seq": 0, "events": []}
+    first = report.compact(clean, artifacts_dir=str(tmp_path / "w"))
+    second = report.compact(clean, artifacts_dir=str(tmp_path / "w"))
+    failed = report.compact(
+        {
+            "url": "u",
+            "seq": 1,
+            "events": [_xhr(1, 1, "POST", "https://x/api/now/table/x", status=500)],
+        },
+        artifacts_dir=str(tmp_path / "w"),
+    )
+
+    assert "get_logs(log_type='system'" in first["server_log"]
+    assert "server_log" not in second
+    assert "Server log not read" in second["verdict"]
+    assert "get_logs" in failed["server_log"]
+
+
+def test_an_on_page_error_message_leads_the_verdict(tmp_path):
+    events = [{"seq": 1, "t": 1, "kind": "ui_message", "level": "error", "msg": "Invalid insert"}]
+
+    result = report.compact({"url": "u", "seq": 1, "events": events}, artifacts_dir=str(tmp_path))
+
+    assert result["verdict"].startswith("1 on-page error message(s): Invalid insert")
+    assert result["page_messages"]["top"][0]["msg"] == "Invalid insert"
+
+
+def test_the_console_detail_names_an_error_not_a_louder_warning():
+    events = [
+        {"seq": i, "t": i, "kind": "console", "level": "warn", "msg": "noisy warning"}
+        for i in range(3)
+    ] + [{"seq": 9, "t": 9, "kind": "error", "level": "error", "msg": "real failure"}]
+
+    verdict = report.build_verdict(
+        report.summarize_console(events), report.summarize_network([]), watched=0
+    )
+
+    assert "1 console error(s): real failure" in verdict
+
+
+def test_an_error_is_never_pushed_out_of_the_shown_groups_by_warnings():
+    events = [
+        {"seq": i, "t": i, "kind": "console", "level": "warn", "msg": f"warning {i % 8}"}
+        for i in range(40)
+    ] + [{"seq": 99, "t": 99, "kind": "error", "level": "error", "msg": "the one error"}]
+
+    summary = report.summarize_console(events)
+
+    assert summary["top"][0]["msg"] == "the one error"
+
+
+def test_a_frame_event_keeps_its_frame_name_in_the_summary():
+    event = dict(_console(1, 1, "boom"), frame="gsft_main")
+
+    assert report.summarize_console([event])["top"][0]["frame"] == "gsft_main"
 
 
 def test_compact_writes_bodies_to_disk_and_returns_only_a_path(tmp_path):
@@ -1331,7 +1418,12 @@ def test_the_badge_can_be_hidden_for_screenshots():
 
 
 def test_the_probe_is_idempotent_so_re_injection_is_safe():
-    assert "if (window[G]) return;" in PROBE_SCRIPT
+    # A second injection never installs a second set of hooks; it only re-arms
+    # the message observer when the Window now holds a different document
+    # (behaviour pinned in a real browser: tests/test_probe_frames_chromium.py).
+    guard = PROBE_SCRIPT.split("if (window[G]) {", 1)[1].split("}\n", 2)
+    assert "window[G].rearm(false)" in guard[0] + guard[1]
+    assert "return;" in guard[1]
 
 
 def test_the_probe_caps_its_own_buffer_in_the_page():
@@ -5152,7 +5244,7 @@ def test_a_clean_pass_is_said_by_the_verdict_alone():
     out = report.compact({"tab_id": "t", "events": []}, artifacts_dir="")
 
     assert "console" not in out and "network" not in out
-    assert out["verdict"].startswith("No errors")
+    assert out["verdict"].startswith("No browser errors")
 
 
 def test_any_error_keeps_the_evidence_blocks(tmp_path):
@@ -5802,7 +5894,7 @@ def test_an_unread_buffer_never_gets_the_all_clear_verdict():
 
     result = report.compact(raw, artifacts_dir="")
 
-    assert "No errors" not in result["verdict"]
+    assert "No browser errors" not in result["verdict"]
     assert "UNREAD" in result["verdict"]
     assert result["events_note"] == "n"
 

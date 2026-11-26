@@ -40,7 +40,11 @@ _MIRROR_INTERVAL_MS = 500
 PROBE_SCRIPT = """
 (() => {
   const G = '%(global)s';
-  if (window[G]) return;
+  if (window[G]) {
+    // Same Window, new document — see `rearm` below.
+    try { if (window[G].doc !== document && window[G].rearm) window[G].rearm(false); } catch (e) {}
+    return;
+  }
 
   const MAX = %(max_events)d;
   const HEAD = %(head)d;
@@ -63,21 +67,50 @@ PROBE_SCRIPT = """
   // buffer whose numbering it identifies.
   let tabId = '';
 
-  try {
-    const saved = sessionStorage.getItem(KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed.events)) { events = parsed.events; seq = parsed.seq || 0; }
-      lastHuman = parsed.lastHuman || 0;
-      tabId = parsed.tabId || '';
-    }
-  } catch (e) { /* storage blocked or corrupt — start fresh */ }
+  // --- frames ----------------------------------------------------------
+  // Every caller reads the TOP document's probe. A probe in a child frame used
+  // to keep a buffer of its own that nothing ever drained, so a classic form
+  // inside `gsft_main` could throw, fail a save and be typed into by a person
+  // while the window reported "No errors", no dirty field and nobody there
+  // (measured in a real Chromium). A same-origin child therefore hands every
+  // record to the top probe (`adopt`) and keeps nothing itself. A child that
+  // cannot reach it — cross-origin, or a top probe too old to adopt — is
+  // listed by the top's drain() as a frame NOT observed, never as a clean one.
+  let isChild = false;
+  try { isChild = window.top !== window.self; } catch (e) { isChild = true; }
+  let host = null;
+  if (isChild) {
+    try {
+      const h = window.top[G];
+      if (h && (h.version || 0) >= 6 && h.adopt) host = h.adopt;
+    } catch (e) { host = null; }
+  }
+  const frameName = (() => {
+    if (!isChild) return '';
+    try { return String(window.name || location.pathname || 'frame').slice(0, 60); } catch (e) { return 'frame'; }
+  })();
+
+  // sessionStorage is per TAB and shared by every same-origin frame in it, so
+  // the key is the top document's alone. A child reading it inherited the
+  // top's buffer and tabId; a child writing it overwrote the top's mirror.
+  if (!isChild) {
+    try {
+      const saved = sessionStorage.getItem(KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.events)) { events = parsed.events; seq = parsed.seq || 0; }
+        lastHuman = parsed.lastHuman || 0;
+        tabId = parsed.tabId || '';
+      }
+    } catch (e) { /* storage blocked or corrupt — start fresh */ }
+  }
 
   if (!tabId) {
     tabId = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
 
   const mirror = (force) => {
+    if (isChild) return;
     const now = Date.now();
     if (!force && now - lastMirror < MIRROR_MS) return;
     lastMirror = now;
@@ -126,10 +159,16 @@ PROBE_SCRIPT = """
     return { bytes: bytes, hash: hash(text), head: text.slice(0, HEAD) };
   };
 
-  const push = (event) => {
+  const record = (event) => {
     events.push(Object.assign({ seq: ++seq, t: Date.now() }, event));
     if (events.length > MAX) events = events.slice(events.length - MAX);
     mirror(false);
+  };
+  const push = (event) => {
+    if (host) {
+      try { host.push(event, frameName); return; } catch (e) { host = null; }
+    }
+    record(event);
   };
 
   // --- console ---------------------------------------------------------
@@ -173,7 +212,17 @@ PROBE_SCRIPT = """
   // opened minutes ago does not hold every step to its cap.
   const openReqs = new Map();
   let openSeq = 0;
-  const opened = () => { const id = ++openSeq; openReqs.set(id, Date.now()); return id; };
+  const openLocal = () => { const id = ++openSeq; openReqs.set(id, Date.now()); return id; };
+  // A child's request holds the TOP's busy() open: a save inside gsft_main is
+  // exactly what a click's settle has to wait for.
+  const opened = () => {
+    if (host) { try { return host.opened(); } catch (e) { host = null; } }
+    return openLocal();
+  };
+  const closed = (id) => {
+    if (host) { try { host.closed(id); return; } catch (e) { host = null; } }
+    openReqs.delete(id);
+  };
 
   // --- XMLHttpRequest --------------------------------------------------
   const OpenOriginal = XMLHttpRequest.prototype.open;
@@ -187,7 +236,7 @@ PROBE_SCRIPT = """
     const started = Date.now();
     const openId = opened();
     this.addEventListener('loadend', () => {
-      openReqs.delete(openId);
+      closed(openId);
       push({
         kind: 'xhr', transport: 'xhr',
         method: meta.method || 'GET', url: redact(meta.url || ''),
@@ -209,14 +258,14 @@ PROBE_SCRIPT = """
       const body = init && init.body;
       const openId = opened();
       return fetchOriginal.apply(this, arguments).then((response) => {
-        openReqs.delete(openId);
+        closed(openId);
         push({
           kind: 'xhr', transport: 'fetch', method, url,
           status: response.status, ms: Date.now() - started, req: summarize(body), resBytes: -1
         });
         return response;
       }, (err) => {
-        openReqs.delete(openId);
+        closed(openId);
         push({
           kind: 'xhr', transport: 'fetch', method, url,
           status: 0, ms: Date.now() - started, req: summarize(body),
@@ -226,6 +275,74 @@ PROBE_SCRIPT = """
       });
     };
   }
+
+  // --- what the page SAYS went wrong ----------------------------------
+  // A save the client refused, a mandatory field, a Business Rule's
+  // gs.addErrorMessage: none of these is a console error or a failed request,
+  // so a read that only counted those printed "No errors" under a red banner.
+  // Measured on a real instance: the classic banner is
+  // `div.outputmsg_error.notification-error[role=alert]`; the Service Portal
+  // toast is `.notification-container > .alert.alert-danger` and is GONE a few
+  // seconds later, so reading the DOM when a batch ends can miss it. Recorded
+  // as it appears instead, like every other event.
+  const MSG_SELECTOR = '.outputmsg_error, .notification-error, .notification-container .alert-danger';
+  const seenMsg = new WeakSet();
+  const noteMessage = (el, preexisting) => {
+    if (seenMsg.has(el)) return;
+    seenMsg.add(el);
+    // Angular fills the text a digest after the node lands.
+    setTimeout(() => {
+      try {
+        const text = String(el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+        if (!text) return;
+        const ev = { kind: 'ui_message', level: 'error', msg: text.slice(0, 300) };
+        if (preexisting) ev.preexisting = true;
+        push(ev);
+      } catch (e) {}
+    }, 60);
+  };
+  const scanMessages = (root, preexisting) => {
+    try {
+      if (root.matches && root.matches(MSG_SELECTOR)) noteMessage(root, preexisting);
+      if (root.querySelectorAll) for (const el of root.querySelectorAll(MSG_SELECTOR)) {
+        // The inner node of an already-noted banner is the same message.
+        if (el.parentElement && el.parentElement.closest(MSG_SELECTOR)) continue;
+        noteMessage(el, preexisting);
+      }
+    } catch (e) {}
+  };
+  const armMessages = (preexisting) => {
+    try {
+      new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.type === 'attributes') { scanMessages(m.target, false); continue; }
+          for (const n of m.addedNodes) if (n.nodeType === 1) scanMessages(n, false);
+        }
+      }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    } catch (e) {}
+    // What is on screen now was never seen appearing. On a late injection it is
+    // reported and marked preexisting; on a rearm at DOMContentLoaded the whole
+    // document was parsed since, so it is this document's own.
+    if (document.readyState !== 'loading') scanMessages(document, preexisting);
+  };
+  armMessages(true);
+
+  // Same Window, NEW document. A frame the Next Experience shell creates and
+  // then points at a classic form keeps its Window object while the Document
+  // is replaced, and the init script does NOT run again for it. Measured on
+  // gsft_main: the probe's document !== the live one, so the observer watched
+  // a discarded document — console/XHR hooks (on the Window) kept reporting
+  // and the red banner never did. Window listeners survive the swap, and
+  // DOMContentLoaded bubbles from the new document to the Window: that is the
+  // moment to re-arm. drain() checks again for any frame that slipped past.
+  let armedDoc = document;
+  const rearm = (preexisting) => {
+    if (armedDoc === document) return;
+    armedDoc = document;
+    armMessages(!!preexisting);
+    if (window[G]) window[G].doc = document;
+  };
+  window.addEventListener('DOMContentLoaded', () => rearm(false), true);
 
   // --- who actually typed ----------------------------------------------
   // `isTrusted` is the browser's own answer to "did a human do this": events
@@ -257,18 +374,20 @@ PROBE_SCRIPT = """
   ['input', 'change', 'pointerdown', 'keydown'].forEach((type) => {
     window.addEventListener(type, (e) => {
       if (!e || !e.isTrusted) return;
+      if (host) { try { host.human(); } catch (e2) { host = null; } }
       lastHuman = Date.now();
       mirror(false);
       if ((type === 'input' || type === 'change') && isField(e.target)) touched.add(e.target);
     }, true);
   });
 
-  window.addEventListener('pagehide', () => mirror(true));
-
   // Fields a human edited and left non-empty. Capped: the caller needs to
   // know THAT input would be lost, not an inventory of the form.
   const dirtyFields = () => {
     const out = [];
+    // A navigated-away child document is detached; its touched set describes
+    // a form that no longer exists.
+    if (!document.defaultView) return { fields: out, observedFromStart: true };
     for (const el of document.querySelectorAll('input, textarea, select')) {
       if (el.type === 'hidden' || el.disabled || el.readOnly) continue;
       if (!touched.has(el)) continue;
@@ -279,6 +398,68 @@ PROBE_SCRIPT = """
     return { fields: out, observedFromStart: !installedLate };
   };
 
+  if (host) {
+    // Adopted: the top probe now holds this frame's events, requests, presence
+    // and dirty fields. The stub only stops a second injection, and tells the
+    // top's frame census that this frame IS observed.
+    let token = 0;
+    try { token = host.addFrame(dirtyFields); } catch (e) { token = 0; }
+    window.addEventListener('pagehide', () => { try { host && host.dropFrame(token); } catch (e) {} });
+    window[G] = { version: 6, child: true, adopted: true, doc: document, rearm };
+    return;
+  }
+
+  window.addEventListener('pagehide', () => mirror(true));
+
+  // Frames that handed their records here (see `adopt`), by token.
+  const childFrames = new Map();
+  let frameSeq = 0;
+  const allDirty = () => {
+    const own = dirtyFields();
+    let fields = own.fields.slice();
+    let fromStart = own.observedFromStart;
+    for (const [token, fn] of childFrames) {
+      let part = null;
+      try { part = fn(); } catch (e) { childFrames.delete(token); continue; }
+      if (!part) continue;
+      fields = fields.concat(Array.from(part.fields || []).map(String));
+      fromStart = fromStart && !!part.observedFromStart;
+    }
+    return { fields: fields.slice(0, 10), observedFromStart: fromStart };
+  };
+
+  // Which child frames this probe can vouch for. A frame is observed only when
+  // its probe was ADOPTED here; one with no probe, a probe of its own, or a
+  // cross-origin document is listed, because its errors are not in `events`
+  // and a drain without it must not read as a clean page. An empty
+  // about:blank frame runs no document code and is skipped.
+  const frameCensus = () => {
+    const out = { observed: 0, unobserved: [] };
+    const walk = (w, depth) => {
+      if (depth > 5) return;
+      let n = 0;
+      try { n = w.frames.length; } catch (e) { return; }
+      for (let i = 0; i < n; i++) {
+        let f = null, href = '', p = null, cross = false;
+        try { f = w.frames[i]; href = String(f.location.href); p = f[G]; } catch (e) { cross = true; }
+        if (cross) {
+          out.unobserved.push({ url: '', reason: 'cross_origin' });
+          continue;
+        }
+        if (p && p.adopted) {
+          out.observed++;
+          // A frame whose document was swapped under its Window (see rearm).
+          try { if (p.doc !== f.document && p.rearm) p.rearm(true); } catch (e) {}
+        }
+        else if (!p && (href === 'about:blank' || href === '')) { /* empty frame */ }
+        else out.unobserved.push({ url: redact(href).slice(0, 160), reason: p ? 'own_buffer' : 'no_probe' });
+        walk(f, depth + 1);
+      }
+    };
+    walk(window, 0);
+    return out;
+  };
+
   window[G] = {
     // Bumped when the SHAPE of a call changes, so a caller can tell what the
     // probe in front of it understands. A window open across an upgrade keeps
@@ -286,14 +467,33 @@ PROBE_SCRIPT = """
     // global exists), so "the code shipped" never means "the page has it".
     // 4: drain() takes a {tabId: seq} map instead of a bare number.
     // 5: busy(ms) — requests still open that started within the last ms.
-    version: 5,
+    // 6: adopt — same-origin child frames report here; drain() carries frames.
+    version: 6,
+    // The document this probe was armed on; see the guard at the top.
+    doc: document,
+    rearm,
+    // A child frame's door into this buffer. Events are copied through JSON so
+    // nothing kept here belongs to a frame's realm once that frame is gone.
+    adopt: {
+      push: (event, frame) => {
+        let copy = {};
+        try { copy = JSON.parse(JSON.stringify(event)); } catch (e) { copy = { kind: 'error', level: 'error', msg: '[unserializable frame event]' }; }
+        copy.frame = String(frame || 'frame').slice(0, 60);
+        record(copy);
+      },
+      opened: () => openLocal(),
+      closed: (id) => { openReqs.delete(id); },
+      human: () => { lastHuman = Date.now(); mirror(false); },
+      addFrame: (fn) => { const token = ++frameSeq; childFrames.set(token, fn); return token; },
+      dropFrame: (token) => { childFrames.delete(token); }
+    },
     busy: (ms) => {
       const since = Date.now() - (ms || 2500);
       let n = 0;
       for (const t of openReqs.values()) if (t >= since) n++;
       return n;
     },
-    dirty: dirtyFields,
+    dirty: allDirty,
     // Everything the reaper needs to decide "is this window in use?", in one
     // evaluate. `now` is the PAGE's clock so the caller subtracts two readings
     // from the same clock rather than comparing across processes.
@@ -302,7 +502,7 @@ PROBE_SCRIPT = """
       lastHuman: lastHuman,
       seq: seq,
       tabId: tabId,
-      dirty: dirtyFields().fields.length
+      dirty: allDirty().fields.length
     }),
     // Harvest everything newer than this TAB's high-water mark. `marks` is the
     // caller's whole map of tabId -> seq, and the tab picks its own entry: the
@@ -318,7 +518,8 @@ PROBE_SCRIPT = """
         url: location.href,
         title: document.title,
         dropped: Math.max(0, seq - events.length - after),
-        events: events.filter((ev) => ev.seq > after)
+        events: events.filter((ev) => ev.seq > after),
+        frames: frameCensus()
       };
     },
     reset: () => { events = []; seq = 0; mirror(true); }
@@ -385,13 +586,13 @@ def drain_script(marks: Any) -> str:
         payload = json.dumps({str(k): int(v) for k, v in dict(marks or {}).items()})
         legacy = "0"
     return (
-        f"(() => {{ const p = window['{PROBE_GLOBAL}']; if (!p) return null;"
+        f"(() => {{ const p = window['{PROBE_GLOBAL}']; if (!p || !p.drain) return null;"
         f" return p.drain((p.version || 0) >= 4 ? {payload} : {legacy}); }})()"
     )
 
 
 def reset_script() -> str:
-    return f"(() => {{ const p = window['{PROBE_GLOBAL}']; if (p) p.reset(); }})()"
+    return f"(() => {{ const p = window['{PROBE_GLOBAL}']; if (p && p.reset) p.reset(); }})()"
 
 
 def presence_script() -> str:

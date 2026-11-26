@@ -463,6 +463,35 @@ def _install_probe(
             page.evaluate(script)
         except Exception as exc:  # noqa: BLE001 - a hostile page must not break the read
             logger.debug("Could not inject debug script into the current document: %s", exc)
+    _arm_frames(page)
+
+
+def _arm_frames(page: Any) -> int:
+    """Inject the collector into the child frames of an ALREADY-loaded page.
+
+    add_init_script reaches frames created from now on; the classic form that
+    was sitting in ``gsft_main`` before this attach is not one of them, and an
+    unprobed frame's errors reach no buffer at all. Run after the main frame,
+    so each child finds the top probe and hands its records to it (``adopt``).
+    The badge is not injected: it draws on the top document only.
+
+    A frame that still refuses (cross-origin, torn down) is not hidden: the top
+    probe's frame census lists it as unobserved. Returns how many were armed.
+    """
+    armed = 0
+    try:
+        main = page.main_frame
+        frames = [frame for frame in page.frames if frame is not main]
+    except Exception as exc:  # noqa: BLE001 - a page mid-navigation has no frame list
+        logger.debug("Could not enumerate frames to arm: %s", exc)
+        return 0
+    for frame in frames:
+        try:
+            frame.evaluate(PROBE_SCRIPT)
+            armed += 1
+        except Exception as exc:  # noqa: BLE001 - a detached or cross-origin frame
+            logger.debug("Could not arm a frame: %s", exc)
+    return armed
 
 
 def _arm_tabs(pages: Sequence[Any], state: WindowState, profile: str, account: str = "") -> int:
@@ -495,6 +524,7 @@ def _arm_tabs(pages: Sequence[Any], state: WindowState, profile: str, account: s
                 logger.debug("Could not arm a tab: %s", exc)
                 break
         else:
+            _arm_frames(page)
             armed += 1
     return armed
 
@@ -786,6 +816,7 @@ def capture(
                     "effective_user": _effective_user(page),
                     "watched_seconds": wait_s,
                     "events_unread": bool(drained.get("events_unread")),
+                    "frames": drained.get("frames"),
                     "events_note": drained.get("events_note"),
                 }
             finally:

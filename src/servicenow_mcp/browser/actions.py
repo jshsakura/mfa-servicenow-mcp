@@ -1221,6 +1221,7 @@ def act(
                     "effective_user": _effective_user(page),
                     "watched_seconds": settle_s,
                     "events_unread": bool(drained.get("events_unread")),
+                    "frames": drained.get("frames"),
                     "events_note": drained.get("events_note"),
                     "steps": results,
                     "page_state": page_state,

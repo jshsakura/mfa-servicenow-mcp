@@ -63,6 +63,19 @@ MAX_ANOMALIES = 5
 SCREENSHOT_COST_SHORT = "Visual questions only; values/labels/existence: use evaluate or styles."
 _COST_NOTE_TOLD: set = set()
 
+# What the window CANNOT see. A Business Rule's gs.error, a Script Include
+# throwing, an ACL refusing on save — all of it lands in syslog, and the page
+# may show nothing worse than a 200 or a classic full-page POST (which is not
+# an XHR at all). So a clean read is a clean BROWSER, and says so; the call
+# that reads the other half is named once per window, and again whenever a
+# request failed (a 4xx/5xx is where a server-side cause is most likely).
+SERVER_LOG_NOTE = (
+    "Browser events only. Server-side errors (Business Rules, Script Includes, "
+    "ACLs on save) are in syslog, not here: get_logs(log_type='system', "
+    "level='error', timeframe='last_hour')."
+)
+_SERVER_NOTE_TOLD: set = set()
+
 # Two identical calls further apart than this are a user clicking twice on
 # purpose, not a double-submit bug.
 DUPLICATE_WINDOW_MS = 5_000
@@ -114,11 +127,17 @@ def summarize_console(events: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
                 "count": 0,
                 "source": str(event.get("source") or "") or None,
                 "line": event.get("line") or None,
+                # Which child frame raised it (gsft_main, a builder iframe).
+                # Absent for the top document.
+                "frame": str(event.get("frame") or "") or None,
             },
         )
         group["count"] += 1
 
     ranked = sorted(groups.values(), key=lambda item: item["count"], reverse=True)
+    # Errors first: a warning that repeats more must not push the one error
+    # out of the groups shown — or out of the verdict's detail.
+    ranked.sort(key=lambda item: item["level"] != "error")
     return {
         "errors": errors,
         "warnings": warnings,
@@ -191,6 +210,7 @@ def summarize_network(events: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
                 "status": int(call.get("status") or 0),
                 "ms": int(call.get("ms") or 0),
                 "error": (str(call["error"])[:160] if call.get("error") else None),
+                "frame": str(call.get("frame") or "") or None,
             }
             for call in failed[:MAX_ANOMALIES]
         ],
@@ -203,7 +223,62 @@ def summarize_network(events: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def build_verdict(console: Dict[str, Any], network: Dict[str, Any], *, watched: float) -> str:
+def summarize_page_messages(events: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Error banners and toasts the page itself showed (probe kind ``ui_message``).
+
+    A refused save or a mandatory-field stop is neither a console error nor a
+    failed request, so without this a red banner sat under "No errors".
+    """
+    groups: Dict[str, Dict[str, Any]] = {}
+    for event in events:
+        if event.get("kind") != "ui_message":
+            continue
+        message = str(event.get("msg") or "")
+        group = groups.setdefault(
+            message,
+            {
+                "msg": message[:300],
+                "count": 0,
+                "frame": str(event.get("frame") or "") or None,
+                # Already on screen when the probe arrived, so not necessarily
+                # caused by these steps.
+                "preexisting": bool(event.get("preexisting")),
+            },
+        )
+        group["count"] += 1
+    ranked = list(groups.values())
+    return {"errors": sum(g["count"] for g in ranked), "top": ranked[:MAX_CONSOLE_GROUPS]}
+
+
+def unobserved_frames(raw_frames: Any) -> List[Dict[str, Any]]:
+    """Child frames whose events are NOT in this read, from the probe's census.
+
+    A frame with no probe, a probe of its own, or a cross-origin document
+    raises its errors where no drain reaches. Not malformed-tolerant in the
+    reassuring direction: a census that is not the expected shape reports
+    nothing here, and the caller has no census to claim coverage from either.
+    """
+    if not isinstance(raw_frames, dict):
+        return []
+    listed = raw_frames.get("unobserved")
+    if not isinstance(listed, list):
+        return []
+    return [
+        {"url": str(item.get("url") or "") or None, "reason": str(item.get("reason") or "unknown")}
+        for item in listed
+        if isinstance(item, dict)
+    ]
+
+
+def build_verdict(
+    console: Dict[str, Any],
+    network: Dict[str, Any],
+    *,
+    watched: float,
+    unobserved: Sequence[Dict[str, Any]] = (),
+    frames_observed: int = 0,
+    page_messages: Optional[Dict[str, Any]] = None,
+) -> str:
     """One line, stated as a finding rather than a data dump.
 
     Mirrors the repo's existing `verdict=True` idiom: the judgment comes first
@@ -220,17 +295,38 @@ def build_verdict(console: Dict[str, Any], network: Dict[str, Any], *, watched: 
             f"{first['min_gap_ms']}ms apart ({payload}) - the client fired it more than once"
         )
 
+    shown = (page_messages or {}).get("errors") or 0
+    if shown:
+        first_msg = ((page_messages or {}).get("top") or [{}])[0]
+        parts.append(f"{shown} on-page error message(s): {str(first_msg.get('msg', ''))[:80]}")
+
     if console.get("errors"):
-        top = (console.get("top") or [{}])[0]
+        # The detail names an ERROR: `top` is ranked by count across levels, so
+        # its head is often a warning that repeats more.
+        errors_only = [g for g in (console.get("top") or []) if g.get("level") == "error"]
+        top = (errors_only or [{}])[0]
         detail = f": {top.get('msg', '')[:80]}" if top.get("msg") else ""
         parts.append(f"{console['errors']} console error(s){detail}")
 
     if network.get("failed"):
         parts.append(f"{network['failed']} failed request(s)")
 
+    if unobserved:
+        # Never folded into "No browser errors": these frames' events are not in the
+        # read at all, which is a different thing from being clean.
+        reasons = sorted({str(item.get("reason")) for item in unobserved})
+        parts.append(
+            f"{len(unobserved)} frame(s) NOT observed ({', '.join(reasons)}) - "
+            "errors raised there are not in this read"
+        )
+
     if not parts:
         window = f" over {watched:.0f}s" if watched else ""
-        return f"No errors, no failed requests, no duplicate calls{window} ({network.get('xhr', 0)} XHRs)."
+        frames = f", {frames_observed} child frame(s) included" if frames_observed else ""
+        return (
+            f"No browser errors, no failed requests, no duplicate calls{window} "
+            f"({network.get('xhr', 0)} XHRs{frames}). Server log not read."
+        )
     return "; ".join(parts) + "."
 
 
@@ -278,12 +374,24 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
 
     console = summarize_console(events)
     network = summarize_network(events)
+    page_messages = summarize_page_messages(events)
     watched = float(raw.get("watched_seconds") or 0.0)
+    unobserved = unobserved_frames(raw.get("frames"))
+    raw_census = raw.get("frames")
+    census: Dict[str, Any] = raw_census if isinstance(raw_census, dict) else {}
+    frames_observed = _whole(census.get("observed"))
 
     report: Dict[str, Any] = {
         "url": raw.get("url"),
         "title": raw.get("title"),
-        "verdict": build_verdict(console, network, watched=watched),
+        "verdict": build_verdict(
+            console,
+            network,
+            watched=watched,
+            unobserved=unobserved,
+            frames_observed=frames_observed,
+            page_messages=page_messages,
+        ),
         "next_seq": _whole(raw.get("seq")),
         # Which tab those numbers belong to. The caller keys its high-water mark
         # by this: seq counts from 1 in every tab, so a mark without a tab is a
@@ -300,10 +408,19 @@ def compact(raw: Dict[str, Any], *, artifacts_dir: str) -> Dict[str, Any]:
         and not console.get("warnings")
         and not network.get("failed")
         and not network.get("duplicates")
+        and not page_messages.get("errors")
     )
-    if not clean or raw.get("events_unread"):
+    if not clean or raw.get("events_unread") or unobserved:
         report["console"] = console
         report["network"] = network
+    if unobserved:
+        report["frames_unobserved"] = unobserved[:MAX_ANOMALIES]
+    if page_messages.get("errors"):
+        report["page_messages"] = page_messages
+
+    if network.get("failed") or artifacts_dir not in _SERVER_NOTE_TOLD:
+        _SERVER_NOTE_TOLD.add(artifacts_dir)
+        report["server_log"] = SERVER_LOG_NOTE
 
     if raw.get("events_unread"):
         # An unread buffer has no errors in it for the same reason it has no
