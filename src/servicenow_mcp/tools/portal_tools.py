@@ -26,13 +26,19 @@ from ..utils.record_origin import SERVICENOW
 from ..utils.record_origin import classify as classify_origin
 from ..utils.record_origin import clone_call, summarize
 from ..utils.registry import register_tool
-from ..utils.source_layout import FIELD_FILENAME, field_filename, normalize_source_eol
+from ..utils.source_layout import (
+    FIELD_FILENAME,
+    field_filename,
+    is_json_field_file,
+    normalize_source_eol,
+)
 from ..utils.sync_anchor import (
     CONFLICT_MIRRORED,
     DISCARDED,
     HELD_OUTCOMES,
     IN_SYNC_OUTCOMES,
     KEPT_LOCAL,
+    LEGACY_KEPT,
     REFRESHED,
     STASHED,
     SyncMeta,
@@ -296,15 +302,45 @@ def _validate_portal_component_update_data(
         raise ValueError(
             f"Unsupported update fields for {normalized_table}: {', '.join(invalid_fields)}. "
             f"Allowed fields: {allowed}"
+            + (_INSTANCE_OPTIONS_HINT if "widget_parameters" in invalid_fields else "")
         )
 
     normalized_data: Dict[str, str] = {}
     for field_name, value in update_data.items():
         if not isinstance(value, str):
             raise ValueError(f"update_data['{field_name}'] must be a string")
+        _check_json_field_value(field_name, value)
         normalized_data[field_name] = value
 
     return normalized_data
+
+
+_INSTANCE_OPTIONS_HINT = (
+    ". widget_parameters is one placement's option VALUES on sp_instance, not a widget "
+    "field: manage_portal_layout(action='move_widget', instance_id=..., "
+    "widget_parameters=...). A widget's option_schema sets the definitions and defaults "
+    "every placement shares."
+)
+
+
+def _check_json_field_value(field_name: str, value: str) -> None:
+    """Refuse a JSON field body that does not parse — the push path already does.
+
+    A broken option_schema empties Page Designer's options form for every
+    placement of the widget, and a broken theme blanks a workspace. An empty body
+    is a legal (cleared) value. option_schema is a list of option definitions.
+    """
+    if not field_filename(field_name).endswith(".json") or not value.strip():
+        return
+    try:
+        parsed = json_fast.loads(value)
+    except ValueError as exc:
+        raise ValueError(f"update_data['{field_name}'] is not valid JSON: {exc}") from exc
+    if field_name == "option_schema" and not isinstance(parsed, list):
+        raise ValueError(
+            "update_data['option_schema'] must be a JSON array of option definitions "
+            '(e.g. [{"name": "title", "type": "string", "default_value": "..."}])'
+        )
 
 
 _UNDETERMINED_404 = (
@@ -569,11 +605,30 @@ MAX_PREVIEW_TEXT_LENGTH = 600
 MAX_PREVIEW_DIFF_LINES = 80
 
 PORTAL_COMPONENT_EDITABLE_FIELDS: Dict[str, Set[str]] = {
-    "sp_widget": {"template", "script", "client_script", "link", "css"},
+    # option_schema = the option DEFINITIONS (+ default_value) every placement
+    # shares; one placement's VALUES are sp_instance.widget_parameters instead.
+    "sp_widget": {
+        "template",
+        "script",
+        "client_script",
+        "link",
+        "css",
+        "option_schema",
+        "demo_data",
+    },
     "sp_angular_provider": {"script"},
     "sys_script_include": {"script"},
     "sys_script": {"script", "condition"},
-    "sp_header_footer": {"template", "script", "client_script", "link", "css"},
+    # sp_header_footer extends sp_widget: same columns, same writable set.
+    "sp_header_footer": {
+        "template",
+        "script",
+        "client_script",
+        "link",
+        "css",
+        "option_schema",
+        "demo_data",
+    },
     "sp_css": {"css"},
     "sp_ng_template": {"template"},
     "sys_ui_page": {"html", "client_script", "processing_script"},
@@ -1824,6 +1879,32 @@ def _build_widget_payload(
             dictionary_by_field.get(field_name),
         )
     return payload
+
+
+def _legacy_json_text(raw: str) -> str:
+    """What the portal downloader USED to write for a widget JSON field.
+
+    It re-serialized option_schema/demo_data (compact, parsed) instead of writing
+    the server's text, and recorded no anchor. Matching this exact output is the
+    proof that such a file is untouched; anything else may be someone's edit.
+    """
+    if raw.strip() == "":
+        return ""
+    return json_fast.dumps(_json_or_raw_string(raw))
+
+
+def _is_untouched_legacy_json(fpath: Path, raw: str) -> bool:
+    """May an unanchored widget JSON file be replaced by the server's text?
+
+    Only when it is byte-for-byte what the old writer produced from THIS server
+    body. A file from an older body, or an edited one, is kept and reported —
+    the old writer overwrote it on every download, which silently threw away an
+    edited default_value.
+    """
+    try:
+        return fpath.read_text(encoding="utf-8") == _legacy_json_text(raw)
+    except (OSError, UnicodeDecodeError):
+        return False
 
 
 def _json_or_raw_string(value: Any) -> Any:
@@ -3409,7 +3490,9 @@ def download_portal_sources(
     # historical overwrite behavior.
     conflict_files: List[str] = []
     kept_edit_files: List[str] = []
+    unanchored_kept_files: List[str] = []
     refreshed_files: List[str] = []
+    reformatted_files: List[str] = []
     taken_files: Dict[str, List[str]] = {DISCARDED: [], STASHED: []}
     held_paths: List[str] = []
     out_of_sync_keys: Set[Tuple[str, str]] = set()
@@ -3430,14 +3513,16 @@ def download_portal_sources(
     # field (``script`` for SI discovery) that was never written to disk.
     _synced_shas: Dict[Tuple[str, str], Dict[str, str]] = {}
 
-    def _sync_source_file(table: str, meta_key: str, fpath: Path, content: str) -> None:
+    def _sync_source_file(
+        table: str, meta_key: str, fpath: Path, content: str, *, legacy_overwrite: bool = True
+    ) -> None:
         field = _FILENAME_FIELD.get(fpath.name, fpath.stem)
         stored_sha = _prior_shas.get((table, meta_key), {}).get(field, "")
         outcome, sha = reconcile_field(
             fpath,
             content,
             stored_sha,
-            legacy_overwrite=True,
+            legacy_overwrite=legacy_overwrite,
             known_shas=_prior_history.get((table, meta_key), {}).get(field) or (),
             on_local_edits=params.on_local_edits,
         )
@@ -3453,6 +3538,16 @@ def download_portal_sources(
         elif outcome == KEPT_LOCAL:
             kept_edit_files.append(label)
             out_of_sync_keys.add((table, meta_key))
+        elif outcome == LEGACY_KEPT:
+            # An unanchored file that differs from the server and is not provably
+            # untouched. The record keeps its PRIOR watermark, so a push of it
+            # still faces the drift gate instead of a fresh "in sync".
+            unanchored_kept_files.append(label)
+            out_of_sync_keys.add((table, meta_key))
+        elif outcome == REFRESHED and not stored_sha and is_json_field_file(fpath):
+            # Same VALUE as the server, written in the server's own text — the
+            # server did not change, an older download had re-serialized it.
+            reformatted_files.append(label)
         elif outcome == REFRESHED:
             refreshed_files.append(label)
         elif outcome in taken_files:
@@ -3675,22 +3770,17 @@ def download_portal_sources(
                 "sp_widget", widget_id, widget_dir / "css.scss", str(widget.get("css") or "")
             )
 
-        option_schema_raw = widget.get("option_schema") or ""
-        if str(option_schema_raw).strip() == "":
-            _write_text_file(widget_dir / "option_schema.json", "")
-        else:
-            _write_json_file(
-                widget_dir / "option_schema.json",
-                _json_or_raw_string(option_schema_raw),
-            )
-
-        demo_data_raw = widget.get("demo_data") or ""
-        if str(demo_data_raw).strip() == "":
-            _write_text_file(widget_dir / "demo_data.json", "")
-        else:
-            _write_json_file(
-                widget_dir / "demo_data.json",
-                _json_or_raw_string(demo_data_raw),
+        # Option definitions + preview data: the server's text, verbatim and
+        # anchored like every code field, so diff/push can carry an edit back.
+        for json_field in ("option_schema", "demo_data"):
+            raw = str(widget.get(json_field) or "")
+            fpath = widget_dir / field_filename(json_field)
+            _sync_source_file(
+                "sp_widget",
+                widget_id,
+                fpath,
+                raw,
+                legacy_overwrite=_is_untouched_legacy_json(fpath, raw),
             )
         _write_text_file(
             widget_dir / "_test_urls.txt",
@@ -3982,6 +4072,26 @@ def download_portal_sources(
         warnings.append(
             f"kept your local edits on {len(kept_edit_files)} file(s) (server copy unchanged "
             f"since your last download/push): {shown}{more}"
+        )
+    if unanchored_kept_files:
+        shown = ", ".join(unanchored_kept_files[:10])
+        more = (
+            ""
+            if len(unanchored_kept_files) <= 10
+            else f" (+{len(unanchored_kept_files) - 10} more)"
+        )
+        warnings.append(
+            f"kept {len(unanchored_kept_files)} file(s) that differ from the server and have no "
+            f"recorded anchor — not overwritten. Whether each is your edit or an older server "
+            f"copy is NOT determined; diff before pushing: {shown}{more}"
+        )
+    if reformatted_files:
+        shown = ", ".join(reformatted_files[:10])
+        more = "" if len(reformatted_files) <= 10 else f" (+{len(reformatted_files) - 10} more)"
+        warnings.append(
+            f"rewrote {len(reformatted_files)} JSON file(s) in the server's own text — same "
+            f"value, the server did not change (an older download had re-serialized them): "
+            f"{shown}{more}"
         )
     for _outcome, _verb in (
         (DISCARDED, "took the server copy (edits dropped)"),

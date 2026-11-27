@@ -24,7 +24,7 @@ from ..utils.config import ServerConfig
 from ..utils.http_result import json_result
 from ..utils.instances import INSTANCE_CONFIG_ENV, load_instance_config_env, safe_instance_url
 from ..utils.registry import register_tool
-from ..utils.source_layout import normalize_source_eol
+from ..utils.source_layout import is_json_field_file, json_bodies_equal, normalize_source_eol
 from ..utils.sync_anchor import (
     BLANK_REMOTE_KEPT,
     CONFLICT_MIRRORED,
@@ -75,8 +75,18 @@ WIDGET_FILE_FIELD_MAP: Dict[str, str] = {
     "css.scss": "css",
 }
 
+# sp_widget only: the widget's option DEFINITIONS (Page Designer's instance-options
+# form and each option's default_value) and its preview data. The downloader has
+# always written these two files; without them here diff and push skipped them, so
+# an edit to a default was dropped without a word. Per-placement option VALUES are
+# NOT here — they live on sp_instance.widget_parameters (manage_portal_layout).
+WIDGET_JSON_FILE_FIELD_MAP: Dict[str, str] = {
+    "option_schema.json": "option_schema",
+    "demo_data.json": "demo_data",
+}
+
 TABLE_FILE_FIELD_MAP: Dict[str, Dict[str, str]] = {
-    "sp_widget": WIDGET_FILE_FIELD_MAP,
+    "sp_widget": {**WIDGET_FILE_FIELD_MAP, **WIDGET_JSON_FILE_FIELD_MAP},
     "sp_angular_provider": {".script.js": "script"},
     "sys_script_include": {".script.js": "script"},
     # Business Rules are folder-based: behaviour lives across script + condition,
@@ -246,6 +256,20 @@ def _normalize_for_compare(text: str) -> str:
     consistent and stops phantom pushes of pure line-ending noise.
     """
     return "\n".join(text.splitlines())
+
+
+def _bodies_match(local: str, remote: str, *, as_json: bool = False) -> bool:
+    """Is there NO change between two bodies of one field?
+
+    Text basis for every field (EOL-insensitive, see _normalize_for_compare). A
+    JSON field (``as_json``) also matches when both sides hold the same JSON value:
+    the portal downloader used to re-serialize option_schema/demo_data instead of
+    writing the server's text, so a copy nobody edited can differ from the server
+    in whitespace alone — that must not push a reformat or read as an edit.
+    """
+    if _normalize_for_compare(local) == _normalize_for_compare(remote):
+        return True
+    return as_json and json_bodies_equal(local, remote)
 
 
 # ---------------------------------------------------------------------------
@@ -1887,7 +1911,8 @@ def _diff_field_files(
         if right is None:
             diffs.append({"field": field_name, "status": "only_in_left"})
             continue
-        if _normalize_for_compare(left) == _normalize_for_compare(right):
+        as_json = is_json_field_file(lp or rp)  # type: ignore[arg-type]
+        if _bodies_match(left, right, as_json=as_json):
             diffs.append({"field": field_name, "status": "unchanged"})
             continue
         entry: Dict[str, Any] = {"field": field_name, "status": "modified"}
@@ -2321,8 +2346,10 @@ def _count_changed_lines(left: str, right: str) -> int:
     return changed
 
 
-def _field_state(local: str, anchor_sha: Optional[str], remote: str) -> str:
-    if _normalize_for_compare(local) == _normalize_for_compare(remote):
+def _field_state(
+    local: str, anchor_sha: Optional[str], remote: str, *, as_json: bool = False
+) -> str:
+    if _bodies_match(local, remote, as_json=as_json):
         return "in_sync"
     if not anchor_sha:
         return "changed_no_anchor"  # legacy tree: no anchor to attribute yours/theirs
@@ -2384,7 +2411,12 @@ def _component_field_verdicts(
         except (OSError, UnicodeDecodeError):
             continue
         remote_text = str(remote_record.get(field_name) or "")
-        state = _field_state(local, stored_field_shas.get(field_name), remote_text)
+        state = _field_state(
+            local,
+            stored_field_shas.get(field_name),
+            remote_text,
+            as_json=is_json_field_file(fpath),
+        )
         if remote_is_complete:
             if refresh_mirror(fpath, remote_text) != MIRROR_ABSENT:
                 sidecars.append(mirror_path_for(fpath).name)
@@ -2912,7 +2944,7 @@ def _compute_field_diffs(
 
         # Compare on a line-ending–normalized basis (same as the diff render) so a
         # pure CRLF<->LF delta is not reported as a phantom "modified".
-        if _normalize_for_compare(local_content) == _normalize_for_compare(remote_content):
+        if _bodies_match(local_content, remote_content, as_json=is_json_field_file(file_path)):
             diffs.append({"field": field_name, "status": "unchanged"})
             continue
 
@@ -2951,7 +2983,7 @@ def _build_update_data_and_magnitude(resolved, remote_record):
         if not file_path.exists():
             continue
         local_content = file_path.read_text(encoding="utf-8")
-        if _normalize_for_compare(local_content) != _normalize_for_compare(remote_content):
+        if not _bodies_match(local_content, remote_content, as_json=is_json_field_file(file_path)):
             update_data[field_name] = local_content
             matcher = difflib.SequenceMatcher(
                 None, remote_content.splitlines(), local_content.splitlines()
@@ -3083,9 +3115,13 @@ def _invalid_json_fields(resolved: "_ResolvedComponent") -> Dict[str, str]:
         if not text.strip():
             continue  # an empty body is a legal (cleared) value, not a syntax error
         try:
-            json.loads(text)
+            parsed = json.loads(text)
         except json.JSONDecodeError as exc:
             bad[field_name] = f"line {exc.lineno} col {exc.colno}: {exc.msg}"
+            continue
+        if field_name == "option_schema" and not isinstance(parsed, list):
+            # Page Designer reads it as a list of option definitions.
+            bad[field_name] = "must be a JSON array of option definitions"
     return bad
 
 

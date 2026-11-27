@@ -400,7 +400,10 @@ class ManagePortalLayoutParams(BaseModel):
     )
     sp_column: Optional[str] = Field(default=None)
     instance_id: Optional[str] = Field(default=None)
-    widget_parameters: Optional[str] = Field(default=None, description="JSON string")
+    widget_parameters: Optional[str] = Field(
+        default=None,
+        description="This placement's option values (JSON). Widget defaults: option_schema",
+    )
     instance_css: Optional[str] = Field(default=None, description="Instance-level CSS")
 
     # Page route (sp_page_route_map)

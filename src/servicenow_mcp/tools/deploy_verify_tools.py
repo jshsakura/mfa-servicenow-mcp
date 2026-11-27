@@ -217,6 +217,23 @@ def _fetch_live(
     return out
 
 
+def _differs_only_by_cr(xml_value: str, live_value: Any) -> bool:
+    """The live body equals the file once its carriage returns are dropped.
+
+    ServiceNow drops CR when it writes a record's update payload
+    (sys_update_version — read live through the Table API and through .do?XML,
+    both without it), so an export can never carry one: a body whose line breaks
+    are bare CRs (the widget editor's default link/client_script skeleton) comes
+    out with those breaks gone. Importing such a file changes nothing but CRs.
+    Proven per field by exact comparison, not assumed.
+    """
+    if not isinstance(xml_value, str) or not isinstance(live_value, str):
+        return False
+    if "\r" not in live_value:
+        return False
+    return xml_value.replace("\r", "") == live_value.replace("\r", "")
+
+
 def _compare(record: Dict[str, Any], live: Optional[Dict[str, Any]], show_fields: bool) -> Dict:
     """One record's verdict against its live row."""
     result: Dict[str, Any] = {
@@ -237,11 +254,21 @@ def _compare(record: Dict[str, Any], live: Optional[Dict[str, Any]], show_fields
     result["live_version"] = live_version or None
     result["live_updated_by"] = str(live.get("sys_updated_by") or "").strip() or None
 
-    differing = [
-        name
-        for name, value in record["fields"].items()
-        if name != "sys_id" and not _values_equal(value, live.get(name))
-    ]
+    differing: List[str] = []
+    cr_only: List[str] = []
+    for name, value in record["fields"].items():
+        if name == "sys_id" or _values_equal(value, live.get(name)):
+            continue
+        (cr_only if _differs_only_by_cr(value, live.get(name)) else differing).append(name)
+    if cr_only:
+        # Said, not hidden: these fields are NOT byte-equal. The import would
+        # strip their CRs, which is all that differs.
+        result["cr_only_fields"] = sorted(cr_only)[:25]
+        result["cr_only_note"] = (
+            "Differ only by carriage returns: ServiceNow drops CR from a record's update "
+            "payload, so no export can carry it. The import removes those CRs and nothing "
+            "else in these fields."
+        )
     if not differing:
         result["verdict"] = MATCH
         return result

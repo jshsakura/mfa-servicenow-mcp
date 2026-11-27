@@ -60,6 +60,12 @@ FIELD_FILENAME: Dict[str, str] = {
     # does not parse, since a broken theme blanks every workspace using it.
     "theme": "theme.json",
     "style": "style.json",
+    # Widget option DEFINITIONS (what Page Designer's instance-options form shows,
+    # with each option's default_value) and the widget's preview data. Both JSON,
+    # stored verbatim like theme/style. Per-placement option VALUES are a
+    # different record: sp_instance.widget_parameters, not a widget source file.
+    "option_schema": "option_schema.json",
+    "demo_data": "demo_data.json",
     "xml": "xml.xml",
     "payload": "payload.xml",
     "message_text": "message_text.txt",
@@ -88,6 +94,32 @@ def normalize_source_eol(text: str) -> str:
     a pure CRLF<->LF delta as no change, so a normalized body is never a phantom push.
     """
     return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def is_json_field_file(path: Path) -> bool:
+    """Whether a field file holds a JSON body (compared by value, not by text)."""
+    return path.suffix == ".json"
+
+
+def json_bodies_equal(left: str, right: str) -> bool:
+    """True only when BOTH bodies parse as JSON and hold the same value.
+
+    Formatting, key order and ``\\u`` escapes are not changes to a JSON field.
+    The comparison is on a canonical dump, never ``==`` on the parsed values:
+    Python's ``True == 1`` and ``1 == 1.0`` would score a real type change as
+    "same". Either side failing to parse — or being empty — is NOT equal, so the
+    caller falls back to its text comparison.
+    """
+    if not (left or "").strip() or not (right or "").strip():
+        return False
+    try:
+        a = json.loads(left)
+        b = json.loads(right)
+    except (TypeError, ValueError):
+        return False
+    return json.dumps(a, sort_keys=True, ensure_ascii=False) == json.dumps(
+        b, sort_keys=True, ensure_ascii=False
+    )
 
 
 def field_filename(field: str) -> str:

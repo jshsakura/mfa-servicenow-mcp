@@ -27,7 +27,12 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Tuple
 
 from servicenow_mcp.utils.atomic_io import atomic_write_text
-from servicenow_mcp.utils.source_layout import field_filename, normalize_source_eol
+from servicenow_mcp.utils.source_layout import (
+    field_filename,
+    is_json_field_file,
+    json_bodies_equal,
+    normalize_source_eol,
+)
 
 MIRROR_MARKER = ".remote"
 LEGACY_BASELINE_DIRNAME = "_baseline"
@@ -359,6 +364,15 @@ def _reconcile(
         cleanup_mirror(file_path)
         return UNCHANGED, remote_sha
 
+    # A JSON field holding the server's exact VALUE in other formatting carries no
+    # edit — the portal downloader once re-serialized option_schema/demo_data
+    # instead of writing the server's text. Take the server's text so the anchor
+    # records a sha the server can match.
+    if is_json_field_file(file_path) and json_bodies_equal(local, remote):
+        _write_local(file_path, remote)
+        cleanup_mirror(file_path)
+        return REFRESHED, remote_sha
+
     # A body the server held before is not an edit — it is a copy that fell behind.
     # Proven from the record's own history, so it holds even with no current anchor.
     if local_sha in {h for h in known_shas if isinstance(h, str) and h}:
@@ -419,7 +433,9 @@ def local_edits_decision(held: list, rerun_call: str) -> Dict[str, Any]:
     """
     return {
         "question": (
-            f"{len(held)} file(s) carry your local edits and were left as they are. "
+            # "differ", not "carry your edits": a held file with no anchor may as
+            # well be an older server copy — that was never determined.
+            f"{len(held)} file(s) differ from the server and were left as they are. "
             "Keep working on them, or take the server copy?"
         ),
         "files": list(held),

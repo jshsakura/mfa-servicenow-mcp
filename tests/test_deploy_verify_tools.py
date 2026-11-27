@@ -318,6 +318,55 @@ def test_line_endings_and_boolean_spellings_are_not_differences(config, tmp_path
     assert res["records"][0]["verdict"] == MATCH
 
 
+def test_a_field_that_differs_only_by_bare_crs_matches_and_says_so(config, tmp_path, live):
+    # Measured live: ServiceNow drops CR from the update payload, so the widget
+    # editor's default skeleton "{\\r  \\r}" exports as "{  }".
+    path = _certify(
+        _write_unload(
+            tmp_path / "d.xml", _block("sp_widget", SID, link="function link() {  }", css="a")
+        )
+    )
+    live["sp_widget"] = [
+        {
+            "sys_id": SID,
+            "link": "function link() {\r  \r}",
+            "css": "a",
+            "sys_updated_on": XML_VERSION,
+        }
+    ]
+
+    res = _verify(config, path)
+
+    record = res["records"][0]
+    assert record["verdict"] == MATCH
+    assert record["cr_only_fields"] == ["link"]
+    assert "carriage returns" in record["cr_only_note"]
+    assert res["deployable"] is True
+
+
+def test_a_cr_difference_does_not_hide_a_real_one(config, tmp_path, live):
+    path = _certify(
+        _write_unload(
+            tmp_path / "d.xml", _block("sp_widget", SID, link="function link() {  }", css="a")
+        )
+    )
+    live["sp_widget"] = [
+        {
+            "sys_id": SID,
+            "link": "function link() {\r  x\r}",
+            "css": "a",
+            "sys_updated_on": XML_VERSION,
+        }
+    ]
+
+    res = _verify(config, path)
+
+    record = res["records"][0]
+    assert record["verdict"] == DIFFERS
+    assert record["differing_fields"] == ["link"]
+    assert "cr_only_fields" not in record
+
+
 def test_record_absent_on_this_instance(config, tmp_path, live):
     path = _certify(_write_unload(tmp_path / "d.xml", _block("sys_script", SID, script="x")))
     live["sys_script"] = []
